@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading;
 
 namespace DurableTask.Emulator
 {
@@ -14,27 +15,60 @@ namespace DurableTask.Emulator
         [DataMember]
         long LastProcessed { get; set; } = -1;
 
-        public bool Process(ProcessorEvent processorEvent)
-        {
-            lock (this)
-            {
-                dynamic x = this;
-                dynamic y = processorEvent;
-                bool continueProcessing = x.Apply(y);
+        [IgnoreDataMember]
+        public abstract string Key { get; }
 
-                if (processorEvent.QueuePosition > LastProcessed)
+        [IgnoreDataMember]
+        protected State State => LocalPartition.State;
+
+        // call after deserialization to fill in non-serialized fields
+        public virtual void Restore(LocalPartition LocalPartition)
+        {
+            this.LocalPartition = LocalPartition;
+            this.Restore();
+        }
+
+        protected virtual void Restore()
+        {
+        }
+
+        public void Process(ProcessorEvent processorEvent, List<TrackedObject> scope, List<TrackedObject> apply)
+        {
+            // start with reading this object only, to determine the scope
+            if (processorEvent.QueuePosition > this.LastProcessed)
+            {
+                var scopeStartPos = scope.Count;
+                var applyStartPos = apply.Count;
+
+                dynamic dynamicThis = this;
+                dynamic dynamicProcessorEvent = processorEvent;
+                dynamicThis.Scope(dynamicProcessorEvent, scope, apply);
+
+                if (scope.Count > scopeStartPos)
                 {
-                    LastProcessed = processorEvent.QueuePosition;
+                    for (int i = scopeStartPos; i < scope.Count; i++)
+                    {
+                        scope[i].Process(processorEvent, scope, apply);
+                    }
                 }
 
-                return continueProcessing;
+                if (apply.Count > applyStartPos)
+                {
+                    for (int i = applyStartPos; i < apply.Count; i++)
+                    {
+                        var target = apply[i];
+                        if (target.LastProcessed < processorEvent.QueuePosition)
+                        {
+                            lock (target)
+                            {
+                                dynamic dynamicTarget = target;
+                                dynamicTarget.Apply(dynamicProcessorEvent);
+                                target.LastProcessed = processorEvent.QueuePosition;
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        protected bool AlreadyApplied(ProcessorEvent processorEvent)
-        {
-            return processorEvent.QueuePosition <= LastProcessed;
-        }
-
     }
 }

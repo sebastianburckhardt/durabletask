@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.History;
 
 namespace DurableTask.Emulator
 {
@@ -19,49 +20,33 @@ namespace DurableTask.Emulator
         public int BatchLength { get; set; }
 
         [DataMember]
-        public RuntimeStateUpdate RuntimeStateUpdate { get; set; }
+        public List<HistoryEvent> NewEvents { get; set; }
 
         [DataMember]
-        public List<TaskMessage> OutboundMessages { get; set; }
+        public OrchestrationState State { get; set; }
 
         [DataMember]
-        public List<TaskMessage> OrchestratorMessages { get; set; }
+        public List<TaskMessage> ActivityMessages { get; set; }
+
+        [DataMember]
+        public List<TaskMessage> LocalOrchestratorMessages { get; set; }
+
+        [DataMember]
+        public List<TaskMessage> RemoteOrchestratorMessages { get; set; }
 
         [DataMember]
         public List<TaskMessage> WorkItemTimerMessages { get; set; }
 
         [DataMember]
-        public TaskMessage ContinuedAsNewMessage { get; set; }
-
-        [DataMember]
-        public OrchestrationState State { get; set; }
+        public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
         public string InstanceId => State.OrchestrationInstance.InstanceId;
 
-        public override IEnumerable<TrackedObject> UpdateSequence(FasterState fasterState)
+        public override TrackedObject Scope(State state)
         {
-            yield return fasterState.Sessions;
-
-            yield return fasterState.GetInstance(State.OrchestrationInstance.InstanceId);
-
-            if (OrchestratorMessages?.Count > 0)
-            {
-                yield return fasterState.Outbox;
-            }
-
-            if (OutboundMessages?.Count > 0)
-            {
-                yield return fasterState.Activities;
-            }
-
-            if (WorkItemTimerMessages?.Count > 0)
-            {
-                yield return fasterState.Timers;
-            }
-
+            return state.Sessions;
         }
-
     }
 
 }

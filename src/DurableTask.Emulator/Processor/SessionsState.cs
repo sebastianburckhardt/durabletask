@@ -11,13 +11,13 @@ namespace DurableTask.Emulator
     internal class SessionsState : TrackedObject
     {
         [DataMember]
-        public Dictionary<string, SessionState> Sessions { get; set; }
+        public Dictionary<string, Session> Sessions { get; set; }
 
         [DataMember]
         public long SequenceNumber { get; set; }
 
         [DataContract]
-        internal class SessionState
+        internal class Session : CircularLinkedList<Session>.Node
         {
             [DataMember]
             public long SessionId { get; set; }
@@ -27,6 +27,29 @@ namespace DurableTask.Emulator
 
             [DataMember]
             public List<TaskMessage> Batch { get; set; }
+
+            [IgnoreDataMember]
+            public string InstanceId { get; set; }
+
+            [IgnoreDataMember]
+            public OrchestrationRuntimeState RuntimeState { get; set; } // gets added when loaded
+
+            [IgnoreDataMember]
+            public TaskOrchestrationWorkItem WorkItem { get; set; } // gets added when locked
+        }
+
+        [IgnoreDataMember]
+        public override string Key => "@@outbox";
+
+        protected override void Restore()
+        {
+            foreach(var kvp in Sessions)
+            {
+                kvp.Value.InstanceId = kvp.Key;
+
+                // when recovering, all sessions are unlocked to begin with
+                LocalPartition.AvailableSessions.Add(kvp.Value);
+            }
         }
 
         private void AddMessageToSession(TaskMessage message)
@@ -35,7 +58,7 @@ namespace DurableTask.Emulator
 
             if (!this.Sessions.TryGetValue(instanceId, out var session))
             {
-                this.Sessions[instanceId] = session = new SessionState()
+                this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
                     Batch = new List<TaskMessage>(),
@@ -46,61 +69,59 @@ namespace DurableTask.Emulator
             session.Batch.Add(message);
         }
 
-        public bool Apply(TaskMessageReceived taskMessageReceived)
+        public void Apply(TaskMessageReceived taskMessageReceived)
         {
-            if (!AlreadyApplied(taskMessageReceived))
-            {
-                this.AddMessageToSession(taskMessageReceived.TaskMessage);
-            }
-
-            return true;
+            this.AddMessageToSession(taskMessageReceived.TaskMessage);
         }
 
-        public bool Apply(TimerFired timerFired)
+        public void Apply(TimerFired timerFired)
         {
-            if (!AlreadyApplied(timerFired))
-            {
-                this.AddMessageToSession(timerFired.TimerFiredMessage);
-            }
-
-            return true;
+            this.AddMessageToSession(timerFired.TimerFiredMessage);
         }
 
-        public bool Apply(ActivityCompleted activityCompleted)
+        public void Apply(ActivityCompleted activityCompleted)
         {
-            if (! AlreadyApplied(activityCompleted))
-            {
-                this.AddMessageToSession(activityCompleted.Response);
-            }
-
-            return true;
+            this.AddMessageToSession(activityCompleted.Response);
         }
 
-        public bool Apply(BatchProcessed evt)
+        public void Scope(BatchProcessed evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
-            if (!this.Sessions.TryGetValue(evt.InstanceId, out var session)
-                || session.SessionId != evt.SessionId
-                || session.BatchStart != evt.BatchStart)
+            if (this.Sessions.TryGetValue(evt.InstanceId, out var session)
+                && session.SessionId != evt.SessionId
+                && session.BatchStart != evt.BatchStart)
             {
-                // ignore this event, as the indicated messages for this session have already been processed
-                return false;
+                apply.Add(State.GetInstance(evt.InstanceId));
+
+                if (evt.LocalOrchestratorMessages?.Count > 0)
+                {
+                    apply.Add(State.Outbox);
+                }
+
+                if (evt.ActivityMessages?.Count > 0)
+                {
+                    apply.Add(State.Activities);
+                }
+
+                if (evt.WorkItemTimerMessages?.Count > 0)
+                {
+                    apply.Add(State.Timers);
+                }
+
+                apply.Add(this);
             }
+        }
+
+        public void Apply(BatchProcessed evt)
+        {
+            var session = this.Sessions[evt.InstanceId];
 
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStart += evt.BatchLength;
 
             // deliver messages handled by this partition
-            foreach (var msg in evt.OrchestratorMessages)
+            foreach (var msg in evt.LocalOrchestratorMessages)
             {
-                if (this.LocalPartition.Handles(msg))
-                {
-                    this.AddMessageToSession(msg);
-                }
-            }
-
-            if (evt.ContinuedAsNewMessage != null)
-            {
-                session.Batch.Add(evt.ContinuedAsNewMessage);
+                this.AddMessageToSession(msg);
             }
 
             if (session.Batch.Count == 0)
@@ -109,6 +130,5 @@ namespace DurableTask.Emulator
                 this.Sessions.Remove(evt.InstanceId);
             }
         }
-
     }
 }

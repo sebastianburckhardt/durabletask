@@ -6,7 +6,7 @@ using System.Text;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class FasterState
+    internal class State
     {
         [DataMember]
         public ClocksState Clocks { get; set; }
@@ -26,20 +26,6 @@ namespace DurableTask.Emulator
         [DataMember]
         public Dictionary<string, InstanceState> Instances { get; set; }
 
-
-        public void Process(ProcessorEvent evt)
-        {
-            foreach (var trackedObject in evt.UpdateSequence(this))
-            {
-                bool continueProcessing = trackedObject.Process(evt);
-
-                if (! continueProcessing)
-                {
-                    break;
-                }
-            }
-        }
-
         public InstanceState GetInstance(string instanceId)
         {
             if (! Instances.TryGetValue(instanceId, out var instance))
@@ -47,6 +33,12 @@ namespace DurableTask.Emulator
                 this.Instances[instanceId] = instance = new InstanceState();
             }
             return instance;
+        }
+
+        public void Process(ProcessorEvent evt, List<TrackedObject> scope, List<TrackedObject> apply)
+        {
+            var target = evt.Scope(this);
+            target.Process(evt, scope, apply);
         }
     }
 }

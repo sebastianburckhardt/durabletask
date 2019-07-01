@@ -16,22 +16,30 @@ namespace DurableTask.Emulator
         [DataMember]
         public long SequenceNumber { get; set; }
 
-        public bool Apply(BatchProcessed evt)
+        [IgnoreDataMember]
+        public override string Key => "@@activities";
+
+        public void Scope(ActivityCompleted evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
-            if (!AlreadyApplied(evt))
+            if (PendingActivities.ContainsKey(evt.ActivityId))
             {
-                foreach (var msg in evt.OutboundMessages)
-                {
-                    PendingActivities.Add(SequenceNumber++, msg);
-                }
+                apply.Add(State.Sessions);
+                apply.Add(this);
             }
-
-            return true;
         }
 
-        public bool Apply(ActivityCompleted evt)
+        public void Apply(ActivityCompleted evt)
         {
-            return PendingActivities.Remove(evt.ActivityId);
+            PendingActivities.Remove(evt.ActivityId);
         }
+
+        public void Apply(BatchProcessed evt)
+        {
+            foreach (var msg in evt.ActivityMessages)
+            {
+                PendingActivities.Add(SequenceNumber++, msg);
+            }
+        }
+
     }
 }

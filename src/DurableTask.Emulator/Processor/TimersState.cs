@@ -16,14 +16,29 @@ namespace DurableTask.Emulator
         [DataMember]
         public long SequenceNumber { get; set; }
 
-        public bool Apply(TimerFired evt)
-        {
-            if (!AlreadyApplied(evt))
-            {
-                return PendingTimers.Remove(evt.TimerId);
-            }
+        [IgnoreDataMember]
+        public override string Key => "@@timers";
 
-            return true;
+        public void Scope(TimerFired evt, List<TrackedObject> scope, List<TrackedObject> apply)
+        {
+            if (PendingTimers.ContainsKey(evt.TimerId))
+            {
+                apply.Add(State.Sessions);
+                apply.Add(this);
+            }
+        }
+
+        private void Apply(TimerFired evt)
+        {
+            PendingTimers.Remove(evt.TimerId);
+        }
+
+        public void Apply(BatchProcessed evt)
+        {
+            foreach(var t in evt.WorkItemTimerMessages)
+            {
+                PendingTimers.Add(SequenceNumber++, t);
+            }
         }
     }
 }

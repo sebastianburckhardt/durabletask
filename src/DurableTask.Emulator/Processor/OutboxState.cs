@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
@@ -10,30 +11,40 @@ namespace DurableTask.Emulator
     internal class OutboxState : TrackedObject
     {
         [DataMember]
-        public List<ProcessorEvent> Outbox { get; set; }
+        public SortedDictionary<long, List<TaskMessage>> Outbox { get; set; }
 
         [DataMember]
         public long LastAckedQueuePosition { get; set; } = -1;
 
-        public bool Apply(BatchProcessed evt)
+        [IgnoreDataMember]
+        public override string Key => "@@outbox";
+
+        public void Apply(BatchProcessed evt)
         {
-            if (!AlreadyApplied(evt))
+            Outbox.Add(evt.QueuePosition, evt.RemoteOrchestratorMessages);
+        }
+
+        public void Scope(OutgoingMessagesAcked evt, List<TrackedObject> scope, List<TrackedObject> apply)
+        {
+            if (Outbox.Count > 0 && Outbox.First().Key < evt.LastAckedQueuePosition)
             {
-                foreach (var msg in evt.OrchestratorMessages)
+                apply.Add(this);
+            }
+        }
+
+        public void Apply(OutgoingMessagesAcked evt)
+        {
+            while (Outbox.Count > 0)
+            {
+                var first = Outbox.First();
+
+                if (first.Key < evt.LastAckedQueuePosition)
                 {
-                    if (!LocalPartition.Handles(msg))
-                    {
-                        Outbox.Add(new TaskMessageReceived()
-                        {
-                            TaskMessage = msg,
-                            QueuePosition = evt.QueuePosition
-                        });
-                    }
+                    Outbox.Remove(first.Key);
                 }
             }
 
-            return true;
+            LastAckedQueuePosition = evt.LastAckedQueuePosition;
         }
-         
     }
 }

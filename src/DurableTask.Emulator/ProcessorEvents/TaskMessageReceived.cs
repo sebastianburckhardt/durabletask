@@ -14,60 +14,33 @@ namespace DurableTask.Emulator
         [DataMember]
         public TaskMessage TaskMessage { get; set; }
 
-        public override IEnumerable<TrackedObject> UpdateSequence(FasterState fasterState)
+        public override TrackedObject Scope(State state)
         {
-            yield return fasterState.Clocks;
-
-            yield return fasterState.GetInstance(this.TaskMessage.OrchestrationInstance.InstanceId);
+            return state.Clocks;
         }
-
-        public override void Process(ClocksState processor)
-        {
-            base.Process(processor);
-
-            var instanceId = TaskMessage.OrchestrationInstance.InstanceId;
-
-            switch (TaskMessage.Event.EventType)
-            {
-                case EventType.ExecutionStarted:
-                    {
-                        if (processor.Instances.TryGetValue(instanceId, out var state)
-                            && state.OrchestrationState.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew)
-                        {
-                            throw new OrchestrationAlreadyExistsException($"An orchestration with id '{instanceId}' already exists. It is in state {state.OrchestrationState.OrchestrationStatus}");
-                        }
-
-                        var executionStartedEvent = (ExecutionStartedEvent) TaskMessage.Event;
-
-                        var newState = new OrchestrationState
-                        {
-                            OrchestrationInstance = new OrchestrationInstance
-                            {
-                                InstanceId = instanceId,
-                                ExecutionId = TaskMessage.OrchestrationInstance.ExecutionId,
-                            },
-                            CreatedTime = processor.Clock,
-                            LastUpdatedTime = processor.Clock,
-                            OrchestrationStatus = OrchestrationStatus.Pending,
-                            Version = executionStartedEvent.Version,
-                            Name = executionStartedEvent.Name,
-                            Input = executionStartedEvent.Input,
-                        };
-
-                        processor.Instances[instanceId] = new InstanceState()
-                        {
-                            OrchestrationState = newState,
-                            History = new List<HistoryEvent>(),
-                        };
-
-                        break;
-                    }
-
-                    case EventType.
+    }
 
 
+    [DataContract]
+    internal class OrchestrationCreationMessageReceived: TaskMessageReceived
+    {
+        [DataMember]
+        public OrchestrationStatus[] DedupeStatuses { get; set; }
 
-            }
-        }
+        [DataMember]
+        public DateTime Timestamp { get; set; }
+
+        [IgnoreDataMember]
+        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
+    }
+
+    [DataContract]
+    internal class ContinuedAsNewMessageReceived : TaskMessageReceived
+    {
+        [DataMember]
+        public DateTime Timestamp { get; set; }
+
+        [IgnoreDataMember]
+        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
     }
 }

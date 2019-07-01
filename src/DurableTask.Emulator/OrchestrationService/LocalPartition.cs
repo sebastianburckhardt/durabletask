@@ -38,7 +38,25 @@ namespace DurableTask.Emulator
         readonly IPartitionReceiver partitionReceiver;
         readonly IPartitionSender partitionSender;
 
-        readonly FasterState fasterState;
+        readonly ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>> orchestrationWaiters;
+
+        internal CircularLinkedList<Session> AvailableSessions;
+        internal CircularLinkedList<Session> ReadySessions;
+        internal CircularLinkedList<Session> LockedSessions;
+
+        internal readonly State State;
+
+        readonly int MaxConcurrentWorkItems = 20;
+
+        internal class Session : CircularLinkedList<Session>.Node
+        {
+            public string InstanceId { get; set; }
+
+            public OrchestrationRuntimeState RuntimeState { get; set; }
+
+            public TaskOrchestrationWorkItem WorkItem { get; set; }
+        }
+
 
         /// <summary>
         ///     Creates a new instance of the OrchestrationService with default settings
@@ -47,6 +65,10 @@ namespace DurableTask.Emulator
         {
             this.cancellationTokenSource = new CancellationTokenSource();
             this.timerMessages = new List<TaskMessage>();
+            this.orchestrationWaiters = new ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>>();
+            this.AvailableSessions = new CircularLinkedList<Session>();
+            this.ReadySessions = new CircularLinkedList<Session>();
+            this.LockedSessions = new CircularLinkedList<Session>();
         }
 
         internal bool Handles(TaskMessage message)
@@ -54,34 +76,60 @@ namespace DurableTask.Emulator
             return true; // TODO implement multiple partitions
         }
 
+        internal IPartitionSender GetSenderForOwnerOf(string instanceId)
+        {
+            return null; // TODO
+        }
+
+        internal void RegisterSession(string instanceId, SessionsState.Session session)
+        {
+            var newSession = new Session()
+            {
+                InstanceId = instanceId,
+            };
+
+            AvailableSessions.Add(newSession);
+
+            // think about proper model for threading
+            Task.Run(() =>
+            {
+                var instance = State.GetInstance(instanceId);
+
+                newSession.RuntimeState = instance.GetRuntimeState();
+
+                newSession.RemoveFromList();
+
+                ReadySessions.Add(newSession);
+            });
+        }
+
 
         async Task TimerMessageSchedulerAsync() // TODO implement without polling
         {
-            while (!this.cancellationTokenSource.Token.IsCancellationRequested)
-            {
-                lock (this.timerLock)
-                {
-                    lo
-                    foreach (TaskMessage tm in fasterState.Clocks.ToList())
-                    {
-                        var te = tm.Event as TimerFiredEvent;
+            //while (!this.cancellationTokenSource.Token.IsCancellationRequested)
+            //{
+            //    lock (this.timerLock)
+            //    {
+            //        foreach (TaskMessage tm in State.Clocks.ToList())
+            //        {
+            //            var te = tm.Event as TimerFiredEvent;
 
-                        if (te == null)
-                        {
-                            // TODO : unobserved task exception (AFFANDAR)
-                            throw new InvalidOperationException("Invalid timer message");
-                        }
+            //            if (te == null)
+            //            {
+            //                // TODO : unobserved task exception (AFFANDAR)
+            //                throw new InvalidOperationException("Invalid timer message");
+            //            }
 
-                        if (te.FireAt <= DateTime.UtcNow)
-                        {
-                            //this.orchestratorQueue.SendMessage(tm);
-                            this.timerMessages.Remove(tm);
-                        }
-                    }
-                }
+            //            if (te.FireAt <= DateTime.UtcNow)
+            //            {
+            //                //this.orchestratorQueue.SendMessage(tm);
+            //                this.timerMessages.Remove(tm);
+            //            }
+            //        }
+            //    }
 
-                await Task.Delay(TimeSpan.FromSeconds(1));
-            }
+            //    await Task.Delay(TimeSpan.FromSeconds(1));
+            //}
         }
 
         /******************************/
@@ -161,10 +209,10 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
         {
-            partitionSender.Send(new TaskMessageReceived()
+            partitionSender.Send(new OrchestrationCreationMessageReceived()
             {
-                Timestamp = DateTime.UtcNow,
                 TaskMessage = creationMessage,
+                DedupeStatuses = dedupeStatuses,
             });
 
             return Task.FromResult<object>(null);
@@ -179,16 +227,8 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
         {
-            foreach (TaskMessage message in messages)
-            {
-                partitionSender.Send(new TaskMessageReceived()
-                {
-                    Timestamp = DateTime.UtcNow,
-                    TaskMessage = message,
-                });
-            }
-
-            return Task.FromResult<object>(null);
+            //TODO
+            throw new NotImplementedException();
         }
 
         /// <inheritdoc />
@@ -198,110 +238,62 @@ namespace DurableTask.Emulator
             TimeSpan timeout,
             CancellationToken cancellationToken)
         {
-            string key = instanceId + "_" + (executionId ?? "");
-
-            if (!this.orchestrationWaiters.TryGetValue(key, out TaskCompletionSource<OrchestrationState> tcs))
+            if (string.IsNullOrWhiteSpace(instanceId))
             {
-                tcs = new TaskCompletionSource<OrchestrationState>();
-
-                if (!this.orchestrationWaiters.TryAdd(key, tcs))
-                {
-                    this.orchestrationWaiters.TryGetValue(key, out tcs);
-                }
-
-                if (tcs == null)
-                {
-                    throw new InvalidOperationException("Unable to get tcs from orchestrationWaiters");
-                }
+                throw new ArgumentException(nameof(instanceId));
             }
 
-            lock (this.thisLock)
+            //TODO avoid polling
+
+            TimeSpan statusPollingInterval = TimeSpan.FromSeconds(2);
+            while (!cancellationToken.IsCancellationRequested && timeout > TimeSpan.Zero)
             {
-                if (this.instanceStore.ContainsKey(instanceId))
+                OrchestrationState state = await this.GetOrchestrationStateAsync(instanceId, executionId);
+                if (state == null ||
+                    state.OrchestrationStatus == OrchestrationStatus.Running ||
+                    state.OrchestrationStatus == OrchestrationStatus.Pending ||
+                    state.OrchestrationStatus == OrchestrationStatus.ContinuedAsNew)
                 {
-                    Dictionary<string, OrchestrationState> stateMap = this.instanceStore[instanceId];
-
-                    if (stateMap != null && stateMap.Count > 0)
-                    {
-                        OrchestrationState state = null;
-                        if (string.IsNullOrWhiteSpace(executionId))
-                        {
-                            IOrderedEnumerable<OrchestrationState> sortedStateMap = stateMap.Values.OrderByDescending(os => os.CreatedTime);
-                            state = sortedStateMap.First();
-                        }
-                        else
-                        {
-                            if (stateMap.ContainsKey(executionId))
-                            {
-                                state = this.instanceStore[instanceId][executionId];
-                            }
-                        }
-
-                        if (state != null
-                            && state.OrchestrationStatus != OrchestrationStatus.Running
-                            && state.OrchestrationStatus != OrchestrationStatus.Pending)
-                        {
-                            // if only master id was specified then continueAsNew is a not a terminal state
-                            if (!(string.IsNullOrWhiteSpace(executionId) && state.OrchestrationStatus == OrchestrationStatus.ContinuedAsNew))
-                            {
-                                tcs.TrySetResult(state);
-                            }
-                        }
-                    }
-                }
-            }
-
-            CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                this.cancellationTokenSource.Token);
-            Task timeOutTask = Task.Delay(timeout, cts.Token);
-            Task ret = await Task.WhenAny(tcs.Task, timeOutTask);
-
-            if (ret == timeOutTask)
-            {
-                throw new TimeoutException("timed out or canceled while waiting for orchestration to complete");
-            }
-
-            cts.Cancel();
-
-            return await tcs.Task;
-        }
-
-        /// <inheritdoc />
-        public async Task<OrchestrationState> GetOrchestrationStateAsync(string instanceId, string executionId)
-        {
-            OrchestrationState response;
-
-            lock (this.thisLock)
-            {
-                if (!(this.instanceStore.TryGetValue(instanceId, out Dictionary<string, OrchestrationState> state) &&
-                    state.TryGetValue(executionId, out response)))
-                {
-                    response = null;
-                }
-            }
-
-            return await Task.FromResult(response);
-        }
-
-        /// <inheritdoc />
-        public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(string instanceId, bool allExecutions)
-        {
-            IList<OrchestrationState> response;
-
-            lock (this.thisLock)
-            {
-                if (this.instanceStore.TryGetValue(instanceId, out Dictionary<string, OrchestrationState> state))
-                {
-                    response = state.Values.ToList();
+                    await Task.Delay(statusPollingInterval, cancellationToken);
+                    timeout -= statusPollingInterval;
                 }
                 else
                 {
-                    response = new List<OrchestrationState>();
+                    return state;
                 }
             }
 
-            return await Task.FromResult(response);
+            return null;
+        }
+
+        /// <inheritdoc />
+        public Task<OrchestrationState> GetOrchestrationStateAsync(string instanceId, string executionId)
+        {
+            // TODO safeguard against data races
+            var state = State.GetInstance(instanceId).OrchestrationState;
+            if (state != null && state.OrchestrationInstance.ExecutionId == executionId)
+            {
+                return Task.FromResult(state);
+            }
+            else
+            {
+                return Task.FromResult<OrchestrationState>(null);
+            }
+        }
+
+        /// <inheritdoc />
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(string instanceId, bool allExecutions)
+        { 
+            // TODO safeguard against data races
+            var state = State.GetInstance(instanceId).OrchestrationState;
+            if (state != null)
+            {
+                return Task.FromResult<IList<OrchestrationState>>(new List<OrchestrationState>() { state });
+            }
+            else
+            {
+                return Task.FromResult<IList<OrchestrationState>>(new List<OrchestrationState>());
+            }
         }
 
         /// <inheritdoc />
@@ -319,33 +311,37 @@ namespace DurableTask.Emulator
         /******************************/
         // Task orchestration methods
         /******************************/
+
         /// <inheritdoc />
-        public int MaxConcurrentTaskOrchestrationWorkItems => this.MaxConcurrentWorkItems;
+        public int MaxConcurrentTaskOrchestrationWorkItems => this.MaxConcurrentTaskOrchestrationWorkItems;
 
         /// <inheritdoc />
         public async Task<TaskOrchestrationWorkItem> LockNextTaskOrchestrationWorkItemAsync(
             TimeSpan receiveTimeout,
             CancellationToken cancellationToken)
         {
-            TaskSession taskSession = await this.orchestratorQueue.AcceptSessionAsync(receiveTimeout,
+            SessionsState.Session session = await this.AvailableSessions.Dequeue(
+                receiveTimeout,
                 CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.cancellationTokenSource.Token).Token);
 
-            if (taskSession == null)
+            if (session == null)
             {
                 return null;
             }
 
-            var wi = new TaskOrchestrationWorkItem
+            session.WorkItem = new TaskOrchestrationWorkItem
             {
-                NewMessages = taskSession.Messages.ToList(),
-                InstanceId = taskSession.Id,
+                NewMessages = session.Batch.ToList(), // must make a copy of the list since it can grow while being processed
+                InstanceId = session.InstanceId,
                 LockedUntilUtc = DateTime.UtcNow.AddMinutes(5),
                 OrchestrationRuntimeState =
-                    DeserializeOrchestrationRuntimeState(taskSession.SessionState) ??
-                    new OrchestrationRuntimeState(),
+                    DeserializeOrchestrationRuntimeState(session.SessionState) ??
+                    new OrchestrationRuntimeState(session),
             };
 
-            return wi;
+            this.LockedSessions.Add(session);
+
+            return session.WorkItem;
         }
 
         /// <inheritdoc />

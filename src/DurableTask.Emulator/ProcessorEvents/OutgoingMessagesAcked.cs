@@ -7,17 +7,14 @@ using DurableTask.Core;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class ActivityCompleted : ProcessorEvent
+    internal class OutgoingMessagesAcked : ProcessorEvent
     {
         [DataMember]
-        public long ActivityId { get; set; }
-
-        [DataMember]
-        public TaskMessage Response { get; set; }
+        public long LastAckedQueuePosition { get; set; }
 
         public override TrackedObject Scope(State state)
         {
-            return state.Activities;
+            return state.Outbox;
         }
     }
 }

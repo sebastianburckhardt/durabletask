@@ -7,6 +7,8 @@ namespace DurableTask.Emulator
 {
     interface IPartitionSender
     {
+        Task Send(ProcessorEvent @event);
+
         Task Send(IEnumerable<ProcessorEvent> events);
     }
 }

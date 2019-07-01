@@ -15,11 +15,9 @@ namespace DurableTask.Emulator
         [DataMember]
         public TaskMessage TimerFiredMessage { get; set; }
 
-        public override IEnumerable<TrackedObject> UpdateSequence(FasterState fasterState)
+        public override TrackedObject Scope(State state)
         {
-            yield return fasterState.Timers;
-
-            yield return fasterState.Clocks;
+            return state.Timers;
         }
     }
 }

@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
 
 namespace DurableTask.Emulator
@@ -16,53 +18,64 @@ namespace DurableTask.Emulator
         [DataMember]
         public List<HistoryEvent> History { get; set; }
 
+        [IgnoreDataMember]
+        public override string Key => OrchestrationState.OrchestrationInstance.InstanceId;
 
-        public override void Process(ClocksState processor)
+        public void Scope(OrchestrationCreationMessageReceived evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
-            base.Process(processor);
-
-            var instanceId = TaskMessage.OrchestrationInstance.InstanceId;
-
-            switch (TaskMessage.Event.EventType)
+            if (OrchestrationState != null 
+                && evt.DedupeStatuses != null 
+                && evt.DedupeStatuses.Contains(OrchestrationState.OrchestrationStatus))
             {
-                case EventType.ExecutionStarted:
-                    {
-                        if (processor.Instances.TryGetValue(instanceId, out var state)
-                            && state.OrchestrationState.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew)
-                        {
-                            throw new OrchestrationAlreadyExistsException($"An orchestration with id '{instanceId}' already exists. It is in state {state.OrchestrationState.OrchestrationStatus}");
-                        }
+                // An instance in this state already exists.
+                return;
+            }
 
-                        var executionStartedEvent = (ExecutionStartedEvent)TaskMessage.Event;
+            apply.Add(State.Sessions);
+            apply.Add(this);
+        }
 
-                        var newState = new OrchestrationState
-                        {
-                            OrchestrationInstance = new OrchestrationInstance
-                            {
-                                InstanceId = instanceId,
-                                ExecutionId = TaskMessage.OrchestrationInstance.ExecutionId,
-                            },
-                            CreatedTime = processor.Clock,
-                            LastUpdatedTime = processor.Clock,
-                            OrchestrationStatus = OrchestrationStatus.Pending,
-                            Version = executionStartedEvent.Version,
-                            Name = executionStartedEvent.Name,
-                            Input = executionStartedEvent.Input,
-                        };
+        public void Apply(OrchestrationCreationMessageReceived evt)
+        {
+            var ee = evt.ExecutionStartedEvent;
 
-                        processor.Instances[instanceId] = new InstanceState()
-                        {
-                            OrchestrationState = newState,
-                            History = new List<HistoryEvent>(),
-                        };
+            OrchestrationState = new OrchestrationState
+            {
+                OrchestrationInstance = new OrchestrationInstance
+                {
+                    InstanceId = evt.TaskMessage.OrchestrationInstance.InstanceId,
+                    ExecutionId = evt.TaskMessage.OrchestrationInstance.ExecutionId,
+                },
+                CreatedTime = evt.Timestamp,
+                LastUpdatedTime = evt.Timestamp,
+                OrchestrationStatus = OrchestrationStatus.Pending,
+                Version = ee.Version,
+                Name = ee.Name,
+                Input = ee.Input,
+            };
+        }
 
-                        break;
-                    }
+        public void Apply(BatchProcessed evt)
+        {
+            if (evt.State.OrchestrationInstance.ExecutionId != this.OrchestrationState.OrchestrationInstance.ExecutionId)
+            {
+                History.Clear();
+            }
 
-                case EventType.
+            History.AddRange(evt.NewEvents);
 
+            OrchestrationState = evt.State;        
+        }
 
-
+        public OrchestrationRuntimeState GetRuntimeState()
+        {
+            if (History == null)
+            {
+                return new OrchestrationRuntimeState()
+            }
+            else
+            {
+                return new OrchestrationRuntimeState(History);
             }
         }
     }
