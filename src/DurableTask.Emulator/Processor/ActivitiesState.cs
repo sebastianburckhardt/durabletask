@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
 
@@ -18,6 +21,18 @@ namespace DurableTask.Emulator
 
         [IgnoreDataMember]
         public override string Key => "@@activities";
+
+
+        public override void Restore(LocalPartition LocalPartition)
+        {
+            // reschedule work items
+            foreach (var pending in PendingActivities)
+            {
+                LocalPartition.ActivityWorkItemQueue.Add(new ActivityWorkItem(pending.Key, pending.Value));
+            }
+        }
+
+        // *************  event processing *****************
 
         public void Scope(ActivityCompleted evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
@@ -37,9 +52,11 @@ namespace DurableTask.Emulator
         {
             foreach (var msg in evt.ActivityMessages)
             {
-                PendingActivities.Add(SequenceNumber++, msg);
+                var activityId = SequenceNumber++;
+                PendingActivities.Add(activityId, msg);
+
+                LocalPartition.ActivityWorkItemQueue.Add(new ActivityWorkItem(activityId, msg));
             }
         }
-
     }
 }

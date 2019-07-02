@@ -19,6 +19,21 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public override string Key => "@@timers";
 
+        public override void Restore(LocalPartition LocalPartition)
+        {
+            // restore the pending timers
+            foreach (var kvp in PendingTimers)
+            {
+                var expirationEvent = new TimerFired()
+                {
+                    TimerId = kvp.Key,
+                    TimerFiredMessage = kvp.Value,
+                };
+
+                LocalPartition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
+            }
+        }
+
         public void Scope(TimerFired evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
             if (PendingTimers.ContainsKey(evt.TimerId))
@@ -35,9 +50,18 @@ namespace DurableTask.Emulator
 
         public void Apply(BatchProcessed evt)
         {
-            foreach(var t in evt.WorkItemTimerMessages)
+            foreach(var t in evt.TimerMessages)
             {
-                PendingTimers.Add(SequenceNumber++, t);
+                var timerId = SequenceNumber++;
+                PendingTimers.Add(timerId, t);
+
+                var expirationEvent = new TimerFired()
+                {
+                    TimerId = timerId,
+                    TimerFiredMessage = t,
+                };
+
+                LocalPartition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
             }
         }
     }

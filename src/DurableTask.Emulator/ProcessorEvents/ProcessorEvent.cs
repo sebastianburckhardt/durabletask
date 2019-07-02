@@ -19,6 +19,6 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public long QueuePosition { get; set; }
 
-        public abstract TrackedObject Scope(State state);
+        public abstract TrackedObject Scope(IState state);
     }
 }

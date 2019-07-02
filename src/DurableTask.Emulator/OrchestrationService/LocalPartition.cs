@@ -31,32 +31,19 @@ namespace DurableTask.Emulator
     /// </summary>
     public class LocalPartition : IOrchestrationService, IOrchestrationServiceClient, IDisposable
     {
-        readonly CancellationTokenSource cancellationTokenSource;
-        readonly object timerLock = new object();
-        readonly List<TaskMessage> timerMessages;
+        private readonly IPartitionReceiver partitionReceiver;
+        private readonly IPartitionSender partitionSender;
 
-        readonly IPartitionReceiver partitionReceiver;
-        readonly IPartitionSender partitionSender;
+        private readonly CancellationTokenSource cancellationTokenSource;
+
+        internal IState State { get; private set; }
+        internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
+        internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        internal BatchTimer<TimerFired> PendingTimers { get; private set; }
 
         readonly ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>> orchestrationWaiters;
 
-        internal CircularLinkedList<Session> AvailableSessions;
-        internal CircularLinkedList<Session> ReadySessions;
-        internal CircularLinkedList<Session> LockedSessions;
-
-        internal readonly State State;
-
         readonly int MaxConcurrentWorkItems = 20;
-
-        internal class Session : CircularLinkedList<Session>.Node
-        {
-            public string InstanceId { get; set; }
-
-            public OrchestrationRuntimeState RuntimeState { get; set; }
-
-            public TaskOrchestrationWorkItem WorkItem { get; set; }
-        }
-
 
         /// <summary>
         ///     Creates a new instance of the OrchestrationService with default settings
@@ -64,73 +51,22 @@ namespace DurableTask.Emulator
         public LocalPartition()
         {
             this.cancellationTokenSource = new CancellationTokenSource();
-            this.timerMessages = new List<TaskMessage>();
+
             this.orchestrationWaiters = new ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>>();
-            this.AvailableSessions = new CircularLinkedList<Session>();
-            this.ReadySessions = new CircularLinkedList<Session>();
-            this.LockedSessions = new CircularLinkedList<Session>();
+
+            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(cancellationTokenSource.Token);
+            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(cancellationTokenSource.Token);
+            this.PendingTimers = new BatchTimer<TimerFired>(this.cancellationTokenSource.Token, (timerFired) => this.partitionSender.Send(timerFired));
+
+            this.State = new MemoryState();
+            this.State.RestoreAsync(this);
         }
 
         internal bool Handles(TaskMessage message)
         {
             return true; // TODO implement multiple partitions
         }
-
-        internal IPartitionSender GetSenderForOwnerOf(string instanceId)
-        {
-            return null; // TODO
-        }
-
-        internal void RegisterSession(string instanceId, SessionsState.Session session)
-        {
-            var newSession = new Session()
-            {
-                InstanceId = instanceId,
-            };
-
-            AvailableSessions.Add(newSession);
-
-            // think about proper model for threading
-            Task.Run(() =>
-            {
-                var instance = State.GetInstance(instanceId);
-
-                newSession.RuntimeState = instance.GetRuntimeState();
-
-                newSession.RemoveFromList();
-
-                ReadySessions.Add(newSession);
-            });
-        }
-
-
-        async Task TimerMessageSchedulerAsync() // TODO implement without polling
-        {
-            //while (!this.cancellationTokenSource.Token.IsCancellationRequested)
-            //{
-            //    lock (this.timerLock)
-            //    {
-            //        foreach (TaskMessage tm in State.Clocks.ToList())
-            //        {
-            //            var te = tm.Event as TimerFiredEvent;
-
-            //            if (te == null)
-            //            {
-            //                // TODO : unobserved task exception (AFFANDAR)
-            //                throw new InvalidOperationException("Invalid timer message");
-            //            }
-
-            //            if (te.FireAt <= DateTime.UtcNow)
-            //            {
-            //                //this.orchestratorQueue.SendMessage(tm);
-            //                this.timerMessages.Remove(tm);
-            //            }
-            //        }
-            //    }
-
-            //    await Task.Delay(TimeSpan.FromSeconds(1));
-            //}
-        }
+        
 
         /******************************/
         // management methods
@@ -168,7 +104,6 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task StartAsync()
         {
-            Task.Run(() => TimerMessageSchedulerAsync());
             return Task.FromResult<object>(null);
         }
 
@@ -195,6 +130,13 @@ namespace DurableTask.Emulator
         public bool IsTransientException(Exception exception)
         {
             return false;
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            this.cancellationTokenSource.Cancel();
+            this.cancellationTokenSource.Dispose();
         }
 
         /******************************/
@@ -313,35 +255,11 @@ namespace DurableTask.Emulator
         /******************************/
 
         /// <inheritdoc />
-        public int MaxConcurrentTaskOrchestrationWorkItems => this.MaxConcurrentTaskOrchestrationWorkItems;
-
-        /// <inheritdoc />
-        public async Task<TaskOrchestrationWorkItem> LockNextTaskOrchestrationWorkItemAsync(
+        public Task<TaskOrchestrationWorkItem> LockNextTaskOrchestrationWorkItemAsync(
             TimeSpan receiveTimeout,
             CancellationToken cancellationToken)
         {
-            SessionsState.Session session = await this.AvailableSessions.Dequeue(
-                receiveTimeout,
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.cancellationTokenSource.Token).Token);
-
-            if (session == null)
-            {
-                return null;
-            }
-
-            session.WorkItem = new TaskOrchestrationWorkItem
-            {
-                NewMessages = session.Batch.ToList(), // must make a copy of the list since it can grow while being processed
-                InstanceId = session.InstanceId,
-                LockedUntilUtc = DateTime.UtcNow.AddMinutes(5),
-                OrchestrationRuntimeState =
-                    DeserializeOrchestrationRuntimeState(session.SessionState) ??
-                    new OrchestrationRuntimeState(session),
-            };
-
-            this.LockedSessions.Add(session);
-
-            return session.WorkItem;
+            return this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -354,132 +272,38 @@ namespace DurableTask.Emulator
             TaskMessage continuedAsNewMessage,
             OrchestrationState state)
         {
-            lock (this.thisLock)
+            var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
+
+            return this.partitionSender.Send(new BatchProcessed()
             {
-                byte[] newSessionState;
-
-                if (newOrchestrationRuntimeState == null ||
-                newOrchestrationRuntimeState.ExecutionStartedEvent == null ||
-                newOrchestrationRuntimeState.OrchestrationStatus != OrchestrationStatus.Running)
-                {
-                    newSessionState = null;
-                }
-                else
-                {
-                    newSessionState = SerializeOrchestrationRuntimeState(newOrchestrationRuntimeState);
-                }
-
-                this.orchestratorQueue.CompleteSession(
-                    workItem.InstanceId,
-                    newSessionState,
-                    orchestratorMessages,
-                    continuedAsNewMessage
-                    );
-
-                if (outboundMessages != null)
-                {
-                    foreach (TaskMessage m in outboundMessages)
-                    {
-                        // TODO : make async (AFFANDAR)
-                        this.workerQueue.SendMessageAsync(m);
-                    }
-                }
-
-                if (workItemTimerMessages != null)
-                {
-                    lock (this.timerLock)
-                    {
-                        foreach (TaskMessage m in workItemTimerMessages)
-                        {
-                            this.timerMessages.Add(m);
-                        }
-                    }
-                }
-
-                if (workItem.OrchestrationRuntimeState != newOrchestrationRuntimeState)
-                {
-                    var oldState = Utils.BuildOrchestrationState(workItem.OrchestrationRuntimeState);
-                    CommitState(workItem.OrchestrationRuntimeState, oldState).GetAwaiter().GetResult();
-                }
-
-                if (state != null)
-                {
-                    CommitState(newOrchestrationRuntimeState, state).GetAwaiter().GetResult();
-                }
-            }
-
-            return Task.FromResult(0);
-        }
-
-        Task CommitState(OrchestrationRuntimeState runtimeState, OrchestrationState state)
-        {
-            if (!this.instanceStore.TryGetValue(runtimeState.OrchestrationInstance.InstanceId, out Dictionary<string, OrchestrationState> mapState))
-            {
-                mapState = new Dictionary<string, OrchestrationState>();
-                this.instanceStore[runtimeState.OrchestrationInstance.InstanceId] = mapState;
-            }
-
-            mapState[runtimeState.OrchestrationInstance.ExecutionId] = state;
-
-            // signal any waiters waiting on instanceid_executionid or just the latest instanceid_
-
-            if (state.OrchestrationStatus == OrchestrationStatus.Running
-                || state.OrchestrationStatus == OrchestrationStatus.Pending)
-            {
-                return Task.FromResult(0);
-            }
-
-            string key = runtimeState.OrchestrationInstance.InstanceId + "_" +
-                runtimeState.OrchestrationInstance.ExecutionId;
-
-            string key1 = runtimeState.OrchestrationInstance.InstanceId + "_";
-
-            var tasks = new List<Task>();
-
-            if (this.orchestrationWaiters.TryGetValue(key, out TaskCompletionSource<OrchestrationState> tcs))
-            {
-                tasks.Add(Task.Run(() => tcs.TrySetResult(state)));
-            }
-
-            // for instance id level waiters, we will not consider ContinueAsNew as a terminal state because
-            // the high level orchestration is still ongoing
-            if (state.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew
-                && this.orchestrationWaiters.TryGetValue(key1, out TaskCompletionSource<OrchestrationState> tcs1))
-            {
-                tasks.Add(Task.Run(() => tcs1.TrySetResult(state)));
-            }
-
-            if (tasks.Count > 0)
-            {
-                Task.WaitAll(tasks.ToArray());
-            }
-
-            return Task.FromResult(0);
+                SessionId = orchestrationWorkItem.SessionId,
+                StartPosition = orchestrationWorkItem.StartPosition,
+                Length = orchestrationWorkItem.NewMessages.Count,
+                NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
+                State = state,
+                ActivityMessages = (List<TaskMessage>)outboundMessages,
+                LocalOrchestratorMessages = (List<TaskMessage>)orchestratorMessages,
+                RemoteOrchestratorMessages = null, // TODO
+                TimerMessages = (List<TaskMessage>)workItemTimerMessages,
+                Timestamp = DateTime.UtcNow,
+            });
         }
 
         /// <inheritdoc />
         public Task AbandonTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            this.orchestratorQueue.AbandonSession(workItem.InstanceId);
+            // put it back into the work queue
+            this.OrchestrationWorkItemQueue.Add(workItem);
             return Task.FromResult<object>(null);
         }
 
         /// <inheritdoc />
         public Task ReleaseTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
+            // put it back into the work queue
+            this.OrchestrationWorkItemQueue.Add(workItem);
             return Task.FromResult<object>(null);
         }
-
-        /// <inheritdoc />
-        public int TaskActivityDispatcherCount => 1;
-
-        /// <summary>
-        ///  Should we carry over unexecuted raised events to the next iteration of an orchestration on ContinueAsNew
-        /// </summary>
-        public BehaviorOnContinueAsNew EventBehaviourForContinueAsNew => BehaviorOnContinueAsNew.Carryover;
-
-        /// <inheritdoc />
-        public int MaxConcurrentTaskActivityWorkItems => this.MaxConcurrentWorkItems;
 
         /// <inheritdoc />
         public async Task ForceTerminateTaskOrchestrationAsync(string instanceId, string message)
@@ -490,15 +314,23 @@ namespace DurableTask.Emulator
                 Event = new ExecutionTerminatedEvent(-1, message)
             };
 
-            await SendTaskOrchestrationMessageAsync(taskMessage);
+            await this.partitionSender.Send(new TaskMessageReceived()
+            {
+                TaskMessage = taskMessage
+            });
         }
 
         /// <inheritdoc />
         public Task RenewTaskOrchestrationWorkItemLockAsync(TaskOrchestrationWorkItem workItem)
         {
-            workItem.LockedUntilUtc = workItem.LockedUntilUtc.AddMinutes(5);
-            return Task.FromResult(0);
+            // no renewal required. Work items never time out.
+            return Task.FromResult(workItem);
         }
+
+        /// <summary>
+        ///  Should we carry over unexecuted raised events to the next iteration of an orchestration on ContinueAsNew
+        /// </summary>
+        public BehaviorOnContinueAsNew EventBehaviourForContinueAsNew => BehaviorOnContinueAsNew.Carryover;
 
         /// <inheritdoc />
         public bool IsMaxMessageCountExceeded(int currentMessageCount, OrchestrationRuntimeState runtimeState)
@@ -519,96 +351,53 @@ namespace DurableTask.Emulator
         }
 
         /// <inheritdoc />
+        public int MaxConcurrentTaskOrchestrationWorkItems => this.MaxConcurrentWorkItems;
+
+        /// <inheritdoc />
         public int TaskOrchestrationDispatcherCount => 1;
 
         /******************************/
         // Task activity methods
         /******************************/
+
         /// <inheritdoc />
-        public async Task<TaskActivityWorkItem> LockNextTaskActivityWorkItem(TimeSpan receiveTimeout, CancellationToken cancellationToken)
+        public Task<TaskActivityWorkItem> LockNextTaskActivityWorkItem(TimeSpan receiveTimeout, CancellationToken cancellationToken)
         {
-            TaskMessage taskMessage = await this.workerQueue.ReceiveMessageAsync(receiveTimeout,
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.cancellationTokenSource.Token).Token);
-
-            if (taskMessage == null)
-            {
-                return null;
-            }
-
-            return new TaskActivityWorkItem
-            {
-                // for the in memory provider we will just use the TaskMessage object ref itself as the id
-                Id = "N/A",
-                LockedUntilUtc = DateTime.UtcNow.AddMinutes(5),
-                TaskMessage = taskMessage,
-            };
+            return this.ActivityWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
         }
 
         /// <inheritdoc />
         public Task AbandonTaskActivityWorkItemAsync(TaskActivityWorkItem workItem)
         {
-            this.workerQueue.AbandonMessageAsync(workItem.TaskMessage);
+            // put it back into the work queue
+            this.ActivityWorkItemQueue.Add(workItem);
             return Task.FromResult<object>(null);
         }
 
         /// <inheritdoc />
         public Task CompleteTaskActivityWorkItemAsync(TaskActivityWorkItem workItem, TaskMessage responseMessage)
         {
-            lock (this.thisLock)
-            {
-                this.workerQueue.CompleteMessageAsync(workItem.TaskMessage);
-                this.orchestratorQueue.SendMessage(responseMessage);
-            }
+            var activityWorkItem = (ActivityWorkItem)workItem;
 
-            return Task.FromResult<object>(null);
+            return this.partitionSender.Send(new ActivityCompleted()
+            {
+                ActivityId = activityWorkItem.ActivityId,
+                Response = responseMessage,
+            });
         }
 
         /// <inheritdoc />
         public Task<TaskActivityWorkItem> RenewTaskActivityWorkItemLockAsync(TaskActivityWorkItem workItem)
         {
-            // TODO : add expiration if we want to unit test it (AFFANDAR)
-            workItem.LockedUntilUtc = workItem.LockedUntilUtc.AddMinutes(5);
+            // no renewal required. Work items never time out.
             return Task.FromResult(workItem);
         }
 
-        byte[] SerializeOrchestrationRuntimeState(OrchestrationRuntimeState runtimeState)
-        {
-            if (runtimeState == null)
-            {
-                return null;
-            }
-
-            string serializeState = JsonConvert.SerializeObject(runtimeState.Events,
-                new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto });
-            return Encoding.UTF8.GetBytes(serializeState);
-        }
-
-        OrchestrationRuntimeState DeserializeOrchestrationRuntimeState(byte[] stateBytes)
-        {
-            if (stateBytes == null || stateBytes.Length == 0)
-            {
-                return null;
-            }
-
-            string serializedState = Encoding.UTF8.GetString(stateBytes);
-            var events = JsonConvert.DeserializeObject<IList<HistoryEvent>>(serializedState, new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto });
-            return new OrchestrationRuntimeState(events);
-        }
+        /// <inheritdoc />
+        public int MaxConcurrentTaskActivityWorkItems => this.MaxConcurrentWorkItems;
 
         /// <inheritdoc />
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
+        public int TaskActivityDispatcherCount => 1;
 
-        void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                this.cancellationTokenSource.Cancel();
-                this.cancellationTokenSource.Dispose();
-            }
-        }
     }
 }

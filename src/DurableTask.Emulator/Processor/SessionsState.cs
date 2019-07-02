@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
 
@@ -17,25 +18,16 @@ namespace DurableTask.Emulator
         public long SequenceNumber { get; set; }
 
         [DataContract]
-        internal class Session : CircularLinkedList<Session>.Node
+        internal class Session
         {
             [DataMember]
             public long SessionId { get; set; }
 
             [DataMember]
-            public long BatchStart { get; set; }
+            public long BatchStartPosition { get; set; }
 
             [DataMember]
             public List<TaskMessage> Batch { get; set; }
-
-            [IgnoreDataMember]
-            public string InstanceId { get; set; }
-
-            [IgnoreDataMember]
-            public OrchestrationRuntimeState RuntimeState { get; set; } // gets added when loaded
-
-            [IgnoreDataMember]
-            public TaskOrchestrationWorkItem WorkItem { get; set; } // gets added when locked
         }
 
         [IgnoreDataMember]
@@ -43,12 +35,10 @@ namespace DurableTask.Emulator
 
         protected override void Restore()
         {
+            // create work items for all sessions
             foreach(var kvp in Sessions)
             {
-                kvp.Value.InstanceId = kvp.Key;
-
-                // when recovering, all sessions are unlocked to begin with
-                LocalPartition.AvailableSessions.Add(kvp.Value);
+                OrchestrationWorkItem.EnqueueWorkItem(LocalPartition, kvp.Key, kvp.Value);
             }
         }
 
@@ -62,8 +52,10 @@ namespace DurableTask.Emulator
                 {
                     SessionId = SequenceNumber++,
                     Batch = new List<TaskMessage>(),
-                    BatchStart = 0
+                    BatchStartPosition = 0
                 };
+
+                OrchestrationWorkItem.EnqueueWorkItem(LocalPartition, instanceId, session);
             }
 
             session.Batch.Add(message);
@@ -88,7 +80,7 @@ namespace DurableTask.Emulator
         {
             if (this.Sessions.TryGetValue(evt.InstanceId, out var session)
                 && session.SessionId != evt.SessionId
-                && session.BatchStart != evt.BatchStart)
+                && session.BatchStartPosition != evt.StartPosition)
             {
                 apply.Add(State.GetInstance(evt.InstanceId));
 
@@ -102,7 +94,7 @@ namespace DurableTask.Emulator
                     apply.Add(State.Activities);
                 }
 
-                if (evt.WorkItemTimerMessages?.Count > 0)
+                if (evt.TimerMessages?.Count > 0)
                 {
                     apply.Add(State.Timers);
                 }
@@ -115,8 +107,8 @@ namespace DurableTask.Emulator
         {
             var session = this.Sessions[evt.InstanceId];
 
-            session.Batch.RemoveRange(0, evt.BatchLength);
-            session.BatchStart += evt.BatchLength;
+            session.Batch.RemoveRange(0, evt.Length);
+            session.BatchStartPosition += evt.Length;
 
             // deliver messages handled by this partition
             foreach (var msg in evt.LocalOrchestratorMessages)
@@ -128,6 +120,11 @@ namespace DurableTask.Emulator
             {
                 // no more pending messages for this instance, so we delete the session.
                 this.Sessions.Remove(evt.InstanceId);
+            }
+            else
+            {
+                // there are more messages. Prepare another work item.
+                OrchestrationWorkItem.EnqueueWorkItem(LocalPartition, evt.InstanceId, session);
             }
         }
     }

@@ -14,7 +14,7 @@ namespace DurableTask.Emulator
         [DataMember]
         public TaskMessage TaskMessage { get; set; }
 
-        public override TrackedObject Scope(State state)
+        public override TrackedObject Scope(IState state)
         {
             return state.Clocks;
         }
@@ -34,13 +34,4 @@ namespace DurableTask.Emulator
         public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
     }
 
-    [DataContract]
-    internal class ContinuedAsNewMessageReceived : TaskMessageReceived
-    {
-        [DataMember]
-        public DateTime Timestamp { get; set; }
-
-        [IgnoreDataMember]
-        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
-    }
 }

@@ -12,7 +12,7 @@ namespace DurableTask.Emulator
         [DataMember]
         public long LastAckedQueuePosition { get; set; }
 
-        public override TrackedObject Scope(State state)
+        public override TrackedObject Scope(IState state)
         {
             return state.Outbox;
         }

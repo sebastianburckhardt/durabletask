@@ -15,7 +15,7 @@ namespace DurableTask.Emulator
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override TrackedObject Scope(State state)
+        public override TrackedObject Scope(IState state)
         {
             return state.Activities;
         }

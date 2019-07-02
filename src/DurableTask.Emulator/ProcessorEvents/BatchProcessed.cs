@@ -14,10 +14,10 @@ namespace DurableTask.Emulator
         public long SessionId { get; set; }
 
         [DataMember]
-        public long BatchStart { get; set; }
+        public long StartPosition { get; set; }
 
         [DataMember]
-        public int BatchLength { get; set; }
+        public int Length { get; set; }
 
         [DataMember]
         public List<HistoryEvent> NewEvents { get; set; }
@@ -35,7 +35,7 @@ namespace DurableTask.Emulator
         public List<TaskMessage> RemoteOrchestratorMessages { get; set; }
 
         [DataMember]
-        public List<TaskMessage> WorkItemTimerMessages { get; set; }
+        public List<TaskMessage> TimerMessages { get; set; }
 
         [DataMember]
         public DateTime Timestamp { get; set; }
@@ -43,7 +43,7 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public string InstanceId => State.OrchestrationInstance.InstanceId;
 
-        public override TrackedObject Scope(State state)
+        public override TrackedObject Scope(IState state)
         {
             return state.Sessions;
         }

@@ -19,7 +19,10 @@ namespace DurableTask.Emulator
         public abstract string Key { get; }
 
         [IgnoreDataMember]
-        protected State State => LocalPartition.State;
+        protected IState State => LocalPartition.State;
+
+        // protects conflicts between the event processor and local tasks
+        protected object thisLock = new object();
 
         // call after deserialization to fill in non-serialized fields
         public virtual void Restore(LocalPartition LocalPartition)
@@ -59,7 +62,7 @@ namespace DurableTask.Emulator
                         var target = apply[i];
                         if (target.LastProcessed < processorEvent.QueuePosition)
                         {
-                            lock (target)
+                            lock (target.thisLock)
                             {
                                 dynamic dynamicTarget = target;
                                 dynamicTarget.Apply(dynamicProcessorEvent);

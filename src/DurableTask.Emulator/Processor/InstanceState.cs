@@ -21,10 +21,18 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public override string Key => OrchestrationState.OrchestrationInstance.InstanceId;
 
+        [IgnoreDataMember]
+        private OrchestrationRuntimeState cachedRuntimeState;
+
+        public OrchestrationRuntimeState GetRuntimeState()
+        {
+            return cachedRuntimeState ?? (cachedRuntimeState = new OrchestrationRuntimeState(History));
+        }
+
         public void Scope(OrchestrationCreationMessageReceived evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
-            if (OrchestrationState != null 
-                && evt.DedupeStatuses != null 
+            if (OrchestrationState != null
+                && evt.DedupeStatuses != null
                 && evt.DedupeStatuses.Contains(OrchestrationState.OrchestrationStatus))
             {
                 // An instance in this state already exists.
@@ -60,23 +68,14 @@ namespace DurableTask.Emulator
             if (evt.State.OrchestrationInstance.ExecutionId != this.OrchestrationState.OrchestrationInstance.ExecutionId)
             {
                 History.Clear();
+                cachedRuntimeState = null;
             }
 
             History.AddRange(evt.NewEvents);
 
-            OrchestrationState = evt.State;        
-        }
+            cachedRuntimeState?.NewEvents.Clear();
 
-        public OrchestrationRuntimeState GetRuntimeState()
-        {
-            if (History == null)
-            {
-                return new OrchestrationRuntimeState()
-            }
-            else
-            {
-                return new OrchestrationRuntimeState(History);
-            }
+            OrchestrationState = evt.State;
         }
     }
 }
