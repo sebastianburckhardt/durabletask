@@ -13,9 +13,9 @@ namespace DurableTask.Emulator
 
         public long StartPosition;
 
-        public LocalPartition LocalPartition;
+        public LocalOrchestrationService LocalPartition;
    
-        public static void EnqueueWorkItem(LocalPartition localPartition, string instanceId, SessionsState.Session session)
+        public static void EnqueueWorkItem(LocalOrchestrationService localPartition, string instanceId, SessionsState.Session session)
         {
             var workItem = new OrchestrationWorkItem()
             {

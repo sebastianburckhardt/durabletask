@@ -10,13 +10,15 @@ namespace DurableTask.Emulator
     {
         // ------ intialization ------
 
-        Task<long> Restore(LocalPartition localPartition);
+        Task<long> Restore(LocalOrchestrationService localPartition);
 
         // ------ reads and updates ------
 
         Task UpdateAsync(PartitionEvent evt);
 
         Task<TResult> ReadAsync<TResult>(Func<TResult> read);
+
+        Task<TResult> ReadAsync<TArgument1, TResult>(Func<TArgument1, TResult> read, TArgument1 argument);
 
         // ------ tracked objects ------
 

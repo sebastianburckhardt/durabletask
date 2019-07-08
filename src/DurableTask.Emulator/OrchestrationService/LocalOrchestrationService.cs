@@ -29,7 +29,7 @@ namespace DurableTask.Emulator
     /// <summary>
     /// Local partition of the distributed orchestration service.
     /// </summary>
-    public class LocalPartition : IOrchestrationService, IOrchestrationServiceClient, IDisposable
+    public class LocalOrchestrationService : IOrchestrationService, IOrchestrationServiceClient, IDisposable
     {
         // back-end
         internal ITaskHub TaskHub { get; private set; }
@@ -41,6 +41,10 @@ namespace DurableTask.Emulator
         internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
         internal BatchTimer<TimerFired> PendingTimers { get; private set; }
+        internal BatchWorker BatchSender { get; private set; }
+
+        internal long ReceivePosition { get; private set; }
+        internal long SendPosition { get; private set; }
 
         private PubSub<string, OrchestrationState> InstanceStatePubSub { get; set; }
         private BatchTimer<CancellablePromise<OrchestrationState>> ResponseTimeouts { get; set; }
@@ -49,27 +53,27 @@ namespace DurableTask.Emulator
 
         private CancellationTokenSource shutdownTokenSource;
 
+        private Task receiveLoopTask;
+
         /// <summary>
         ///     Creates a new instance of the OrchestrationService with default settings
         /// </summary>
-        public LocalPartition()
+        public LocalOrchestrationService()
         {
             this.TaskHub = new MemoryTaskHub();
         }
 
-        private async Task Run()
+        private async Task ReceiveLoopAsync()
         {
-            long queuePosition = await State.Restore(this);
-
             while (!this.shutdownTokenSource.IsCancellationRequested)
             {
-                var batch = await Queue.ReceiveBatch(queuePosition);
+                var batch = await Queue.ReceiveBatch(this.ReceivePosition);
 
                 for (int i = 0; i < batch.Count; i++)
                 {
                     var next = batch[i];
 
-                    next.QueuePosition = queuePosition + i;
+                    next.QueuePosition = this.ReceivePosition + i;
 
                     await this.State.UpdateAsync(next);
 
@@ -79,7 +83,19 @@ namespace DurableTask.Emulator
                     }
                 }
 
-                queuePosition += batch.Count;
+                this.ReceivePosition += batch.Count;
+            }
+        }
+
+        private async Task SendBatch()
+        {
+            var batch = await this.State.ReadAsync(this.State.Outbox.TryGetBatch, this.SendPosition);
+            
+            if (batch != null)
+            {
+                await this.Queue.SendBatch(batch.Value.Messages);
+
+                this.SendPosition = batch.Value.LastQueuePosition + 1;
             }
         }
 
@@ -127,25 +143,28 @@ namespace DurableTask.Emulator
         }
 
         /// <inheritdoc />
-        public Task StartAsync()
+        public async Task StartAsync()
         {
             this.shutdownTokenSource = new CancellationTokenSource();
             var token = shutdownTokenSource.Token;
 
             // initialize collections for pending work
-            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(token, TimeoutWithNullResponse);
-            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(token, TimeoutWithNullResponse);
+            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(token, SendNullResponse);
+            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(token, SendNullResponse);
             this.PendingTimers = new BatchTimer<TimerFired>(token, (timerFired) => this.Queue.Send(timerFired));
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>(token);
-            this.ResponseTimeouts = new BatchTimer<CancellablePromise<OrchestrationState>>(token, TimeoutWithNullResponse);
+            this.ResponseTimeouts = new BatchTimer<CancellablePromise<OrchestrationState>>(token, SendNullResponse);
+            this.BatchSender = new BatchWorker(SendBatch);
 
-            // run processing loop on thread pool
-            Task.Run(Run);
+            // restore from last snapshot
+            this.ReceivePosition = await State.Restore(this);
+            this.SendPosition = await State.ReadAsync(State.Outbox.GetLastAckedQueuePosition);
 
-            return Task.FromResult<object>(null);
+            // run receive loop on thread pool
+            this.receiveLoopTask = Task.Run(ReceiveLoopAsync);
         }
 
-        private static void TimeoutWithNullResponse<T>(CancellablePromise<T> promise) where T: class
+        private static void SendNullResponse<T>(CancellablePromise<T> promise) where T: class
         {
             promise.TryFulfill(null);
         }

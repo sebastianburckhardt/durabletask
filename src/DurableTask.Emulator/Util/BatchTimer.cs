@@ -7,19 +7,30 @@ using System.Threading.Tasks;
 
 namespace DurableTask.Emulator
 {
-    internal class BatchTimer<T>
+    internal class BatchTimer<T> : IComparer<DateTime>
     {
         private readonly object thisLock = new object();
         private readonly CancellationToken cancellationToken;
         private readonly Task whenCancelled;
         private readonly Action<T> handler;
-        private readonly SortedList<DateTime, T> schedule = new SortedList<DateTime, T>();
+        private readonly SortedList<DateTime, T> schedule;
 
         public BatchTimer(CancellationToken token, Action<T> handler)
         {
             this.cancellationToken = token;
             this.whenCancelled = WhenCanceled();
             this.handler = handler;
+            this.schedule = new SortedList<DateTime, T>(this);
+        }
+
+        public int Compare(DateTime x, DateTime y)
+        {
+            int result = x.CompareTo(y);
+
+            if (result == 0)
+                return 1;   // Handle equality as being greater, so that the list can contain duplicate keys
+            else
+                return result;
         }
 
         private Task WhenCanceled()
@@ -89,6 +100,6 @@ namespace DurableTask.Emulator
             {
                 schedule.Clear();
             }
-        }
+        }        
     }
 }

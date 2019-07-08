@@ -29,7 +29,7 @@ namespace DurableTask.Emulator
             return instance;
         }
 
-        public Task<long> Restore(LocalPartition localPartition)
+        public Task<long> Restore(LocalOrchestrationService localPartition)
         {
             long nextToProcess = 0;
 
@@ -82,6 +82,18 @@ namespace DurableTask.Emulator
             lock (read.Target)
             {
                 return Task.FromResult(read());
+            }
+        }
+
+        public Task<TResult> ReadAsync<TArgument1, TResult>(Func<TArgument1, TResult> read, TArgument1 argument)
+        {
+            if (!(read.Target is TrackedObject))
+            {
+                throw new ArgumentException("Target must be a tracked object.", nameof(read));
+            }
+            lock (read.Target)
+            {
+                return Task.FromResult(read(argument));
             }
         }
     }

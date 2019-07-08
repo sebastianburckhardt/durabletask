@@ -10,7 +10,7 @@ namespace DurableTask.Emulator
     internal abstract class TrackedObject
     {
         [IgnoreDataMember]
-        protected LocalPartition LocalPartition;
+        protected LocalOrchestrationService LocalPartition;
 
         [DataMember]
         long LastProcessed { get; set; } = -1;
@@ -25,7 +25,7 @@ namespace DurableTask.Emulator
         protected object thisLock = new object();
 
         // call after deserialization to fill in non-serialized fields
-        public long Restore(LocalPartition LocalPartition)
+        public long Restore(LocalOrchestrationService LocalPartition)
         {
             this.LocalPartition = LocalPartition;
             this.Restore();

@@ -11,7 +11,7 @@ namespace DurableTask.Emulator
     internal class OutboxState : TrackedObject
     {
         [DataMember]
-        public SortedDictionary<long, List<TaskMessage>> Outbox { get; set; }
+        public SortedList<long, List<TaskMessage>> Outbox { get; set; }
 
         [DataMember]
         public long LastAckedQueuePosition { get; set; } = -1;
@@ -19,9 +19,46 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public override string Key => "@@outbox";
 
+        public long GetLastAckedQueuePosition() { return LastAckedQueuePosition; }
+
+        public Batch? TryGetBatch(long sendPosition)
+        {
+            if (Outbox.Count == 0 || Outbox.Last().Key < sendPosition)
+            {
+                return null;
+            }
+            else
+            {
+                var batch = new Batch()
+                {
+                    Messages = new List<PartitionEvent>(),
+                };
+
+                foreach (var kvp in this.Outbox)
+                {
+                    if (kvp.Key < sendPosition) continue;
+
+                    foreach (var message in kvp.Value)
+                    {
+                        batch.Messages.Add(new TaskMessageReceived()
+                        {
+                            // TODO vector clock
+                            TaskMessage = message
+                        });
+                    }
+
+                    batch.LastQueuePosition = kvp.Key;
+                }
+
+                return batch;
+            }
+        }
+
         public void Apply(BatchProcessed evt)
         {
             Outbox.Add(evt.QueuePosition, evt.RemoteOrchestratorMessages);
+
+            LocalPartition.BatchSender.Notify();
         }
 
         public void Scope(OutgoingMessagesAcked evt, List<TrackedObject> scope, List<TrackedObject> apply)
@@ -46,5 +83,13 @@ namespace DurableTask.Emulator
 
             LastAckedQueuePosition = evt.LastAckedQueuePosition;
         }
+
+        public struct Batch
+        {
+            public List<PartitionEvent> Messages;
+
+            public long LastQueuePosition;
+        }
+
     }
 }
