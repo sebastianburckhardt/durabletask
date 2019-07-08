@@ -7,7 +7,7 @@ using DurableTask.Core;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class ActivityCompleted : ProcessorEvent
+    internal class ActivityCompleted : PartitionEvent
     {
         [DataMember]
         public long ActivityId { get; set; }
@@ -15,7 +15,7 @@ namespace DurableTask.Emulator
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override TrackedObject Scope(IState state)
+        public override TrackedObject Scope(IPartitionState state)
         {
             return state.Activities;
         }

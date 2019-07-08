@@ -59,8 +59,9 @@ namespace DurableTask.Emulator
                         return;
                     }
 
-                    Task.Run(() => handler(next.Value), cancellationToken);
                     schedule.RemoveAt(0);
+
+                    Task.Run(() => handler(next.Value), cancellationToken);
                 }
             }
         }
@@ -79,6 +80,14 @@ namespace DurableTask.Emulator
                 {
                     return schedule.Values.ToList();
                 }
+            }
+        }
+
+        public void Clear()
+        {
+            lock (schedule)
+            {
+                schedule.Clear();
             }
         }
     }

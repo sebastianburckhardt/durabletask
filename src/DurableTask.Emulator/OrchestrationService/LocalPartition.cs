@@ -31,42 +31,57 @@ namespace DurableTask.Emulator
     /// </summary>
     public class LocalPartition : IOrchestrationService, IOrchestrationServiceClient, IDisposable
     {
-        private readonly IPartitionReceiver partitionReceiver;
-        private readonly IPartitionSender partitionSender;
+        // back-end
+        internal ITaskHub TaskHub { get; private set; }
+        internal IPartitionedQueue Queue { get; private set; }
+        internal IPartitionState State { get; private set; }
 
-        private readonly CancellationTokenSource cancellationTokenSource;
+        // tracking for active work items, timers, and status requests
 
-        internal IState State { get; private set; }
         internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
         internal BatchTimer<TimerFired> PendingTimers { get; private set; }
 
-        readonly ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>> orchestrationWaiters;
+        private PubSub<string, OrchestrationState> InstanceStatePubSub { get; set; }
+        private BatchTimer<CancellablePromise<OrchestrationState>> ResponseTimeouts { get; set; }
 
         readonly int MaxConcurrentWorkItems = 20;
+
+        private CancellationTokenSource shutdownTokenSource;
 
         /// <summary>
         ///     Creates a new instance of the OrchestrationService with default settings
         /// </summary>
         public LocalPartition()
         {
-            this.cancellationTokenSource = new CancellationTokenSource();
-
-            this.orchestrationWaiters = new ConcurrentDictionary<string, TaskCompletionSource<OrchestrationState>>();
-
-            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(cancellationTokenSource.Token);
-            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(cancellationTokenSource.Token);
-            this.PendingTimers = new BatchTimer<TimerFired>(this.cancellationTokenSource.Token, (timerFired) => this.partitionSender.Send(timerFired));
-
-            this.State = new MemoryState();
-            this.State.RestoreAsync(this);
+            this.TaskHub = new MemoryTaskHub();
         }
 
-        internal bool Handles(TaskMessage message)
+        private async Task Run()
         {
-            return true; // TODO implement multiple partitions
+            long queuePosition = await State.Restore(this);
+
+            while (!this.shutdownTokenSource.IsCancellationRequested)
+            {
+                var batch = await Queue.ReceiveBatch(queuePosition);
+
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    var next = batch[i];
+
+                    next.QueuePosition = queuePosition + i;
+
+                    await this.State.UpdateAsync(next);
+
+                    if (next is BatchProcessed batchProcessed)
+                    {
+                        InstanceStatePubSub.Notify(batchProcessed.InstanceId, batchProcessed.State);
+                    }
+                }
+
+                queuePosition += batch.Count;
+            }
         }
-        
 
         /******************************/
         // management methods
@@ -78,15 +93,25 @@ namespace DurableTask.Emulator
         }
 
         /// <inheritdoc />
-        public Task CreateAsync(bool recreateInstanceStore)
+        public async Task CreateAsync(bool recreateInstanceStore)
         {
-            return Task.FromResult<object>(null);
+            if (recreateInstanceStore)
+            {
+                if (await this.TaskHub.ExistsAsync())
+                {
+                    await this.TaskHub.DeleteAsync();
+                }
+                await this.TaskHub.CreateAsync();
+            }
         }
 
         /// <inheritdoc />
-        public Task CreateIfNotExistsAsync()
+        public async Task CreateIfNotExistsAsync()
         {
-            return Task.FromResult<object>(null);
+            if (!await this.TaskHub.ExistsAsync())
+            {
+                await this.TaskHub.CreateAsync();
+            }
         }
 
         /// <inheritdoc />
@@ -96,21 +121,39 @@ namespace DurableTask.Emulator
         }
 
         /// <inheritdoc />
-        public Task DeleteAsync(bool deleteInstanceStore)
+        public async Task DeleteAsync(bool deleteInstanceStore)
         {
-            return Task.FromResult<object>(null);
+            await this.TaskHub.DeleteAsync();
         }
 
         /// <inheritdoc />
         public Task StartAsync()
         {
+            this.shutdownTokenSource = new CancellationTokenSource();
+            var token = shutdownTokenSource.Token;
+
+            // initialize collections for pending work
+            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(token, TimeoutWithNullResponse);
+            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(token, TimeoutWithNullResponse);
+            this.PendingTimers = new BatchTimer<TimerFired>(token, (timerFired) => this.Queue.Send(timerFired));
+            this.InstanceStatePubSub = new PubSub<string, OrchestrationState>(token);
+            this.ResponseTimeouts = new BatchTimer<CancellablePromise<OrchestrationState>>(token, TimeoutWithNullResponse);
+
+            // run processing loop on thread pool
+            Task.Run(Run);
+
             return Task.FromResult<object>(null);
+        }
+
+        private static void TimeoutWithNullResponse<T>(CancellablePromise<T> promise) where T: class
+        {
+            promise.TryFulfill(null);
         }
 
         /// <inheritdoc />
         public Task StopAsync(bool isForced)
         {
-            this.cancellationTokenSource.Cancel();
+            this.shutdownTokenSource.Cancel();
             return Task.FromResult<object>(null);
         }
 
@@ -120,28 +163,17 @@ namespace DurableTask.Emulator
             return StopAsync(false);
         }
 
-        /// <summary>
-        /// Determines whether is a transient or not.
-        /// </summary>
-        /// <param name="exception">The exception.</param>
-        /// <returns>
-        ///   <c>true</c> if is transient exception; otherwise, <c>false</c>.
-        /// </returns>
-        public bool IsTransientException(Exception exception)
-        {
-            return false;
-        }
-
         /// <inheritdoc />
         public void Dispose()
         {
-            this.cancellationTokenSource.Cancel();
-            this.cancellationTokenSource.Dispose();
+            this.shutdownTokenSource.Cancel();
+            this.shutdownTokenSource.Dispose();
         }
 
         /******************************/
         // client methods
         /******************************/
+
         /// <inheritdoc />
         public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage)
         {
@@ -151,13 +183,11 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
         {
-            partitionSender.Send(new OrchestrationCreationMessageReceived()
+            return this.Queue.Send(new OrchestrationCreationMessageReceived()
             {
                 TaskMessage = creationMessage,
                 DedupeStatuses = dedupeStatuses,
             });
-
-            return Task.FromResult<object>(null);
         }
 
         /// <inheritdoc />
@@ -169,12 +199,11 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
         {
-            //TODO
-            throw new NotImplementedException();
+            return this.Queue.SendBatch(messages.Select(tm => new TaskMessageReceived() { TaskMessage = tm }));
         }
 
         /// <inheritdoc />
-        public async Task<OrchestrationState> WaitForOrchestrationAsync(
+        public Task<OrchestrationState> WaitForOrchestrationAsync(
             string instanceId,
             string executionId,
             TimeSpan timeout,
@@ -184,57 +213,69 @@ namespace DurableTask.Emulator
             {
                 throw new ArgumentException(nameof(instanceId));
             }
+    
+            var responsePromise = new StatusResponsePromise(cancellationToken);
 
-            //TODO avoid polling
+            // response must time out if timeout is exceeded
+            this.ResponseTimeouts.Schedule(DateTime.UtcNow + timeout, responsePromise);
 
-            TimeSpan statusPollingInterval = TimeSpan.FromSeconds(2);
-            while (!cancellationToken.IsCancellationRequested && timeout > TimeSpan.Zero)
+            // listen to updates to the orchestration state
+            responsePromise.Subscribe(this.InstanceStatePubSub, instanceId);
+
+            // start an async read from state
+            var ignoredTask = responsePromise.ReadFromStateAsync(this.State);
+           
+            return responsePromise.Task;
+        }
+
+        private class StatusResponsePromise : PubSub<string, OrchestrationState>.Listener
+        {
+            public StatusResponsePromise(CancellationToken token) : base(token) { }
+
+            public override void Notify(OrchestrationState value)
             {
-                OrchestrationState state = await this.GetOrchestrationStateAsync(instanceId, executionId);
-                if (state == null ||
-                    state.OrchestrationStatus == OrchestrationStatus.Running ||
-                    state.OrchestrationStatus == OrchestrationStatus.Pending ||
-                    state.OrchestrationStatus == OrchestrationStatus.ContinuedAsNew)
+                if (value != null &&
+                    value.OrchestrationStatus != OrchestrationStatus.Running &&
+                    value.OrchestrationStatus != OrchestrationStatus.Pending &&
+                    value.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew)
                 {
-                    await Task.Delay(statusPollingInterval, cancellationToken);
-                    timeout -= statusPollingInterval;
-                }
-                else
-                {
-                    return state;
+                    this.TryFulfill(value);
                 }
             }
 
-            return null;
+            public async Task ReadFromStateAsync(IPartitionState state)
+            {
+                var orchestrationState = await state.ReadAsync(state.GetInstance(this.Key).GetOrchestrationState);
+
+                this.Notify(orchestrationState);
+            }
         }
 
         /// <inheritdoc />
-        public Task<OrchestrationState> GetOrchestrationStateAsync(string instanceId, string executionId)
+        public async Task<OrchestrationState> GetOrchestrationStateAsync(string instanceId, string executionId)
         {
-            // TODO safeguard against data races
-            var state = State.GetInstance(instanceId).OrchestrationState;
+            var state = await this.State.ReadAsync(State.GetInstance(instanceId).GetOrchestrationState);
             if (state != null && state.OrchestrationInstance.ExecutionId == executionId)
             {
-                return Task.FromResult(state);
+                return state;
             }
             else
             {
-                return Task.FromResult<OrchestrationState>(null);
+                return null;
             }
         }
 
         /// <inheritdoc />
-        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(string instanceId, bool allExecutions)
-        { 
-            // TODO safeguard against data races
-            var state = State.GetInstance(instanceId).OrchestrationState;
+        public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(string instanceId, bool allExecutions)
+        {
+            var state = await this.State.ReadAsync(State.GetInstance(instanceId).GetOrchestrationState);
             if (state != null)
             {
-                return Task.FromResult<IList<OrchestrationState>>(new List<OrchestrationState>() { state });
+                return new List<OrchestrationState>() { state };
             }
             else
             {
-                return Task.FromResult<IList<OrchestrationState>>(new List<OrchestrationState>());
+                return new List<OrchestrationState>();
             }
         }
 
@@ -274,7 +315,7 @@ namespace DurableTask.Emulator
         {
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
 
-            return this.partitionSender.Send(new BatchProcessed()
+            return this.Queue.Send(new BatchProcessed()
             {
                 SessionId = orchestrationWorkItem.SessionId,
                 StartPosition = orchestrationWorkItem.StartPosition,
@@ -282,8 +323,8 @@ namespace DurableTask.Emulator
                 NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
                 State = state,
                 ActivityMessages = (List<TaskMessage>)outboundMessages,
-                LocalOrchestratorMessages = (List<TaskMessage>)orchestratorMessages,
-                RemoteOrchestratorMessages = null, // TODO
+                LocalOrchestratorMessages = orchestratorMessages.Where(tm => this.Queue.IsLocal(tm.OrchestrationInstance.InstanceId)).ToList(),
+                RemoteOrchestratorMessages = orchestratorMessages.Where(tm => ! this.Queue.IsLocal(tm.OrchestrationInstance.InstanceId)).ToList(),
                 TimerMessages = (List<TaskMessage>)workItemTimerMessages,
                 Timestamp = DateTime.UtcNow,
             });
@@ -314,7 +355,7 @@ namespace DurableTask.Emulator
                 Event = new ExecutionTerminatedEvent(-1, message)
             };
 
-            await this.partitionSender.Send(new TaskMessageReceived()
+            await this.Queue.Send(new TaskMessageReceived()
             {
                 TaskMessage = taskMessage
             });
@@ -379,7 +420,7 @@ namespace DurableTask.Emulator
         {
             var activityWorkItem = (ActivityWorkItem)workItem;
 
-            return this.partitionSender.Send(new ActivityCompleted()
+            return this.Queue.Send(new ActivityCompleted()
             {
                 ActivityId = activityWorkItem.ActivityId,
                 Response = responseMessage,

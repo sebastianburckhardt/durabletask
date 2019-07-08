@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.Emulator
 {
-    internal class MemoryState : IState
+    internal class MemoryState : IPartitionState
     {
         public ClocksState Clocks { get; set; }
 
@@ -29,13 +29,21 @@ namespace DurableTask.Emulator
             return instance;
         }
 
-        public Task RestoreAsync(LocalPartition localPartition)
+        public Task<long> Restore(LocalPartition localPartition)
         {
+            long nextToProcess = 0;
+
             foreach(var trackedObject in this.GetTrackedObjects())
             {
-                trackedObject.Restore(localPartition);
+                long lastProcessed = trackedObject.Restore(localPartition);
+
+                if (lastProcessed > nextToProcess)
+                {
+                    nextToProcess = lastProcessed;
+                }
             }
-            return Task.FromResult(0);
+
+            return Task.FromResult(nextToProcess);
         }
 
         private IEnumerable<TrackedObject> GetTrackedObjects()
@@ -56,13 +64,13 @@ namespace DurableTask.Emulator
         List<TrackedObject> scope = new List<TrackedObject>();
         List<TrackedObject> apply = new List<TrackedObject>();
 
-        public Task UpdateAsync(ProcessorEvent evt)
+        public Task UpdateAsync(PartitionEvent evt)
         {
             var target = evt.Scope(this);
             target.Process(evt, scope, apply);
             scope.Clear();
             apply.Clear();
-            return Task.FromResult(0);
+            return Task.FromResult<object>(null);
         }
 
         public Task<TResult> ReadAsync<TResult>(Func<TResult> read)

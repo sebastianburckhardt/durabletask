@@ -8,7 +8,7 @@ using DurableTask.Core.History;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class TimerFired : ProcessorEvent
+    internal class TimerFired : PartitionEvent
     {
         [DataMember]
         public long TimerId { get; set; }
@@ -19,7 +19,7 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
 
-        public override TrackedObject Scope(IState state)
+        public override TrackedObject Scope(IPartitionState state)
         {
             return state.Timers;
         }

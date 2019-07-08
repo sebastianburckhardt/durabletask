@@ -6,15 +6,15 @@ using System.Threading.Tasks;
 
 namespace DurableTask.Emulator
 {
-    internal interface IState
+    internal interface IPartitionState
     {
         // ------ intialization ------
 
-        Task RestoreAsync(LocalPartition localPartition);
+        Task<long> Restore(LocalPartition localPartition);
 
         // ------ reads and updates ------
 
-        Task UpdateAsync(ProcessorEvent evt);
+        Task UpdateAsync(PartitionEvent evt);
 
         Task<TResult> ReadAsync<TResult>(Func<TResult> read);
 

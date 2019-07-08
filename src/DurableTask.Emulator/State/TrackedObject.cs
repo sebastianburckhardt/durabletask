@@ -19,23 +19,25 @@ namespace DurableTask.Emulator
         public abstract string Key { get; }
 
         [IgnoreDataMember]
-        protected IState State => LocalPartition.State;
+        protected IPartitionState State => LocalPartition.State;
 
         // protects conflicts between the event processor and local tasks
         protected object thisLock = new object();
 
         // call after deserialization to fill in non-serialized fields
-        public virtual void Restore(LocalPartition LocalPartition)
+        public long Restore(LocalPartition LocalPartition)
         {
             this.LocalPartition = LocalPartition;
             this.Restore();
+            return LastProcessed;
         }
 
         protected virtual void Restore()
         {
+            // subclasses override this if there is work they need to do here
         }
 
-        public void Process(ProcessorEvent processorEvent, List<TrackedObject> scope, List<TrackedObject> apply)
+        public void Process(PartitionEvent processorEvent, List<TrackedObject> scope, List<TrackedObject> apply)
         {
             // start with reading this object only, to determine the scope
             if (processorEvent.QueuePosition > this.LastProcessed)

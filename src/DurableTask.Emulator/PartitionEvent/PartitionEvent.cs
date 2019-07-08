@@ -11,7 +11,7 @@ namespace DurableTask.Emulator
     [KnownType(typeof(BatchProcessed))]
     [KnownType(typeof(ActivityCompleted))]
     [KnownType(typeof(TimerFired))]
-    internal abstract class ProcessorEvent
+    internal abstract class PartitionEvent
     {
         /// <summary>
         /// For received events, this is the queue position at which the event was received.
@@ -19,6 +19,6 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public long QueuePosition { get; set; }
 
-        public abstract TrackedObject Scope(IState state);
+        public abstract TrackedObject Scope(IPartitionState state);
     }
 }

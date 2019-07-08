@@ -9,12 +9,12 @@ using DurableTask.Core.History;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class TaskMessageReceived : ProcessorEvent
+    internal class TaskMessageReceived : PartitionEvent
     {
         [DataMember]
         public TaskMessage TaskMessage { get; set; }
 
-        public override TrackedObject Scope(IState state)
+        public override TrackedObject Scope(IPartitionState state)
         {
             return state.Clocks;
         }

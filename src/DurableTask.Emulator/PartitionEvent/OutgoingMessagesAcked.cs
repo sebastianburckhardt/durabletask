@@ -7,12 +7,12 @@ using DurableTask.Core;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class OutgoingMessagesAcked : ProcessorEvent
+    internal class OutgoingMessagesAcked : PartitionEvent
     {
         [DataMember]
         public long LastAckedQueuePosition { get; set; }
 
-        public override TrackedObject Scope(IState state)
+        public override TrackedObject Scope(IPartitionState state)
         {
             return state.Outbox;
         }

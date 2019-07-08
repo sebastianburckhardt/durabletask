@@ -8,7 +8,7 @@ using DurableTask.Core.History;
 namespace DurableTask.Emulator
 {
     [DataContract]
-    internal class BatchProcessed : ProcessorEvent
+    internal class BatchProcessed : PartitionEvent
     {
         [DataMember]
         public long SessionId { get; set; }
@@ -43,7 +43,7 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public string InstanceId => State.OrchestrationInstance.InstanceId;
 
-        public override TrackedObject Scope(IState state)
+        public override TrackedObject Scope(IPartitionState state)
         {
             return state.Sessions;
         }

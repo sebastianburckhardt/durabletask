@@ -23,7 +23,7 @@ namespace DurableTask.Emulator
         public override string Key => "@@activities";
 
 
-        public override void Restore(LocalPartition LocalPartition)
+        protected override void Restore()
         {
             // reschedule work items
             foreach (var pending in PendingActivities)

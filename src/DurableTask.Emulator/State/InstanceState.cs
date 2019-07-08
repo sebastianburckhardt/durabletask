@@ -24,6 +24,11 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         private OrchestrationRuntimeState cachedRuntimeState;
 
+        public OrchestrationState GetOrchestrationState()
+        {
+            return OrchestrationState;
+        }
+
         public OrchestrationRuntimeState GetRuntimeState()
         {
             return cachedRuntimeState ?? (cachedRuntimeState = new OrchestrationRuntimeState(History));

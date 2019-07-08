@@ -19,7 +19,7 @@ namespace DurableTask.Emulator
         [IgnoreDataMember]
         public override string Key => "@@timers";
 
-        public override void Restore(LocalPartition LocalPartition)
+        protected override void Restore()
         {
             // restore the pending timers
             foreach (var kvp in PendingTimers)
