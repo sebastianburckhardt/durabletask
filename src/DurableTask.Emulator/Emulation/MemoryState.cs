@@ -8,29 +8,34 @@ namespace DurableTask.Emulator
 {
     internal class MemoryState : IPartitionState
     {
-        public ClocksState Clocks { get; set; }
+        public ClocksState Clocks { get; private set; } = new ClocksState();
 
-        public OutboxState Outbox { get; set; }
+        public OutboxState Outbox { get; private set; } = new OutboxState();
 
-        public TimersState Timers { get; set; }
+        public TimersState Timers { get; private set; } = new TimersState();
 
-        public ActivitiesState Activities { get; set; }
+        public ActivitiesState Activities { get; private set; } = new ActivitiesState();
 
-        public SessionsState Sessions { get; set; }
+        public SessionsState Sessions { get; private set; } = new SessionsState();
 
-        private Dictionary<string, InstanceState> Instances { get; set; }
+        private Dictionary<string, InstanceState> instances = new Dictionary<string, InstanceState>();
+
+        private LocalOrchestrationService localPartition;
 
         public InstanceState GetInstance(string instanceId)
         {
-            if (! Instances.TryGetValue(instanceId, out var instance))
+            if (! instances.TryGetValue(instanceId, out var instance))
             {
-                this.Instances[instanceId] = instance = new InstanceState();
+                this.instances[instanceId] = instance = new InstanceState();
+                instance.Restore(this.localPartition);
             }
             return instance;
         }
 
         public Task<long> Restore(LocalOrchestrationService localPartition)
         {
+            this.localPartition = localPartition;
+
             long nextToProcess = 0;
 
             foreach(var trackedObject in this.GetTrackedObjects())
@@ -54,7 +59,7 @@ namespace DurableTask.Emulator
             yield return Activities;
             yield return Sessions;
 
-            foreach(var kvp in Instances)
+            foreach(var kvp in instances)
             {
                 yield return kvp.Value;
             }

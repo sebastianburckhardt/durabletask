@@ -14,7 +14,7 @@ namespace DurableTask.Emulator
     internal class ActivitiesState : TrackedObject
     {
         [DataMember]
-        public Dictionary<long, TaskMessage> PendingActivities { get; set; }
+        public Dictionary<long, TaskMessage> PendingActivities { get; private set; } = new Dictionary<long, TaskMessage>();
 
         [DataMember]
         public long SequenceNumber { get; set; }

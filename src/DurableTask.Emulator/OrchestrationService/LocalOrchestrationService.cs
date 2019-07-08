@@ -145,6 +145,9 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public async Task StartAsync()
         {
+            this.State = this.TaskHub.State;
+            this.Queue = this.TaskHub.Queue;
+
             this.shutdownTokenSource = new CancellationTokenSource();
             var token = shutdownTokenSource.Token;
 

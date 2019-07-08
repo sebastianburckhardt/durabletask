@@ -11,7 +11,7 @@ namespace DurableTask.Emulator
     internal class OutboxState : TrackedObject
     {
         [DataMember]
-        public SortedList<long, List<TaskMessage>> Outbox { get; set; }
+        public SortedList<long, List<TaskMessage>> Outbox { get; private set; } = new SortedList<long, List<TaskMessage>>();
 
         [DataMember]
         public long LastAckedQueuePosition { get; set; } = -1;

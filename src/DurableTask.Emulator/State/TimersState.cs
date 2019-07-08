@@ -11,7 +11,7 @@ namespace DurableTask.Emulator
     internal class TimersState : TrackedObject
     {
         [DataMember]
-        public Dictionary<long, TaskMessage> PendingTimers { get; set; }
+        public Dictionary<long, TaskMessage> PendingTimers { get; private set; } = new Dictionary<long, TaskMessage>();
 
         [DataMember]
         public long SequenceNumber { get; set; }

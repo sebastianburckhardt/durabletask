@@ -12,7 +12,7 @@ namespace DurableTask.Emulator
     internal class SessionsState : TrackedObject
     {
         [DataMember]
-        public Dictionary<string, Session> Sessions { get; set; }
+        public Dictionary<string, Session> Sessions { get; private set; } = new Dictionary<string, Session>();
 
         [DataMember]
         public long SequenceNumber { get; set; }
