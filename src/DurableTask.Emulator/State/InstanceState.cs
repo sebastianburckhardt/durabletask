@@ -26,19 +26,19 @@ namespace DurableTask.Emulator
 
         public OrchestrationState GetOrchestrationState()
         {
-            return OrchestrationState;
+            return this.OrchestrationState;
         }
 
         public OrchestrationRuntimeState GetRuntimeState()
         {
-            return cachedRuntimeState ?? (cachedRuntimeState = new OrchestrationRuntimeState(History));
+            return this.cachedRuntimeState ?? (this.cachedRuntimeState = new OrchestrationRuntimeState(History));
         }
 
         public void Scope(OrchestrationCreationMessageReceived evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
-            if (OrchestrationState != null
+            if (this.OrchestrationState != null
                 && evt.DedupeStatuses != null
-                && evt.DedupeStatuses.Contains(OrchestrationState.OrchestrationStatus))
+                && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
             {
                 // An instance in this state already exists.
                 return;
@@ -52,7 +52,9 @@ namespace DurableTask.Emulator
         {
             var ee = evt.ExecutionStartedEvent;
 
-            OrchestrationState = new OrchestrationState
+            // set the orchestration state now (before processing the creation in the history)
+            // so that this instance is "on record" immediately
+            this.OrchestrationState = new OrchestrationState
             {
                 OrchestrationInstance = new OrchestrationInstance
                 {
@@ -66,21 +68,23 @@ namespace DurableTask.Emulator
                 Name = ee.Name,
                 Input = ee.Input,
             };
+
+            this.History = new List<HistoryEvent>();
         }
 
         public void Apply(BatchProcessed evt)
         {
             if (evt.State.OrchestrationInstance.ExecutionId != this.OrchestrationState.OrchestrationInstance.ExecutionId)
             {
-                History.Clear();
-                cachedRuntimeState = null;
+                this.History.Clear();
+                this.cachedRuntimeState = null;
             }
 
-            History.AddRange(evt.NewEvents);
+            this.History.AddRange(evt.NewEvents);
 
-            cachedRuntimeState?.NewEvents.Clear();
+            this.cachedRuntimeState?.NewEvents.Clear();
 
-            OrchestrationState = evt.State;
+            this.OrchestrationState = evt.State;
         }
     }
 }
