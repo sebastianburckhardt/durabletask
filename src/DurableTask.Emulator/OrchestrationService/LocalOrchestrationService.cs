@@ -363,8 +363,6 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task ReleaseTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            // put it back into the work queue
-            this.OrchestrationWorkItemQueue.Add(workItem);
             return Task.FromResult<object>(null);
         }
 
@@ -461,6 +459,5 @@ namespace DurableTask.Emulator
 
         /// <inheritdoc />
         public int TaskActivityDispatcherCount => 1;
-
     }
 }
