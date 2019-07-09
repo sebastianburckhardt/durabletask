@@ -46,19 +46,21 @@ namespace DurableTask.Emulator
         {
             var instanceId = message.OrchestrationInstance.InstanceId;
 
-            if (!this.Sessions.TryGetValue(instanceId, out var session))
+            if (this.Sessions.TryGetValue(instanceId, out var session))
+            {
+                session.Batch.Add(message);
+            }
+            else
             {
                 this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
-                    Batch = new List<TaskMessage>(),
+                    Batch = new List<TaskMessage>() { message },
                     BatchStartPosition = 0
                 };
 
                 OrchestrationWorkItem.EnqueueWorkItem(LocalPartition, instanceId, session);
             }
-
-            session.Batch.Add(message);
         }
 
         public void Apply(TaskMessageReceived taskMessageReceived)
@@ -79,8 +81,8 @@ namespace DurableTask.Emulator
         public void Scope(BatchProcessed evt, List<TrackedObject> scope, List<TrackedObject> apply)
         {
             if (this.Sessions.TryGetValue(evt.InstanceId, out var session)
-                && session.SessionId != evt.SessionId
-                && session.BatchStartPosition != evt.StartPosition)
+                && session.SessionId == evt.SessionId
+                && session.BatchStartPosition == evt.StartPosition)
             {
                 apply.Add(State.GetInstance(evt.InstanceId));
 
