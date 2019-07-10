@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class OrchestrationWorkItem : TaskOrchestrationWorkItem
     {

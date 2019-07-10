@@ -28,7 +28,8 @@ namespace DurableTask.AzureStorage.Tests
             {
                 StorageConnectionString = storageConnectionString,
                 TaskHubName = ConfigurationManager.AppSettings.Get("TaskHubName"),
-                ExtendedSessionsEnabled = enableExtendedSessions,
+                ExtendedSessionsEnabled = false,
+                //ExtendedSessionsEnabled = enableExtendedSessions,
                 ExtendedSessionIdleTimeout = TimeSpan.FromSeconds(extendedSessionTimeoutInSeconds),
             };
 

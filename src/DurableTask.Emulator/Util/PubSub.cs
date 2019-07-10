@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class PubSub<K,V>
     {

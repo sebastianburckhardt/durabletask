@@ -5,13 +5,16 @@ using System.Text;
 using DurableTask.Core;
 using DurableTask.Core.History;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     [DataContract]
     internal class BatchProcessed : PartitionEvent
     {
         [DataMember]
         public long SessionId { get; set; }
+
+        [DataMember]
+        public string InstanceId { get; set; }
 
         [DataMember]
         public long StartPosition { get; set; }
@@ -39,9 +42,6 @@ namespace DurableTask.Emulator
 
         [DataMember]
         public DateTime Timestamp { get; set; }
-
-        [IgnoreDataMember]
-        public string InstanceId => State.OrchestrationInstance.InstanceId;
 
         public override TrackedObject Scope(IPartitionState state)
         {

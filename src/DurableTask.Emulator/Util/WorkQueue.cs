@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class WorkQueue<T>
     {
@@ -16,7 +16,7 @@ namespace DurableTask.Emulator
 
         private readonly BatchTimer<CancellablePromise<T>> expirationTimer;
 
-        public WorkQueue(CancellationToken token, Action<CancellablePromise<T>> onExpiration)
+        public WorkQueue(CancellationToken token, Func<IEnumerable<CancellablePromise<T>>,Task> onExpiration)
         {
             this.cancellationToken = token;
             this.expirationTimer = new BatchTimer<CancellablePromise<T>>(token, onExpiration);

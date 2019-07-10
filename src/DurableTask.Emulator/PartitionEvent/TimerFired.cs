@@ -5,7 +5,7 @@ using System.Text;
 using DurableTask.Core;
 using DurableTask.Core.History;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     [DataContract]
     internal class TimerFired : PartitionEvent

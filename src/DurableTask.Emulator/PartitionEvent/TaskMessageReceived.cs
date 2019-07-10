@@ -6,7 +6,7 @@ using DurableTask.Core;
 using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     [DataContract]
     internal class TaskMessageReceived : PartitionEvent

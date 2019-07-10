@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     [DataContract]
     internal abstract class TrackedObject

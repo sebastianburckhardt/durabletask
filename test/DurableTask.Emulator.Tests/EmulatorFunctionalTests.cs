@@ -11,7 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-namespace DurableTask.Emulator.Tests
+namespace DurableTask.EventHubs.Tests
 {
     using System;
     using System.Diagnostics;
@@ -19,7 +19,7 @@ namespace DurableTask.Emulator.Tests
     using System.Threading.Tasks;
     using DurableTask.Core;
     using DurableTask.Core.Exceptions;
-    using DurableTask.Emulator;
+    using DurableTask.EventHubs;
     using DurableTask.Test.Orchestrations;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 

@@ -3,15 +3,15 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     interface IPartitionedQueue
     {
-        Task<List<PartitionEvent>> ReceiveBatch(long startPosition);
+        Task<List<PartitionEvent>> ReceiveBatchAsync(long startPosition);
 
-        Task Send(PartitionEvent @event);
+        Task SendAsync(PartitionEvent @event);
 
-        Task SendBatch(IEnumerable<PartitionEvent> events);
+        Task SendBatchAsync(IEnumerable<PartitionEvent> events);
 
         bool IsLocal(string instanceId);
     }

@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class MemoryTaskHub : ITaskHub
     {

@@ -5,7 +5,7 @@ using System.Text;
 using DurableTask.Core;
 using DurableTask.Core.History;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     [DataContract]
     internal class TimersState : TrackedObject
@@ -43,7 +43,7 @@ namespace DurableTask.Emulator
             }
         }
 
-        private void Apply(TimerFired evt)
+        public void Apply(TimerFired evt)
         {
             PendingTimers.Remove(evt.TimerId);
         }

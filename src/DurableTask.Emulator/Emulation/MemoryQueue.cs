@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class MemoryQueue : IPartitionedQueue
     {
@@ -17,7 +17,7 @@ namespace DurableTask.Emulator
             return true; // single partition
         }
 
-        public async Task<List<PartitionEvent>> ReceiveBatch(long startPosition)
+        public async Task<List<PartitionEvent>> ReceiveBatchAsync(long startPosition)
         {
             await this.asyncLock.WaitAsync();
             try
@@ -30,7 +30,7 @@ namespace DurableTask.Emulator
             }
         }
 
-        public async Task Send(PartitionEvent @event)
+        public async Task SendAsync(PartitionEvent @event)
         {
             await this.asyncLock.WaitAsync();
             try
@@ -43,7 +43,7 @@ namespace DurableTask.Emulator
             }       
         }
 
-        public async Task SendBatch(IEnumerable<PartitionEvent> events)
+        public async Task SendBatchAsync(IEnumerable<PartitionEvent> events)
         {
             await this.asyncLock.WaitAsync();
             try

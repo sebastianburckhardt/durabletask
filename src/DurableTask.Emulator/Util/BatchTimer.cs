@@ -5,25 +5,25 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class BatchTimer<T> : IComparer<DateTime>
     {
         private readonly object thisLock = new object();
         private readonly CancellationToken cancellationToken;
         private readonly Task whenCancelled;
-        private readonly Action<T> handler;
+        private readonly Func<IEnumerable<T>, Task> handler;
         private readonly SortedList<DateTime, T> schedule;
 
         private readonly SemaphoreSlim notify;
 
-        public BatchTimer(CancellationToken token, Action<T> handler)
+        public BatchTimer(CancellationToken token, Func<IEnumerable<T>,Task> handler)
         {
             this.cancellationToken = token;
             this.whenCancelled = WhenCanceled();
             this.handler = handler;
             this.schedule = new SortedList<DateTime, T>(this);
-            this.notify = new SemaphoreSlim(0, 1);
+            this.notify = new SemaphoreSlim(0, int.MaxValue);
 
             new Thread(ExpirationCheckLoop).Start();
         }
@@ -65,6 +65,8 @@ namespace DurableTask.Emulator
 
         private void ExpirationCheckLoop()
         {
+            List<T> batch = new List<T>();
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 // wait for the next expiration time, but cut the wait short if notified
@@ -73,17 +75,31 @@ namespace DurableTask.Emulator
                     this.notify.Wait(delay); // blocks thread until delay is over, or until notified
                 }
 
-                // fire all expired entries
-                while (this.TryGetNext(out var next))
+                lock (this.schedule)
+                {
+                    var next = this.schedule.FirstOrDefault();
+
+                    while (this.schedule.Count > 0
+                        && next.Key <= DateTime.UtcNow
+                        && !this.cancellationToken.IsCancellationRequested)
+                    {
+                        this.schedule.RemoveAt(0);
+                        batch.Add(next.Value);
+                    }
+                }
+
+                if (batch.Count > 0)
                 {
                     try
                     {
-                        handler(next.Value);
+                        handler(batch);
                     }
                     catch
                     {
                         //TODO
                     }
+
+                    batch.Clear();
                 }
             }
         }
@@ -114,22 +130,18 @@ namespace DurableTask.Emulator
             }
         }
 
-        private bool TryGetNext(out KeyValuePair<DateTime, T> next)
+        private void GetNextBatch(List<T> batch)
         {
             lock (this.schedule)
             {
-                next = this.schedule.FirstOrDefault();
+                var next = this.schedule.FirstOrDefault();
 
-                if (this.schedule.Count > 0
+                while (this.schedule.Count > 0
                     && next.Key <= DateTime.UtcNow
                     && !this.cancellationToken.IsCancellationRequested)
                 {
                     this.schedule.RemoveAt(0);
-                    return true;
-                }
-                else
-                {
-                    return false;
+                    batch.Add(next.Value);
                 }
             }
         }

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     /// <summary>
     /// General pattern for an asynchronous worker that performs a work task, when notified,

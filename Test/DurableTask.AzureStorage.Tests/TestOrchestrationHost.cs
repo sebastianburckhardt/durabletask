@@ -30,7 +30,8 @@ namespace DurableTask.AzureStorage.Tests
 
         public TestOrchestrationHost(AzureStorageOrchestrationServiceSettings settings)
         {
-            var service = new AzureStorageOrchestrationService(settings);
+            //var service = new AzureStorageOrchestrationService(settings);
+            var service = new EventHubs.LocalOrchestrationService();
             service.CreateAsync().GetAwaiter().GetResult();
 
             this.settings = settings;

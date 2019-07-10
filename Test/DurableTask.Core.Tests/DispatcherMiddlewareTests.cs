@@ -18,7 +18,7 @@ namespace DurableTask.Core.Tests
     using System.Text;
     using System.Threading.Tasks;
     using DurableTask.Core.History;
-    using DurableTask.Emulator;
+    using DurableTask.EventHubs;
     using DurableTask.Test.Orchestrations;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 

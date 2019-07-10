@@ -11,7 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     using DurableTask.Core;
     using DurableTask.Core.Common;
@@ -67,7 +67,7 @@ namespace DurableTask.Emulator
         {
             while (!this.shutdownTokenSource.IsCancellationRequested)
             {
-                var batch = await Queue.ReceiveBatch(this.ReceivePosition);
+                var batch = await Queue.ReceiveBatchAsync(this.ReceivePosition);
 
                 for (int i = 0; i < batch.Count; i++)
                 {
@@ -93,7 +93,7 @@ namespace DurableTask.Emulator
             
             if (batch != null)
             {
-                await this.Queue.SendBatch(batch.Value.Messages);
+                await this.Queue.SendBatchAsync(batch.Value.Messages);
 
                 this.SendPosition = batch.Value.LastQueuePosition + 1;
             }
@@ -152,11 +152,11 @@ namespace DurableTask.Emulator
             var token = shutdownTokenSource.Token;
 
             // initialize collections for pending work
-            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(token, SendNullResponse);
-            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(token, SendNullResponse);
-            this.PendingTimers = new BatchTimer<TimerFired>(token, (timerFired) => this.Queue.Send(timerFired));
+            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(token, SendNullResponses);
+            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(token, SendNullResponses);
+            this.PendingTimers = new BatchTimer<TimerFired>(token, (timersFired) => this.Queue.SendBatchAsync(timersFired));
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>(token);
-            this.ResponseTimeouts = new BatchTimer<CancellablePromise<OrchestrationState>>(token, SendNullResponse);
+            this.ResponseTimeouts = new BatchTimer<CancellablePromise<OrchestrationState>>(token, SendNullResponses);
             this.BatchSender = new BatchWorker(SendBatch);
 
             // restore from last snapshot
@@ -167,9 +167,13 @@ namespace DurableTask.Emulator
             this.receiveLoopTask = Task.Run(ReceiveLoopAsync);
         }
 
-        private static void SendNullResponse<T>(CancellablePromise<T> promise) where T: class
+        private static Task SendNullResponses<T>(IEnumerable<CancellablePromise<T>> promises) where T : class
         {
-            promise.TryFulfill(null);
+            foreach (var promise in promises)
+            {
+                promise.TryFulfill(null);
+            }
+            return Task.FromResult<object>(null);
         }
 
         /// <inheritdoc />
@@ -205,10 +209,11 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
         {
-            return this.Queue.Send(new OrchestrationCreationMessageReceived()
+            return this.Queue.SendAsync(new OrchestrationCreationMessageReceived()
             {
                 TaskMessage = creationMessage,
                 DedupeStatuses = dedupeStatuses,
+                Timestamp = DateTime.UtcNow,
             });
         }
 
@@ -221,7 +226,7 @@ namespace DurableTask.Emulator
         /// <inheritdoc />
         public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
         {
-            return this.Queue.SendBatch(messages.Select(tm => new TaskMessageReceived() { TaskMessage = tm }));
+            return this.Queue.SendBatchAsync(messages.Select(tm => new TaskMessageReceived() { TaskMessage = tm }));
         }
 
         /// <inheritdoc />
@@ -337,9 +342,10 @@ namespace DurableTask.Emulator
         {
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
 
-            return this.Queue.Send(new BatchProcessed()
+            return this.Queue.SendAsync(new BatchProcessed()
             {
                 SessionId = orchestrationWorkItem.SessionId,
+                InstanceId = state.OrchestrationInstance.InstanceId,
                 StartPosition = orchestrationWorkItem.StartPosition,
                 Length = orchestrationWorkItem.NewMessages.Count,
                 NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
@@ -375,7 +381,7 @@ namespace DurableTask.Emulator
                 Event = new ExecutionTerminatedEvent(-1, message)
             };
 
-            await this.Queue.Send(new TaskMessageReceived()
+            await this.Queue.SendAsync(new TaskMessageReceived()
             {
                 TaskMessage = taskMessage
             });
@@ -440,7 +446,7 @@ namespace DurableTask.Emulator
         {
             var activityWorkItem = (ActivityWorkItem)workItem;
 
-            return this.Queue.Send(new ActivityCompleted()
+            return this.Queue.SendAsync(new ActivityCompleted()
             {
                 ActivityId = activityWorkItem.ActivityId,
                 Response = responseMessage,

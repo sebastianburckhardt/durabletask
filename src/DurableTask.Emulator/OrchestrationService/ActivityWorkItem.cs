@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using DurableTask.Core;
 
-namespace DurableTask.Emulator
+namespace DurableTask.EventHubs
 {
     internal class ActivityWorkItem : TaskActivityWorkItem
     {
