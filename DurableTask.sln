@@ -63,9 +63,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.SqlServer", "sr
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.SqlServer.Tests", "Test\DurableTask.SqlServer.Tests\DurableTask.SqlServer.Tests.csproj", "{B835BFA6-D9BB-47C4-8594-38EAE0157BBA}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.EventHubs", "src\DurableTask.EventHubs\DurableTask.EventHubs.csproj", "{0639A2EE-4719-4264-AEA1-C20C325C02EE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.EventSourced", "src\DurableTask.EventSourced\DurableTask.EventSourced.csproj", "{0639A2EE-4719-4264-AEA1-C20C325C02EE}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.EventHubs.Tests", "Test\DurableTask.EventHubs.Tests\DurableTask.EventHubs.Tests.csproj", "{F8CD3BD2-09CE-4778-94CC-581B57F46E9C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DurableTask.EventSourced.Tests", "Test\DurableTask.EventHubs.Tests\DurableTask.EventSourced.Tests.csproj", "{F8CD3BD2-09CE-4778-94CC-581B57F46E9C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
