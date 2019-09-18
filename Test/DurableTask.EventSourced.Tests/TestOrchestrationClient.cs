@@ -178,7 +178,7 @@ namespace DurableTask.EventSourced.Tests
         {
             throw new NotImplementedException();
 
-            Trace.TraceInformation($"Getting orchestration state with instance id - {this.instanceId}");
+            //Trace.TraceInformation($"Getting orchestration state with instance id - {this.instanceId}");
             // The GetStateAsync only exists in the service object
             //AzureStorageOrchestrationService service = (AzureStorageOrchestrationService)this.client.ServiceClient;
             //return await service.GetOrchestrationStateAsync(instanceId, true);
