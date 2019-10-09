@@ -57,7 +57,7 @@ namespace DurableTask.AzureStorage
         {
             if (this.ownedControlQueues.TryAdd(partitionId, controlQueue))
             {
-                Task.Run(() => this.DequeueLoop(partitionId, controlQueue, cancellationToken));
+                new Thread(() => DequeueLoop(partitionId, controlQueue, cancellationToken)).Start();
             }
             else
             {
@@ -89,7 +89,7 @@ namespace DurableTask.AzureStorage
             }
         }
 
-        async void DequeueLoop(string partitionId, ControlQueue controlQueue, CancellationToken cancellationToken)
+        void DequeueLoop(string partitionId, ControlQueue controlQueue, CancellationToken cancellationToken)
         {
             AnalyticsEventSource.Log.PartitionManagerInfo(
                 this.storageAccountName,
@@ -108,7 +108,7 @@ namespace DurableTask.AzureStorage
                     Guid traceActivityId = AzureStorageOrchestrationService.StartNewLogicalTraceScope();
 
                     // This will block until either new messages arrive or the queue is released.
-                    IReadOnlyList<MessageData> messages = await controlQueue.GetMessagesAsync(cancellationToken);
+                    IReadOnlyList<MessageData> messages = controlQueue.GetMessages(cancellationToken);
                     if (messages.Count > 0)
                     {
                         this.AddMessageToPendingOrchestration(controlQueue, messages, traceActivityId, cancellationToken);

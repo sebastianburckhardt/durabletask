@@ -46,7 +46,7 @@ namespace DurableTask.AzureStorage.Messaging
 
         protected override TimeSpan MessageVisibilityTimeout => this.settings.ControlQueueVisibilityTimeout;
 
-        public async Task<IReadOnlyList<MessageData>> GetMessagesAsync(CancellationToken cancellationToken)
+        public IReadOnlyList<MessageData> GetMessages(CancellationToken cancellationToken)
         {
             using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(this.releaseCancellationToken, cancellationToken))
             {
@@ -69,7 +69,7 @@ namespace DurableTask.AzureStorage.Messaging
                                 Utils.ExtensionVersion);
                         }
 
-                        await Task.Delay(TimeSpan.FromSeconds(1));
+                        Thread.Sleep(TimeSpan.FromSeconds(1));
                         continue;
                     }
 
@@ -77,12 +77,12 @@ namespace DurableTask.AzureStorage.Messaging
 
                     try
                     {
-                        IEnumerable<CloudQueueMessage> batch = await this.storageQueue.GetMessagesAsync(
+                        IEnumerable<CloudQueueMessage> batch = this.storageQueue.GetMessagesAsync(
                             this.settings.ControlQueueBatchSize,
                             this.settings.ControlQueueVisibilityTimeout,
                             this.settings.ControlQueueRequestOptions,
                             null /* operationContext */,
-                            linkedCts.Token);
+                            linkedCts.Token).GetAwaiter().GetResult();
 
                         this.stats.StorageRequests.Increment();
 
@@ -98,14 +98,15 @@ namespace DurableTask.AzureStorage.Messaging
                                     Utils.ExtensionVersion);
                             }
 
-                            await this.backoffHelper.WaitAsync(linkedCts.Token);
+                            this.backoffHelper.WaitAsync(linkedCts.Token).Wait();
                             continue;
                         }
 
                         isWaitingForMoreMessages = false;
 
                         var batchMessages = new ConcurrentBag<MessageData>();
-                        await batch.ParallelForEachAsync(async delegate (CloudQueueMessage queueMessage)
+
+                        batch.ParallelForEachAsync(async delegate (CloudQueueMessage queueMessage)
                         {
                             this.stats.MessagesRead.Increment();
 
@@ -114,10 +115,10 @@ namespace DurableTask.AzureStorage.Messaging
                                 this.storageQueue.Name);
 
                             batchMessages.Add(messageData);
-                        });
+                        }).Wait();
 
                         this.backoffHelper.Reset();
-                        
+
                         // Try to preserve insertion order when processing
                         IReadOnlyList<MessageData> sortedMessages = batchMessages.OrderBy(m => m, MessageOrderingComparer.Default).ToList();
                         foreach (MessageData message in sortedMessages)
@@ -146,7 +147,7 @@ namespace DurableTask.AzureStorage.Messaging
                                 e.ToString(),
                                 Utils.ExtensionVersion);
 
-                            await this.backoffHelper.WaitAsync(linkedCts.Token);
+                            this.backoffHelper.WaitAsync(linkedCts.Token).Wait();
                         }
                     }
                 }
