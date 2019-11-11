@@ -11,30 +11,18 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-namespace DurableTask.AzureStorage.Messaging
+namespace TestApplication.Common.OrchestrationTasks
 {
-    using System;
+    using System.Threading.Tasks;
+    using DurableTask.Test.Orchestrations.Performance;
 
-    class ActivitySession : SessionBase
+    public interface ITestTasks
     {
-        readonly int orchestrationEpisode;
-
-        public ActivitySession(
-            string storageAccountName,
-            string taskHubName,
-            MessageData message,
-            Guid traceActivityId)
-            : base(storageAccountName, taskHubName, message.TaskMessage.OrchestrationInstance, traceActivityId)
-        {
-            this.MessageData = message ?? throw new ArgumentNullException(nameof(message));
-            this.orchestrationEpisode = message.Episode ?? -1;
-        }
-
-        public MessageData MessageData { get; }
-
-        public override int GetCurrentEpisode()
-        {
-            return this.orchestrationEpisode;
-        }
+        /// <summary>
+        /// Throws exception when remainingAttempts > 0. Otherwise succeeds.
+        /// </summary>
+        /// <param name="remainingAttempts">remaining number of attempts</param>
+        /// <returns>bool indicating whether task completed successfully or not.</returns>
+        Task<bool> ThrowExceptionAsync(int remainingAttempts);
     }
 }

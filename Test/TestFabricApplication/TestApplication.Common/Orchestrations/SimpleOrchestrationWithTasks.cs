@@ -15,14 +15,15 @@ namespace TestApplication.Common.Orchestrations
 {
     using System.Threading.Tasks;
     using DurableTask.Core;
+    using TestApplication.Common.OrchestrationTasks;
 
     public class SimpleOrchestrationWithTasks : TaskOrchestration<string, string>
     {
         public override async Task<string> RunTask(OrchestrationContext context, string input)
         {
-            string user = await context.ScheduleTask<string>(typeof(GetUserTask));
-
-            string greeting = await context.ScheduleTask<string>(typeof(GreetUserTask), user);
+            IUserTasks userTasks = context.CreateClient<IUserTasks>();
+            string user = await userTasks.GetUserAsync();
+            string greeting = await userTasks.GreetUserAsync(user);
 
             return greeting;
         }

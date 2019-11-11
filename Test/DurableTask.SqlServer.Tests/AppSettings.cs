@@ -11,30 +11,22 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-namespace DurableTask.AzureStorage.Messaging
+
+namespace DurableTask.SqlServer.Tests
 {
     using System;
+    using System.Collections.Generic;
 
-    class ActivitySession : SessionBase
+    public class AppSettings
     {
-        readonly int orchestrationEpisode;
-
-        public ActivitySession(
-            string storageAccountName,
-            string taskHubName,
-            MessageData message,
-            Guid traceActivityId)
-            : base(storageAccountName, taskHubName, message.TaskMessage.OrchestrationInstance, traceActivityId)
+        public Uri DockerEndpoint { get; set; }
+        public ContainerInformation SqlContainer { get; set; }
+        public IDictionary<string, string> ConnectionStrings { get; set; }
+        
+        public class ContainerInformation
         {
-            this.MessageData = message ?? throw new ArgumentNullException(nameof(message));
-            this.orchestrationEpisode = message.Episode ?? -1;
+            public string Image { get; set; }
+            public string Tag { get; set; }
         }
-
-        public MessageData MessageData { get; }
-
-        public override int GetCurrentEpisode()
-        {
-            return this.orchestrationEpisode;
-        }
-    }
+    }     
 }

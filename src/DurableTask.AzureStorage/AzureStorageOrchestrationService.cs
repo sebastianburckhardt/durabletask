@@ -430,7 +430,7 @@ namespace DurableTask.AzureStorage
             {
                 throw new InvalidOperationException("The orchestration service has already started.");
             }
-
+            await this.CreateIfNotExistsAsync();
             await this.trackingStore.StartAsync();
 
             // Disable nagling to improve storage access latency:
@@ -633,7 +633,8 @@ namespace DurableTask.AzureStorage
                                 message.TaskMessage.Event.EventType.ToString(),
                                 Utils.GetTaskEventId(message.TaskMessage.Event),
                                 message.OriginalQueueMessage.Id,
-                                message.Episode,
+                                message.Episode.GetValueOrDefault(-1),
+                                session.LastCheckpointTime,
                                 Utils.ExtensionVersion);
                             outOfOrderMessages.Add(message);
                         }
@@ -667,10 +668,42 @@ namespace DurableTask.AzureStorage
 
                     if (!this.IsExecutableInstance(session.RuntimeState, orchestrationWorkItem.NewMessages, out string warningMessage))
                     {
-                        var eventListBuilder = new StringBuilder(orchestrationWorkItem.NewMessages.Count * 40);
-                        foreach (TaskMessage msg in orchestrationWorkItem.NewMessages)
+                        // If all messages belong to the same execution ID, then all of them need to be discarded.
+                        // However, it's also possible to have messages for *any* execution ID batched together with messages
+                        // to a *specific* (non-executable) execution ID. Those messages should *not* be discarded since
+                        // they might be consumable by another orchestration with the same instance id but different execution ID.
+                        var messagesToDiscard = new List<MessageData>();
+                        var messagesToAbandon = new List<MessageData>();
+                        foreach (MessageData msg in session.CurrentMessageBatch)
                         {
-                            eventListBuilder.Append(msg.Event.EventType.ToString()).Append(',');
+                            if (msg.TaskMessage.OrchestrationInstance.ExecutionId == session.Instance.ExecutionId)
+                            {
+                                messagesToDiscard.Add(msg);
+                            }
+                            else
+                            {
+                                messagesToAbandon.Add(msg);
+                            }
+                        }
+
+                        // If no messages have a matching execution ID, then delete all of them. This means all the
+                        // messages are external (external events, termination, etc.) and were sent to an instance that
+                        // doesn't exist or is no longer in a running state.
+                        if (messagesToDiscard.Count == 0)
+                        {
+                            messagesToDiscard.AddRange(messagesToAbandon);
+                            messagesToAbandon.Clear();
+                        }
+
+                        // Add all abandoned messages to the deferred list. These messages will not be deleted right now.
+                        // If they can be matched with another orchestration, then great. Otherwise they will be deleted
+                        // the next time they are picked up.
+                        messagesToAbandon.ForEach(session.DeferMessage);
+
+                        var eventListBuilder = new StringBuilder(orchestrationWorkItem.NewMessages.Count * 40);
+                        foreach (MessageData msg in messagesToDiscard)
+                        {
+                            eventListBuilder.Append(msg.TaskMessage.Event.EventType.ToString()).Append(',');
                         }
 
                         AnalyticsEventSource.Log.DiscardingWorkItem(
@@ -684,8 +717,8 @@ namespace DurableTask.AzureStorage
                             warningMessage,
                             Utils.ExtensionVersion);
 
-                        // The instance has already completed. Delete this message batch.
-                        await this.DeleteMessageBatchAsync(session);
+                        // The instance has already completed or never existed. Delete this message batch.
+                        await this.DeleteMessageBatchAsync(session, messagesToDiscard);
                         await this.ReleaseTaskOrchestrationWorkItemAsync(orchestrationWorkItem);
                         return null;
                     }
@@ -758,7 +791,7 @@ namespace DurableTask.AzureStorage
                 data.TotalMessageSizeBytes,
                 data.QueueName /* PartitionId */,
                 data.SequenceNumber,
-                data.Episode,
+                data.Episode.GetValueOrDefault(-1),
                 Utils.ExtensionVersion);
         }
 
@@ -768,7 +801,9 @@ namespace DurableTask.AzureStorage
             {
                 var instanceId = newMessages[0].OrchestrationInstance.InstanceId;
 
-                if (instanceId.StartsWith("@"))
+                if (instanceId.StartsWith("@")
+                    && newMessages[0].Event.EventType == EventType.EventRaised
+                    && newMessages[0].OrchestrationInstance.ExecutionId == null)
                 {
                     // automatically start this instance
                     var orchestrationInstance = new OrchestrationInstance
@@ -808,18 +843,6 @@ namespace DurableTask.AzureStorage
             return true;
         }
 
-        async Task<OrchestrationRuntimeState> GetOrchestrationRuntimeStateAsync(
-            string instanceId,
-            string expectedExecutionId,
-            CancellationToken cancellationToken = default(CancellationToken))
-        {
-            OrchestrationHistory history = await this.trackingStore.GetHistoryEventsAsync(
-                instanceId,
-                expectedExecutionId,
-                cancellationToken);
-            return new OrchestrationRuntimeState(history.Events);
-        }
-
         async Task AbandonAndReleaseSessionAsync(OrchestrationSession session)
         {
             try
@@ -828,7 +851,7 @@ namespace DurableTask.AzureStorage
             }
             finally
             {
-                this.ReleaseSession(session.Instance.InstanceId);
+                await this.ReleaseSessionAsync(session.Instance.InstanceId);
             }
         }
 
@@ -875,6 +898,18 @@ namespace DurableTask.AzureStorage
             try
             {
                 session.ETag = await this.trackingStore.UpdateStateAsync(runtimeState, workItem.OrchestrationRuntimeState, instanceId, executionId, session.ETag);
+
+                // update the runtime state and execution id stored in the session
+                session.UpdateRuntimeState(runtimeState);
+
+                // if we deferred some messages, and the execution id of this instance has changed, redeliver them
+                if (session.DeferredMessages.Count > 0
+                    && executionId != workItem.OrchestrationRuntimeState.OrchestrationInstance?.ExecutionId)
+                {
+                    var messages = session.DeferredMessages.ToList();
+                    session.DeferredMessages.Clear();
+                    this.orchestrationSessionManager.AddMessageToPendingOrchestration(session.ControlQueue, messages, session.TraceActivityId, CancellationToken.None);
+                }
             }
             catch (Exception e)
             {
@@ -902,7 +937,7 @@ namespace DurableTask.AzureStorage
             }
 
             // Finally, delete the messages which triggered this orchestration execution. This is the final commit.
-            await this.DeleteMessageBatchAsync(session);
+            await this.DeleteMessageBatchAsync(session, session.CurrentMessageBatch);
         }
 
         async Task CommitOutboundQueueMessages(
@@ -958,9 +993,9 @@ namespace DurableTask.AzureStorage
                 op => op.Queue.AddMessageAsync(op.Message, session));
         }
 
-        async Task DeleteMessageBatchAsync(OrchestrationSession session)
+        async Task DeleteMessageBatchAsync(OrchestrationSession session, IList<MessageData> messagesToDelete)
         {
-            await session.CurrentMessageBatch.ParallelForEachAsync(
+            await messagesToDelete.ParallelForEachAsync(
                 this.settings.MaxStorageOperationConcurrency,
                 message => session.ControlQueue.DeleteMessageAsync(message, session));
         }
@@ -1035,13 +1070,21 @@ namespace DurableTask.AzureStorage
         /// <inheritdoc />
         public Task ReleaseTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            this.ReleaseSession(workItem.InstanceId);
-            return Utils.CompletedTask;
+            return this.ReleaseSessionAsync(workItem.InstanceId);
         }
 
-        void ReleaseSession(string instanceId)
+        async Task ReleaseSessionAsync(string instanceId)
         {
-            this.orchestrationSessionManager.ReleaseSession(instanceId, this.shutdownSource.Token);
+            if (this.orchestrationSessionManager.TryReleaseSession(
+                instanceId,
+                this.shutdownSource.Token,
+                out OrchestrationSession session))
+            {
+                // Some messages may need to be discarded
+                await session.DiscardedMessages.ParallelForEachAsync(
+                    this.settings.MaxStorageOperationConcurrency,
+                    message => session.ControlQueue.DeleteMessageAsync(message, session));
+            }
         }
         #endregion
 
@@ -1056,6 +1099,7 @@ namespace DurableTask.AzureStorage
             using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.shutdownSource.Token))
             {
                 MessageData message = await this.workItemQueue.GetMessageAsync(linkedCts.Token);
+
                 if (message == null)
                 {
                     // shutting down
@@ -1241,6 +1285,11 @@ namespace DurableTask.AzureStorage
             if (existingInstance != null && dedupeStatuses != null && dedupeStatuses.Contains(existingInstance.OrchestrationStatus))
             {
                 // An instance in this state already exists.
+                if (settings.ThrowExceptionOnInvalidDedupeStatus)
+                {
+                    throw new InvalidOperationException($"An Orchestration instance with the status {existingInstance.OrchestrationStatus} already exists.");
+                }
+
                 return;
             }
 
