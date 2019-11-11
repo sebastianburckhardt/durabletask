@@ -34,9 +34,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
-        [DataMember]
-        public List<HistoryEvent> History { get; set; }
-
         public OrchestrationState GetOrchestrationState()
         {
             return this.OrchestrationState;
