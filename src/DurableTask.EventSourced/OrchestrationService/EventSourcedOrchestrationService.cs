@@ -66,13 +66,15 @@ namespace DurableTask.EventSourced
             }
         }
 
+        internal Guid HostId { get; } = Guid.NewGuid();
+
+
         /******************************/
         // management methods
         /******************************/
 
         async Task IOrchestrationService.CreateAsync()
         {
-  
             await ((IOrchestrationService)this).CreateAsync(true);
         }
 
@@ -116,6 +118,8 @@ namespace DurableTask.EventSourced
             }
             else
             {
+                EtwSource.Log.HostStarted(this.HostId, System.Environment.MachineName);
+
                 this.serviceShutdownSource = new CancellationTokenSource();
 
                 this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
@@ -144,6 +148,8 @@ namespace DurableTask.EventSourced
                 this.serviceShutdownSource = null;
 
                 await this.taskHub.StopAsync();
+
+                EtwSource.Log.HostStopped(this.HostId);
             }
         }
 
@@ -176,14 +182,18 @@ namespace DurableTask.EventSourced
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
 
-            this.Client = new Client(clientId, batchSender, this.serviceShutdownSource.Token);
+            this.Client = new Client(this, clientId, batchSender, this.serviceShutdownSource.Token);
+
+            EtwSource.Log.ClientStarted(clientId);
 
             return this.Client;
         }
 
         Backend.IPartition Backend.IHost.AddPartition(uint partitionId, Storage.IPartitionState state, Backend.ISender batchSender)
         {
-            var partition = new Partition(partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+            var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+
+            EtwSource.Log.PartitionStarted(partitionId);
 
             return partition;
         }

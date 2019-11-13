@@ -94,7 +94,10 @@ namespace DurableTask.EventSourced
         {
             if (evt.QueuePosition > this.LastProcessed)
             {
-                this.Partition.Trace($"Process on [{this.Key}]");
+                if (EtwSource.EmitDiagnosticsTrace)
+                {
+                    this.Partition.DiagnosticsTrace($"Process on [{this.Key}]");
+                }
 
                 // remember the initial position of the lists so we can tell
                 // which elements were added by this frame, and remove them at the end.
@@ -129,7 +132,10 @@ namespace DurableTask.EventSourced
                         {
                             lock (target.Lock)
                             {
-                                this.Partition.Trace($"Apply to [{target.Key}]");
+                                if (EtwSource.EmitDiagnosticsTrace)
+                                {
+                                    this.Partition.DiagnosticsTrace($"Apply to [{target.Key}]");
+                                }
 
                                 dynamic dynamicTarget = target;
                                 dynamicTarget.Apply(dynamicPartitionEvent);

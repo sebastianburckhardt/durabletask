@@ -77,6 +77,8 @@ namespace DurableTask.EventSourced
             void Process(ClientEvent clientEvent);
 
             void ReportError(string msg, Exception e);
+
+            Task StopAsync();
         }
 
         /// <summary>

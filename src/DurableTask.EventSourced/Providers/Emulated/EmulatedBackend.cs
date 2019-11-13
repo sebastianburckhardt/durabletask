@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                client.ReportError("Exception During Send", e);
+                client.ReportError(nameof(SendEvents), e);
                 throw e;
             }
         }
@@ -140,7 +140,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError("Exception During Send", e);
+                partition.ReportError(nameof(SendEvents), e);
                 throw e;
             }
         }
@@ -187,7 +187,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                client.ReportError("Client Exception in receive loop", e);
+                client.ReportError(nameof(ClientReceiveLoop), e);
             }
         }
 
@@ -219,7 +219,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError("Exception in Receive Loop", e);
+                partition.ReportError(nameof(PartitionReceiveLoop), e);
             }
         }
     }

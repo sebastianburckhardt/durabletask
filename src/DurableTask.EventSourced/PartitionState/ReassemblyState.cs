@@ -37,7 +37,11 @@ namespace DurableTask.EventSourced
             if (evt.IsLast)
             {
                 evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble(this.Fragments[evt.CohortId], evt);
-                this.Partition.Trace($"Reassembled {evt.ReassembledEvent}");
+                if (EtwSource.EmitDiagnosticsTrace)
+                {
+                    this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
+                }
+
                 var target = evt.ReassembledEvent.StartProcessingOnObject(Partition.State);
                 effect.ProcessOn(target);
             }
