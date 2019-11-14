@@ -31,6 +31,8 @@ namespace DurableTask.EventSourced
 
         public int BatchLength;
 
+        public bool ForceNewExecution;
+
         public static void EnqueueWorkItem(Partition partition, string instanceId, SessionsState.Session session)
         {
             var workItem = new OrchestrationWorkItem()
@@ -39,6 +41,7 @@ namespace DurableTask.EventSourced
                 SessionId = session.SessionId,
                 BatchStartPosition = session.BatchStartPosition,
                 BatchLength = session.Batch.Count,
+                ForceNewExecution = session.ForceNewExecution && session.BatchStartPosition == 0,
                 InstanceId = instanceId,
                 LockedUntilUtc = DateTime.MaxValue,
                 Session = null,
@@ -50,9 +53,17 @@ namespace DurableTask.EventSourced
 
         public async Task LoadAsync()
         {
-            // load the runtime state
-            this.OrchestrationRuntimeState = await Partition.State.ReadAsync(
-                Partition.State.GetHistory(this.InstanceId).GetRuntimeState);
+            if (this.ForceNewExecution)
+            {
+                // create a new execution (or replace a previous one)
+                this.OrchestrationRuntimeState = new OrchestrationRuntimeState();
+            }
+            else
+            {
+                // load the runtime state
+                this.OrchestrationRuntimeState = await Partition.State.ReadAsync(
+                    Partition.State.GetHistory(this.InstanceId).GetRuntimeState);
+            }
 
             if (!this.IsExecutableInstance(out var warningMessage))
             {
@@ -75,7 +86,7 @@ namespace DurableTask.EventSourced
             else
             {
                 // the work item is ready to process
-                Partition.EnqueueOrchestrationWorkItem(this);
+                this.Partition.EnqueueOrchestrationWorkItem(this);
             }
         }
 
