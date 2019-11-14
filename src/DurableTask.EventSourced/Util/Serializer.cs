@@ -42,5 +42,11 @@ namespace DurableTask.EventSourced
             var stream = new MemoryStream(bytes.Array, bytes.Offset, bytes.Count);
             return (Event) eventSerializer.ReadObject(stream);
         }
+
+        public static Event DeserializeEvent(byte[] bytes)
+        {
+            var stream = new MemoryStream(bytes);
+            return (Event)eventSerializer.ReadObject(stream);
+        }
     }
 }

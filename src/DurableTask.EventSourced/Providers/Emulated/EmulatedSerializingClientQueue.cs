@@ -24,31 +24,31 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedPartitionQueue : EmulatedQueue<PartitionEvent, PartitionEvent>, IEmulatedQueue<PartitionEvent>
+    internal class EmulatedSerializingClientQueue : EmulatedQueue<ClientEvent, byte[]>, IEmulatedQueue<ClientEvent>
     {
-        private readonly Backend.IPartition partition;
+        private readonly Backend.IClient client;
 
-        public EmulatedPartitionQueue(Backend.IPartition partition, CancellationToken cancellationToken)
+        public EmulatedSerializingClientQueue(Backend.IClient client, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
-            this.partition = partition;
+            this.client = client;
         }
 
-        protected override PartitionEvent Serialize(PartitionEvent evt)
+        protected override byte[] Serialize(ClientEvent evt)
         {
-            return evt;
+            return Serializer.SerializeEvent(evt);
         }
 
-        protected override PartitionEvent Deserialize(PartitionEvent evt)
+        protected override ClientEvent Deserialize(byte[] bytes)
         {
-            return evt;
+            return (ClientEvent)Serializer.DeserializeEvent(bytes);
         }
 
-        protected override async Task Deliver(PartitionEvent evt)
+        protected override Task Deliver(ClientEvent evt)
         {
             try
             {
-                await partition.ProcessAsync(evt);
+                client.Process(evt);
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
@@ -56,8 +56,10 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(EmulatedPartitionQueue), e);
+                client.ReportError(nameof(EmulatedClientQueue), e);
             }
+
+            return Task.CompletedTask;
         }
     }
 }

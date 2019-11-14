@@ -24,24 +24,24 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedPartitionQueue : EmulatedQueue<PartitionEvent, PartitionEvent>, IEmulatedQueue<PartitionEvent>
+    internal class EmulatedSerializingPartitionQueue : EmulatedQueue<PartitionEvent,byte[]>, IEmulatedQueue<PartitionEvent>
     {
         private readonly Backend.IPartition partition;
 
-        public EmulatedPartitionQueue(Backend.IPartition partition, CancellationToken cancellationToken)
+        public EmulatedSerializingPartitionQueue(Backend.IPartition partition, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
             this.partition = partition;
         }
 
-        protected override PartitionEvent Serialize(PartitionEvent evt)
+        protected override byte[] Serialize(PartitionEvent evt)
         {
-            return evt;
+            return Serializer.SerializeEvent(evt);
         }
 
-        protected override PartitionEvent Deserialize(PartitionEvent evt)
+        protected override PartitionEvent Deserialize(byte[] bytes)
         {
-            return evt;
+            return (PartitionEvent) Serializer.DeserializeEvent(bytes);
         }
 
         protected override async Task Deliver(PartitionEvent evt)

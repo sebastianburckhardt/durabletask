@@ -23,8 +23,8 @@ namespace DurableTask.EventSourced.Emulated
         private readonly Backend.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private Dictionary<Guid, EmulatedClientQueue> clientQueues;
-        private EmulatedPartitionQueue[] partitionQueues;
+        private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
+        private IEmulatedQueue<PartitionEvent>[] partitionQueues;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
@@ -39,8 +39,8 @@ namespace DurableTask.EventSourced.Emulated
         {
             var numberPartitions = settings.EmulatedPartitions;
             await Task.Delay(simulatedDelay);
-            this.clientQueues = new Dictionary<Guid, EmulatedClientQueue>();
-            this.partitionQueues = new EmulatedPartitionQueue[numberPartitions];
+            this.clientQueues = new Dictionary<Guid, IEmulatedQueue<ClientEvent>>();
+            this.partitionQueues = new IEmulatedQueue<PartitionEvent>[numberPartitions];
         }
 
         async Task Backend.ITaskHub.DeleteAsync()
@@ -69,7 +69,9 @@ namespace DurableTask.EventSourced.Emulated
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
             var client = this.host.AddClient(clientId, clientSender);
-            var clientQueue = new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
+            var clientQueue = this.settings.SerializeInEmulator
+                ? (IEmulatedQueue<ClientEvent>) new EmulatedSerializingClientQueue(client, this.shutdownTokenSource.Token)
+                : (IEmulatedQueue<ClientEvent>) new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(client, list));
 
@@ -80,7 +82,9 @@ namespace DurableTask.EventSourced.Emulated
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
                 var partition = this.host.AddPartition(i, new MemoryStorage(), partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                var partitionQueue = new EmulatedPartitionQueue(partition, this.shutdownTokenSource.Token);
+                var partitionQueue = this.settings.SerializeInEmulator
+                    ? (IEmulatedQueue<PartitionEvent>)new EmulatedSerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
+                    : (IEmulatedQueue<PartitionEvent>)new EmulatedPartitionQueue(partition, this.shutdownTokenSource.Token);
                 this.partitionQueues[i] = partitionQueue;
                 await partition.StartAsync();
             }

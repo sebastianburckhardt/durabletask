@@ -11,9 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,70 +24,42 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedClientQueue : EventHubs.BatchWorker
+    internal class EmulatedClientQueue : EmulatedQueue<ClientEvent, ClientEvent>, IEmulatedQueue<ClientEvent>
     {
         private readonly Backend.IClient client;
-        private readonly CancellationToken cancellationToken;
-
-        private List<ClientEvent> batch = new List<ClientEvent>();
-        private List<ClientEvent> queue = new List<ClientEvent>();
-
-        private long position = 0;
 
         public EmulatedClientQueue(Backend.IClient client, CancellationToken cancellationToken)
+            : base(cancellationToken)
         {
             this.client = client;
-            this.cancellationToken = cancellationToken;
         }
 
-        protected override Task Work()
+        protected override ClientEvent Serialize(ClientEvent evt)
         {
-            lock (this.lockable)
-            { 
-                var temp = queue;
-                queue = batch;
-                batch = temp;
-            }
+            return evt;
+        }
 
-            for (int i = 0; i < batch.Count; i++)
+        protected override ClientEvent Deserialize(ClientEvent evt)
+        {
+            return evt;
+        }
+
+        protected override Task Deliver(ClientEvent evt)
+        {
+            try
             {
-                batch[i].QueuePosition = position + i;
+                client.Process(evt);
             }
-
-            foreach (var clientEvent in batch)
+            catch (System.Threading.Tasks.TaskCanceledException)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                try
-                {
-                    client.Process(clientEvent);
-                }
-                catch (System.Threading.Tasks.TaskCanceledException)
-                {
-                    // this is normal during shutdown
-                }
-                catch (Exception e)
-                {
-                    client.ReportError(nameof(EmulatedClientQueue), e);
-                }
+                // this is normal during shutdown
             }
-                
-            position = position + batch.Count;
-            batch.Clear();
+            catch (Exception e)
+            {
+                client.ReportError(nameof(EmulatedPartitionQueue), e);
+            }
 
             return Task.CompletedTask;
-        }
-
-        public void Send(ClientEvent @event)
-        {
-            lock (this.lockable)
-            {
-                queue.Add(@event);
-                this.Notify();
-            }
         }
     }
 }
