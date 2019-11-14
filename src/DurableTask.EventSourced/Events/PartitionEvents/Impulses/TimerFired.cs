@@ -37,10 +37,7 @@ namespace DurableTask.EventSourced
             return state.Timers;
         }
 
-        protected override void TraceInformation(StringBuilder s)
-        {
-            s.Append(" Id=");
-            s.Append(TimerId);
-        }
+        [IgnoreDataMember]
+        public override string WorkItem => $"T{TimerId:D6}";
     }
 }

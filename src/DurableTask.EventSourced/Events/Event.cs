@@ -60,5 +60,12 @@ namespace DurableTask.EventSourced
         protected virtual void TraceInformation(StringBuilder s)
         {
         }
+
+        #region ETW trace properties
+
+        [IgnoreDataMember]
+        public virtual string WorkItem => string.Empty;
+
+        #endregion
     }
 }

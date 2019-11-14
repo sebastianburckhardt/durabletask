@@ -33,6 +33,8 @@ namespace DurableTask.EventSourced
 
         public bool ForceNewExecution;
 
+        public string WorkItemId => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
+
         public static void EnqueueWorkItem(Partition partition, string instanceId, SessionsState.Session session)
         {
             var workItem = new OrchestrationWorkItem()

@@ -65,7 +65,6 @@ namespace DurableTask.EventSourced
             {
                 if (!(clientEvent is ClientEventFragment fragment))
                 {
-                    TraceReceive(clientEvent);
                     Process(clientEvent);
                 }
                 else
@@ -83,7 +82,6 @@ namespace DurableTask.EventSourced
                         var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble(this.Fragments[fragment.CohortId], fragment);
                         this.Fragments.Remove(fragment.CohortId);
 
-                        TraceReceive(reassembledEvent);
                         Process(reassembledEvent);
                     }
                 }
@@ -92,6 +90,7 @@ namespace DurableTask.EventSourced
 
         public void Process(ClientEvent clientEvent)
         {
+            TraceReceive(clientEvent);
             if (this.ResponseWaiters.TryGetValue(clientEvent.RequestId, out var waiter))
             {
                 waiter.TrySetResult(clientEvent);
@@ -112,7 +111,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.EmitEtwTrace)
             {
-                EtwSource.Log.ClientErrorReported(this.ClientId, where, e.Message);
+                EtwSource.Log.ClientErrorReported(this.ClientId, where, e.GetType().Name, e.Message);
             }
         }
 

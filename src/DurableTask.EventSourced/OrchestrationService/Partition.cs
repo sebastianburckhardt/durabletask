@@ -148,14 +148,7 @@ namespace DurableTask.EventSourced
 
         public void Submit(Event evt, Backend.ISendConfirmationListener listener = null)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Sending {evt}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.ToString());
-            }
+            TraceSend(evt);
 
             this.BatchSender.Submit(evt, listener);
         }
@@ -164,11 +157,11 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"create activity work item A{item.ActivityId:D6}");
+                this.DiagnosticsTrace($"create activity work item {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.ToString());
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
             }
 
             this.ActivityWorkItemQueue.Add(item);
@@ -178,11 +171,11 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"create orchestration work item S{item.SessionId:D6}:{item.BatchStartPosition}[{item.BatchLength}]");
+                this.DiagnosticsTrace($"create orchestration work item {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.ToString());
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
             }
 
             this.OrchestrationWorkItemQueue.Add(item);
@@ -196,7 +189,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.EmitEtwTrace)
             {
-                EtwSource.Log.PartitionErrorReported(this.PartitionId, where, e.Message);
+                EtwSource.Log.PartitionErrorReported(this.PartitionId, where, e.GetType().Name, e.Message);
             }
         }
 
@@ -204,11 +197,23 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.QueuePosition:D7} Processing {evt}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.QueuePosition:D7} Processing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived(this.PartitionId, this.TraceContext.Value ?? "", evt.ToString());
+                EtwSource.Log.PartitionEventReceived(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+            }
+        }
+
+        public void TraceSend(Event evt)
+        {
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                this.DiagnosticsTrace($"Sending {evt} {evt.WorkItem}");
+            }
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
             }
         }
 

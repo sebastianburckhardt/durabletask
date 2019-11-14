@@ -83,24 +83,24 @@ namespace DurableTask.EventSourced
         }
 
         [Event(22, Level = EventLevel.Error, Version = 1)]
-        public void PartitionErrorReported(uint partitionId, string where, string message)
+        public void PartitionErrorReported(uint partitionId, string where, string exceptionType, string message)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(22, partitionId, where, message);
         }
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventReceived(uint partitionId, string context, string eventInfo)
+        public void PartitionEventReceived(uint partitionId, string context, string workItem, string eventInfo)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(30, partitionId, context, eventInfo);
+            this.WriteEvent(30, partitionId, context, workItem, eventInfo);
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventSent(uint partitionId, string context, string eventInfo)
+        public void PartitionEventSent(uint partitionId, string context, string workItem, string eventInfo)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(31, partitionId, context, eventInfo);
+            this.WriteEvent(31, partitionId, context, workItem, eventInfo);
         }
 
         [Event(32, Level = EventLevel.Verbose, Version = 1)]
@@ -127,7 +127,7 @@ namespace DurableTask.EventSourced
         }
 
         [Event(52, Level = EventLevel.Error, Version = 1)]
-        public void ClientErrorReported(Guid clientId, string where, string message)
+        public void ClientErrorReported(Guid clientId, string where, string exceptionType, string message)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(52, clientId, where, message);
