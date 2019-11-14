@@ -50,9 +50,16 @@ namespace DurableTask.EventSourced
                         }
                     }
 
-                    registrations[key] = keep;
-
                     iterating = null;
+
+                    if (keep != null)
+                    {
+                        registrations[key] = keep;
+                    }
+                    else
+                    {
+                        registrations.Remove(key);
+                    }
                 }
             }
         }
