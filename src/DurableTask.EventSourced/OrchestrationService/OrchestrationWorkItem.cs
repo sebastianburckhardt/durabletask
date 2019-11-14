@@ -94,7 +94,9 @@ namespace DurableTask.EventSourced
         {
             if (this.OrchestrationRuntimeState.ExecutionStartedEvent == null && !this.NewMessages.Any(msg => msg.Event is ExecutionStartedEvent))
             {
-                if (this.InstanceId.StartsWith("@"))
+                if (this.InstanceId.StartsWith("@")
+                    && this.NewMessages[0].Event.EventType == EventType.EventRaised
+                    && this.NewMessages[0].OrchestrationInstance.ExecutionId == null)
                 {
                     // automatically start this instance
                     var orchestrationInstance = new OrchestrationInstance
