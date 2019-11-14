@@ -23,11 +23,11 @@ namespace DurableTask.EventSourced.Emulated
         private readonly Backend.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private Dictionary<Guid, EmulatedQueue<ClientEvent>> clientQueues;
-        private EmulatedQueue<PartitionEvent>[] partitionQueues;
+        private Dictionary<Guid, EmulatedClientQueue> clientQueues;
+        private EmulatedPartitionQueue[] partitionQueues;
         private CancellationTokenSource shutdownTokenSource;
 
-        private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(2);
+        private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
         public EmulatedBackend(Backend.IHost host, EventSourcedOrchestrationServiceSettings settings)
         {
@@ -39,8 +39,8 @@ namespace DurableTask.EventSourced.Emulated
         {
             var numberPartitions = settings.EmulatedPartitions;
             await Task.Delay(simulatedDelay);
-            this.clientQueues = new Dictionary<Guid, EmulatedQueue<ClientEvent>>();
-            this.partitionQueues = new EmulatedQueue<PartitionEvent>[numberPartitions];
+            this.clientQueues = new Dictionary<Guid, EmulatedClientQueue>();
+            this.partitionQueues = new EmulatedPartitionQueue[numberPartitions];
         }
 
         async Task Backend.ITaskHub.DeleteAsync()
@@ -65,25 +65,24 @@ namespace DurableTask.EventSourced.Emulated
             var creationTimestamp = DateTime.UtcNow;
             var startPositions = new long[numberPartitions];
 
-            // create a client and start its receive loop
+            // create a client
             var clientId = Guid.NewGuid();
-            var clientQueue = new EmulatedQueue<ClientEvent>(simulatedDelay, this.shutdownTokenSource.Token);
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
-            this.clientQueues[clientId] = clientQueue;
             var client = this.host.AddClient(clientId, clientSender);
+            var clientQueue = new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
+            this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(client, list));
-            var clientReceiveLoop = ClientReceiveLoop(client, clientQueue);
 
-            // create all partitions and start their receive loops
+            // create all partitions
             for (uint i = 0; i < this.settings.EmulatedPartitions; i++)
             {
                 uint partitionId = i;
-                var partitionQueue = new EmulatedQueue<PartitionEvent>(simulatedDelay, this.shutdownTokenSource.Token);
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                this.partitionQueues[i] = partitionQueue;
                 var partition = this.host.AddPartition(i, new MemoryStorage(), partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                var partitionReceiveLoop = PartitionReceiveLoop(partition, partitionQueue);
+                var partitionQueue = new EmulatedPartitionQueue(partition, this.shutdownTokenSource.Token);
+                this.partitionQueues[i] = partitionQueue;
+                await partition.StartAsync();
             }
 
             for (uint i = 0; i < numberPartitions; i++)
@@ -95,13 +94,14 @@ namespace DurableTask.EventSourced.Emulated
                     StartPositions = startPositions,
                 };
 
-                await this.partitionQueues[i].SendAsync(evt);
+                this.partitionQueues[i].Send(evt);
             }
         }
 
         async Task Backend.ITaskHub.StopAsync()
         {
             await Task.Delay(simulatedDelay);
+
             if (this.shutdownTokenSource != null)
             {
                 this.shutdownTokenSource.Cancel();
@@ -113,113 +113,50 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                return SendEvents(events);
+                SendEvents(events);
             }
             catch (TaskCanceledException)
             {
                 // this is normal during shutdown
-                return Task.CompletedTask;
             }
             catch (Exception e)
             {
                 client.ReportError(nameof(SendEvents), e);
                 throw e;
             }
+            return Task.CompletedTask;
         }
 
         private Task SendEvents(Backend.IPartition partition, List<Event> events)
         {
             try
             {
-                return SendEvents(events);
+                SendEvents(events);
             }
             catch (TaskCanceledException)
             {
                 // this is normal during shutdown
-                return Task.CompletedTask;
             }
             catch (Exception e)
             {
                 partition.ReportError(nameof(SendEvents), e);
                 throw e;
             }
+            return Task.CompletedTask;
         }
 
-        private async Task SendEvents(List<Event> events)
+        private void SendEvents(List<Event> events)
         {
             foreach (var evt in events)
             {
                 if (evt is ClientEvent clientEvent)
                 {
-                    await this.clientQueues[clientEvent.ClientId].SendAsync(clientEvent);
+                    this.clientQueues[clientEvent.ClientId].Send(clientEvent);
                 }
                 else if (evt is PartitionEvent partitionEvent)
                 {
-                    await this.partitionQueues[partitionEvent.PartitionId].SendAsync(partitionEvent);
+                    this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
                 }
-            }
-        }
-
-        private async Task ClientReceiveLoop(Backend.IClient client, EmulatedQueue<ClientEvent> queue)
-        {
-            try
-            {
-                var token = this.shutdownTokenSource.Token;
-                long position = 0;
-                while (!token.IsCancellationRequested)
-                {
-                    var batch = await queue.ReceiveBatchAsync(position);
-                    if (batch == null) break;
-                    for (int i = 0; i < batch.Count; i++)
-                    {
-                        batch[i].QueuePosition = position + i;
-                    }
-                    foreach (var clientEvent in batch)
-                    {
-                        client.Process(clientEvent);
-                    }
-                    position = position + batch.Count;
-                }
-            }
-            catch (System.Threading.Tasks.TaskCanceledException)
-            {
-                // this is normal during shutdown
-            }
-            catch (Exception e)
-            {
-                client.ReportError(nameof(ClientReceiveLoop), e);
-            }
-        }
-
-        private async Task PartitionReceiveLoop(Backend.IPartition partition, EmulatedQueue<PartitionEvent> queue)
-        {
-            try
-            {
-                var token = this.shutdownTokenSource.Token;
-                var position = await partition.StartAsync();
-                while (!token.IsCancellationRequested)
-                {
-                    var batch = await queue.ReceiveBatchAsync(position);
-                    if (batch == null) break;
-                    for (int i = 0; i < batch.Count; i++)
-                    {
-                        batch[i].QueuePosition = position + i;
-                    }
-                    foreach (var evt in batch)
-                    {
-                        await partition.ProcessAsync(evt);
-                    }
-                    position = position + batch.Count;
-                }
-                await partition.StopAsync();
-            }
-            catch (System.Threading.Tasks.TaskCanceledException)
-            {
-                // this is normal during shutdown
-            }
-            catch (Exception e)
-            {
-                partition.ReportError(nameof(PartitionReceiveLoop), e);
             }
         }
     }
