@@ -17,10 +17,10 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced
+namespace DurableTask.EventSourced.Faster
 {
     [DataContract]
-    internal class MemoryStorage : Storage.IPartitionState
+    internal class FasterStorage : Storage.IPartitionState
     {
         [DataMember]
         public DedupState Dedup { get; private set; }
@@ -100,7 +100,7 @@ namespace DurableTask.EventSourced
 
             long nextToProcess = 0;
 
-            foreach(var trackedObject in this.GetTrackedObjects())
+            foreach (var trackedObject in this.GetTrackedObjects())
             {
                 long lastProcessed = trackedObject.Restore(partition);
 
@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced
             yield return Activities;
             yield return Sessions;
 
-            foreach(var kvp in instances)
+            foreach (var kvp in instances)
             {
                 yield return kvp.Value;
             }

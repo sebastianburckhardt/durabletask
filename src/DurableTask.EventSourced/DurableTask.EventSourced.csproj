@@ -25,6 +25,10 @@
     </PackageReference>
     <PackageReference Include="Newtonsoft.Json" version="11.0.2" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Microsoft.FASTER" Version="2019.11.6.1" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DurableTask.Core\DurableTask.Core.csproj" />
