@@ -11,9 +11,10 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced.EventHubs
+namespace DurableTask.EventSourced
 {
     /// <summary>
     /// General pattern for an asynchronous worker that performs a work task, when notified,
@@ -22,9 +23,11 @@ namespace DurableTask.EventSourced.EventHubs
     /// The worker never executes more than one instance of the work cycle at a time, 
     /// and consumes no thread or task resources when idle.
     /// </summary>
-    internal abstract class BatchWorker
+    internal abstract class BatchWorker<T>
     {
         protected readonly object lockable = new object();
+        private List<T> batch = new List<T>();
+        private List<T> queue = new List<T>();
 
         // Task for the current work cycle, or null if idle
         private volatile Task currentWorkCycle;
@@ -34,8 +37,43 @@ namespace DurableTask.EventSourced.EventHubs
 
         private Action<Task> checkForMoreWorkAction;
 
-        /// <summary>Implement this member in derived classes to define what constitutes a work cycle</summary>
-        protected abstract Task Work();
+        /// <summary>Implement this member in derived classes to process a batch</summary>
+        protected abstract Task Process(List<T> batch);
+
+        public void Submit(T entry)
+        {
+            lock(this.lockable)
+            {
+                queue.Add(entry);
+                this.Notify();
+            }
+        }
+
+        protected void Requeue(IEnumerable<T> entries)
+        {
+            lock (this.lockable)
+            {
+                this.queue.InsertRange(0, entries);
+                Notify();
+            }
+        }
+
+        private async Task Work()
+        {
+            lock (this.lockable)
+            {
+                if (queue.Count == 0)
+                    return;
+
+                var temp = queue;
+                queue = batch;
+                batch = temp;
+            }
+
+            await this.Process(batch);
+
+            batch.Clear();
+        }
 
         /// <summary>
         /// Default constructor.

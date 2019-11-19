@@ -15,12 +15,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced.Faster
+namespace DurableTask.EventSourced.Emulated
 {
     [DataContract]
-    internal class FasterStorage : Storage.IPartitionState
+    internal class EmulatedStorage : BatchWorker<PartitionEvent>, Storage.IPartitionState
     {
         [DataMember]
         public DedupState Dedup { get; private set; }
@@ -43,6 +44,9 @@ namespace DurableTask.EventSourced.Faster
         [DataMember]
         public SessionsState Sessions { get; private set; }
 
+        [DataMember]
+        internal long CommitPosition { get; private set; }
+
         // TODO custom serialization of instances and histories for Ambrosia
 
         private ConcurrentDictionary<string, InstanceState> instances;
@@ -53,7 +57,7 @@ namespace DurableTask.EventSourced.Faster
         private Func<string, InstanceState> instanceFactory;
         private Func<string, HistoryState> historyFactory;
 
-        public MemoryStorage()
+        public EmulatedStorage()
         {
             this.Dedup = new DedupState();
             this.Clients = new ClientsState();
@@ -141,11 +145,23 @@ namespace DurableTask.EventSourced.Faster
         // reuse these collection objects between updates (note that updates are never concurrent by design)
         TrackedObject.EffectTracker tracker = new TrackedObject.EffectTracker();
 
-        public void Process(PartitionEvent evt)
+        public void Commit(PartitionEvent evt)
         {
-            var target = evt.StartProcessingOnObject(this);
-            target.ProcessRecursively(evt, tracker);
-            tracker.Clear();
+            this.Submit(evt);
+        }
+
+        protected override Task Process(List<PartitionEvent> batch)
+        {
+            foreach (var partitionEvent in batch)
+            {
+                partitionEvent.CommitPosition = ++this.CommitPosition;
+                partition.TraceCommit(partitionEvent);
+                var target = partitionEvent.StartProcessingOnObject(this);
+                target.ProcessRecursively(partitionEvent, tracker);
+                tracker.Clear();
+            }
+
+            return Task.CompletedTask;
         }
 
         public Task<TResult> ReadAsync<TResult>(Func<TResult> read)
@@ -171,6 +187,5 @@ namespace DurableTask.EventSourced.Faster
                 return Task.FromResult(read(argument));
             }
         }
-
     }
 }

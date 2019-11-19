@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
 
             bool IsLast { get; }
 
-            long QueuePosition { get; }
+            long CommitPosition { get; }
         }
 
         public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original)
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
                 }
                 stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
                 var evt = Serializer.DeserializeEvent(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position));
-                evt.QueuePosition = lastFragment.QueuePosition;
+                //evt.QueuePosition = lastFragment.QueuePosition;
                 return evt;
             }
         }

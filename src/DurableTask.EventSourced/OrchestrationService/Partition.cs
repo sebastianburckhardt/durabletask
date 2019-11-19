@@ -88,12 +88,7 @@ namespace DurableTask.EventSourced
 
         public Task ProcessAsync(PartitionEvent partitionEvent)
         {
-            this.TraceContext.Value = $"{partitionEvent.QueuePosition:D7}   ";
-
-            this.TraceReceive(partitionEvent);
-
-            this.State.Process(partitionEvent);
-
+            this.State.Commit(partitionEvent);
             return Task.CompletedTask;
         }
 
@@ -103,12 +98,6 @@ namespace DurableTask.EventSourced
             await this.State.ShutdownAsync();
 
             EtwSource.Log.PartitionStopped(this.PartitionId);
-        }
-
-        public Task TakeCheckpoint(long position)
-        {
-            //TODO
-            throw new NotImplementedException();
         }
 
         private void TimersFired(List<Event> timersFired)
@@ -129,18 +118,18 @@ namespace DurableTask.EventSourced
             {
                 this.Request = request;
                 this.Partition = partition;
-                this.Partition.PendingResponses.TryAdd(Request.QueuePosition, this);
+                this.Partition.PendingResponses.TryAdd(Request.RequestId, this);
             }
             protected override void Cleanup()
             {
-                this.Partition.PendingResponses.TryRemove(Request.QueuePosition, out var _);
+                this.Partition.PendingResponses.TryRemove(Request.RequestId, out var _);
                 base.Cleanup();
             }
         }        
 
         public void TrySendResponse(ClientRequestEvent request, ClientEvent response)
         {
-            if (this.PendingResponses.TryGetValue(request.QueuePosition, out var waiter))
+            if (this.PendingResponses.TryGetValue(request.RequestId, out var waiter))
             {
                 waiter.TrySetResult(response);
             }
@@ -193,11 +182,13 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void TraceReceive(PartitionEvent evt)
+        public void TraceCommit(PartitionEvent evt)
         {
+            this.TraceContext.Value = $"{evt.CommitPosition:D7}   ";
+
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.QueuePosition:D7} Processing {evt} {evt.WorkItem}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D7} Committing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {

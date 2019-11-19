@@ -35,9 +35,9 @@ namespace DurableTask.EventSourced
 
             Task ShutdownAsync();
 
-            // ------ methods called from updater thread ------
+            // ------ commit an event atomically and asynchronously ------
 
-            void Process(PartitionEvent evt);
+            void Commit(PartitionEvent evt);
 
             // ------ methods called from any thread ------
 

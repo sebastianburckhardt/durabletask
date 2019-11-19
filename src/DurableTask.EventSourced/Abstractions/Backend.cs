@@ -92,8 +92,6 @@ namespace DurableTask.EventSourced
 
             Task ProcessAsync(PartitionEvent partitionEvent);
 
-            Task TakeCheckpoint(long position);
-
             void ReportError(string msg, Exception e);
 
             Task StopAsync();

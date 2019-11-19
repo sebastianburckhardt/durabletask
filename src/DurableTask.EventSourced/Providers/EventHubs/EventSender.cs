@@ -22,7 +22,7 @@ using System.Xml;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventSender<T> : BatchWorker where T: Event
+    internal class EventSender<T> : BatchWorker<EventSender<T>.Entry> where T: Event
     {
         private readonly PartitionSender sender;
         private readonly Backend.IHost host;
@@ -33,10 +33,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.sender = sender;
         }
 
-        private List<Entry> queue = new List<Entry>();
-        private List<Entry> toSend = new List<Entry>();
-
-        private struct Entry
+        public struct Entry
         {
             public T Event;
             public Backend.ISendConfirmationListener Listener;
@@ -44,40 +41,16 @@ namespace DurableTask.EventSourced.EventHubs
 
         public void Add(T evt, Backend.ISendConfirmationListener listener)
         {
-            lock (lockable)
-            {
-                queue.Add(new Entry() { Event = evt, Listener = listener });
-                Notify();
-            }
+            this.Submit(new Entry() { Event = evt, Listener = listener });
         }
-
-        private void Requeue(IEnumerable<Entry> requeue)
-        {
-            lock (lockable)
-            {
-                this.queue.InsertRange(0, requeue);
-                Notify();
-            }
-        }
-
+   
         // we reuse the same memory stream t
         private readonly MemoryStream stream = new MemoryStream();
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
 
-        protected override async Task Work()
+        protected override async Task Process(List<Entry> toSend)
         {
-            lock (lockable)
-            {
-                if (queue.Count == 0)
-                    return;
-
-                // mark queue position
-                var temp = this.toSend;
-                this.toSend = this.queue;
-                this.queue = temp;
-            }
-
             // track progress in case of exception
             var sentSuccessfully = 0;
             var maybeSent = 0;
@@ -175,11 +148,7 @@ namespace DurableTask.EventSourced.EventHubs
             catch(Exception e)
             {
                 host.ReportError("Internal error: failure in requeue", e);
-                senderException = e;
             }
-
-            // and clear the queue so we can reuse it for the next batch
-            this.toSend.Clear();          
         }
 
         private IEnumerable<EventData> Serialize(IEnumerable<Entry> entries)

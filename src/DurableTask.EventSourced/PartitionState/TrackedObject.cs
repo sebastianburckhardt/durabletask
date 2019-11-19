@@ -92,7 +92,7 @@ namespace DurableTask.EventSourced
         
         public void ProcessRecursively(PartitionEvent evt, EffectTracker effect)
         {
-            if (evt.QueuePosition > this.LastProcessed)
+            if (evt.CommitPosition > this.LastProcessed)
             {
                 if (EtwSource.EmitDiagnosticsTrace)
                 {
@@ -128,7 +128,7 @@ namespace DurableTask.EventSourced
                     for (int i = 0; i < numObjectsToApplyTo; i++)
                     {
                         var target = effect.ObjectsToApplyTo[applyToStartPos + i];
-                        if (target.LastProcessed < evt.QueuePosition)
+                        if (target.LastProcessed < evt.CommitPosition)
                         {
                             lock (target.Lock)
                             {
@@ -139,7 +139,7 @@ namespace DurableTask.EventSourced
 
                                 dynamic dynamicTarget = target;
                                 dynamicTarget.Apply(dynamicPartitionEvent);
-                                target.LastProcessed = evt.QueuePosition;
+                                target.LastProcessed = evt.CommitPosition;
                             }
                         }
                     }

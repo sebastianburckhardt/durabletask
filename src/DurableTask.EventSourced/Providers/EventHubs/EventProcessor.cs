@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            this.partition = host.AddPartition(partitionId, new MemoryStorage(), this.sender);
+            this.partition = host.AddPartition(partitionId, new Emulated.EmulatedStorage(), this.sender);
             return this.partition.StartAsync();
         }
 
@@ -61,7 +61,7 @@ namespace DurableTask.EventSourced.EventHubs
             foreach(var eventData in messages)
             {
                 var evt = Serializer.DeserializeEvent(eventData.Body);
-                evt.QueuePosition = eventData.SystemProperties.SequenceNumber;
+                //evt.QueuePosition = eventData.SystemProperties.SequenceNumber;
                 await this.partition.ProcessAsync((PartitionEvent) evt);
             }
         }    

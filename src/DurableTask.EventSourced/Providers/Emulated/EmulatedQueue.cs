@@ -23,12 +23,9 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal abstract class EmulatedQueue<T,B> : EventHubs.BatchWorker where T:Event
+    internal abstract class EmulatedQueue<T,B> : BatchWorker<B> where T:Event
     {
         private readonly CancellationToken cancellationToken;
-
-        private List<B> batch = new List<B>();
-        private List<B> queue = new List<B>();
 
         private long position = 0;
 
@@ -42,15 +39,8 @@ namespace DurableTask.EventSourced.Emulated
 
         protected abstract Task Deliver(T evt);
 
-        protected override async Task Work()
+        protected override async Task Process(List<B> batch)
         {
-            lock (this.lockable)
-            {
-                var temp = queue;
-                queue = batch;
-                batch = temp;
-            }
-
             var eventbatch = new T[batch.Count];
 
             for (int i = 0; i < batch.Count; i++)
@@ -61,7 +51,7 @@ namespace DurableTask.EventSourced.Emulated
                 }
 
                 eventbatch[i] = this.Deserialize(batch[i]);
-                eventbatch[i].QueuePosition = position + i;
+                eventbatch[i].CommitPosition = position + i;
             }
 
             foreach (var evt in eventbatch)
@@ -75,18 +65,13 @@ namespace DurableTask.EventSourced.Emulated
             }
 
             position = position + batch.Count;
-            batch.Clear();
         }
 
         public void Send(T evt)
         {
             var serialized = Serialize(evt);
 
-            lock (this.lockable)
-            {
-                queue.Add(serialized);
-                this.Notify();
-            }
+            this.Submit(serialized);
         }
     }
 }

@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced
                     {
                         PartitionId = partitionId,
                         OriginPartition = this.Partition.PartitionId,
-                        OriginPosition = evt.QueuePosition,
+                        OriginPosition = evt.CommitPosition,
                         TaskMessages = new List<TaskMessage>(),
                     };
                 }
@@ -132,7 +132,7 @@ namespace DurableTask.EventSourced
 
             if (!this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
             {
-                Outbox.Add(evt.QueuePosition, toSend);
+                Outbox.Add(evt.CommitPosition, toSend);
             }
 
             foreach (var outmessage in toSend.Values)
@@ -150,9 +150,9 @@ namespace DurableTask.EventSourced
 
         public void Apply(SentMessagesAcked evt)
         {
-            foreach(var (queuePosition, destination) in evt.DurablySent)
+            foreach(var (commitPosition, destination) in evt.DurablySent)
             {
-                if (this.Outbox.TryGetValue(queuePosition, out var dictionary))
+                if (this.Outbox.TryGetValue(commitPosition, out var dictionary))
                 {
                     dictionary.Remove(destination);
                 }

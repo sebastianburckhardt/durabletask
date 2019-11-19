@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced
         {
             for(uint i = 0; i < evt.StartPositions.Length; i++)
             {
-                ProcessedOrigins[i] = evt.StartPositions[i]; // includes first event which is TaskHubCreated
+                ProcessedOrigins[i] = 0;
             }
         }
 
@@ -65,6 +65,5 @@ namespace DurableTask.EventSourced
         {
             this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
         }
-
     }
 }

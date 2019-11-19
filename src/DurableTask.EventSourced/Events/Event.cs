@@ -38,10 +38,10 @@ namespace DurableTask.EventSourced
     internal abstract class Event
     {
         /// <summary>
-        /// For received events, this is the queue position at which the event was received, and is filled in by the back-end.
+        /// The position at which this event committed, filled in by the storage back-end.
         /// </summary>
         [IgnoreDataMember]
-        public long QueuePosition { get; set; } = -1;
+        public long CommitPosition { get; set; } = -1;
 
         /// <summary>
         /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous

@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced.Emulated
 
         private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
         private IEmulatedQueue<PartitionEvent>[] partitionQueues;
+        private Storage.IPartitionState[] partitionStates;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
@@ -41,6 +42,7 @@ namespace DurableTask.EventSourced.Emulated
             await Task.Delay(simulatedDelay);
             this.clientQueues = new Dictionary<Guid, IEmulatedQueue<ClientEvent>>();
             this.partitionQueues = new IEmulatedQueue<PartitionEvent>[numberPartitions];
+            this.partitionStates = new Storage.IPartitionState[numberPartitions];
         }
 
         async Task Backend.ITaskHub.DeleteAsync()
@@ -80,7 +82,8 @@ namespace DurableTask.EventSourced.Emulated
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partition = this.host.AddPartition(i, new MemoryStorage(), partitionSender);
+                partitionStates[i] = new EmulatedStorage();
+                var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
                     ? (IEmulatedQueue<PartitionEvent>)new EmulatedSerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
@@ -117,7 +120,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                SendEvents(events);
+                SendEvents(events, null);
             }
             catch (TaskCanceledException)
             {
@@ -135,7 +138,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                SendEvents(events);
+                SendEvents(events, partition.PartitionId);
             }
             catch (TaskCanceledException)
             {
@@ -149,7 +152,7 @@ namespace DurableTask.EventSourced.Emulated
             return Task.CompletedTask;
         }
 
-        private void SendEvents(List<Event> events)
+        private void SendEvents(List<Event> events, uint? sendingPartition)
         {
             foreach (var evt in events)
             {
@@ -159,7 +162,16 @@ namespace DurableTask.EventSourced.Emulated
                 }
                 else if (evt is PartitionEvent partitionEvent)
                 {
-                    this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
+                    if (partitionEvent.PartitionId == sendingPartition)
+                    {
+                        // a loop-back message (impulse) can be committed immediately
+                        this.partitionStates[sendingPartition.Value].Commit(partitionEvent);
+                    }
+                    else
+                    {
+                        // enqueue this event
+                        this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
+                    }
                 }
             }
         }
