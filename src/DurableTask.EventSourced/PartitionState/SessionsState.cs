@@ -175,10 +175,20 @@ namespace DurableTask.EventSourced
         public void Apply(BatchProcessed evt)
         {
             var session = this.Sessions[evt.InstanceId];
-
+            
+            // remove processed messages from this batch
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 
+            // deliver all messages to this partition directly
+            foreach (var group in evt.OrchestratorMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
+            {
+                if (this.Partition.PartitionFunction(group.Key) == this.Partition.PartitionId)
+                {
+                    this.AddMessagesToSession(group.Key, group);
+                }
+            }
+            
             if (session.Batch.Count == 0)
             {
                 // no more pending messages for this instance, so we delete the session.

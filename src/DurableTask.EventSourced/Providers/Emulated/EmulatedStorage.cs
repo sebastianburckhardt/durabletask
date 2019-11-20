@@ -155,7 +155,7 @@ namespace DurableTask.EventSourced.Emulated
             foreach (var partitionEvent in batch)
             {
                 partitionEvent.CommitPosition = ++this.CommitPosition;
-                partition.TraceCommit(partitionEvent);
+                partition.TraceProcess(partitionEvent);
                 var target = partitionEvent.StartProcessingOnObject(this);
                 target.ProcessRecursively(partitionEvent, tracker);
                 tracker.Clear();

@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced
             {
                 foreach (var outmessage in kvp.Value.Values)
                 {
-                    Partition.Submit(outmessage, this);
+                    Partition.Send(outmessage, this);
                 }
             }
         }
@@ -76,7 +76,7 @@ namespace DurableTask.EventSourced
 
             foreach (var outmessage in toSend.Values)
             {
-                Partition.Submit(outmessage, this);
+                Partition.Send(outmessage, this);
             }
         }
 
@@ -89,7 +89,7 @@ namespace DurableTask.EventSourced
                 if (!this.AckBatchInProgress)
                 {
                     this.Partition.TraceContext.Value = "SWorker";
-                    this.Partition.Submit(new SentMessagesAcked()
+                    this.Partition.Commit(new SentMessagesAcked()
                     {
                         PartitionId = this.Partition.PartitionId,
                         DurablySent = this.CurrentAckBatch.ToArray(),
@@ -117,6 +117,11 @@ namespace DurableTask.EventSourced
                 var instanceId = message.OrchestrationInstance.InstanceId;
                 var partitionId = this.Partition.PartitionFunction(instanceId);
 
+                if (partitionId == this.Partition.PartitionId)
+                {
+                    continue;
+                }
+
                 if (!toSend.TryGetValue(partitionId, out var outmessage))
                 {
                     toSend[partitionId] = outmessage = new TaskMessageReceived()
@@ -137,7 +142,7 @@ namespace DurableTask.EventSourced
 
             foreach (var outmessage in toSend.Values)
             {
-                Partition.Submit(outmessage, this.Partition.Settings.PartitionCommunicationIsExactlyOnce ? null : this);
+                Partition.Send(outmessage, this.Partition.Settings.PartitionCommunicationIsExactlyOnce ? null : this);
             }
         }
 
@@ -164,7 +169,7 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                this.Partition.Submit(new SentMessagesAcked()
+                this.Partition.Commit(new SentMessagesAcked()
                 {
                     PartitionId = this.Partition.PartitionId,
                     DurablySent = this.CurrentAckBatch.ToArray(),

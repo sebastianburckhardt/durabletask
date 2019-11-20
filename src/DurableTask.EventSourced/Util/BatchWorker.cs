@@ -10,8 +10,10 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
@@ -26,6 +28,8 @@ namespace DurableTask.EventSourced
     internal abstract class BatchWorker<T>
     {
         protected readonly object lockable = new object();
+        protected readonly CancellationToken cancellationToken;
+
         private List<T> batch = new List<T>();
         private List<T> queue = new List<T>();
 
@@ -42,9 +46,19 @@ namespace DurableTask.EventSourced
 
         public void Submit(T entry)
         {
-            lock(this.lockable)
+            lock (this.lockable)
             {
                 queue.Add(entry);
+                this.Notify();
+            }
+        }
+
+        public void Submit(T entry1, T entry2)
+        {
+            lock (this.lockable)
+            {
+                queue.Add(entry1);
+                queue.Add(entry2);
                 this.Notify();
             }
         }
@@ -70,7 +84,10 @@ namespace DurableTask.EventSourced
                 batch = temp;
             }
 
-            await this.Process(batch);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await this.Process(batch);
+            }
 
             batch.Clear();
         }
@@ -78,11 +95,20 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Default constructor.
         /// </summary>
-        public BatchWorker()
+        public BatchWorker() : this(CancellationToken.None)
         {
-            // store delegate so it does not get newly allocated on each call
-            this.checkForMoreWorkAction = (t) => this.CheckForMoreWork(); 
         }
+
+        /// <summary>
+        /// Constructor including a cancellation token.
+        /// </summary>
+        public BatchWorker(CancellationToken cancellationToken)
+        {
+            this.cancellationToken = cancellationToken;
+            // store delegate so it does not get newly allocated on each call
+            this.checkForMoreWorkAction = (t) => this.CheckForMoreWork();
+        }
+
 
         /// <summary>
         /// Notify the worker that there is more work.

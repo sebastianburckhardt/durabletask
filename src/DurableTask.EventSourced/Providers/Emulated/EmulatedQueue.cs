@@ -25,13 +25,10 @@ namespace DurableTask.EventSourced.Emulated
     /// </summary>
     internal abstract class EmulatedQueue<T,B> : BatchWorker<B> where T:Event
     {
-        private readonly CancellationToken cancellationToken;
-
         private long position = 0;
 
-        public EmulatedQueue(CancellationToken cancellationToken)
+        public EmulatedQueue(CancellationToken cancellationToken) : base(cancellationToken)
         {
-            this.cancellationToken = cancellationToken;
         }
 
         protected abstract B Serialize(T evt);

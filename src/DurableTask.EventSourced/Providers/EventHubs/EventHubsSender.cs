@@ -22,12 +22,12 @@ using System.Xml;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventSender<T> : BatchWorker<EventSender<T>.Entry> where T: Event
+    internal class EventHubsSender<T> : BatchWorker<EventHubsSender<T>.Entry> where T: Event
     {
         private readonly PartitionSender sender;
         private readonly Backend.IHost host;
 
-        public EventSender(Backend.IHost host, PartitionSender sender)
+        public EventHubsSender(Backend.IHost host, PartitionSender sender)
         {
             this.host = host;
             this.sender = sender;

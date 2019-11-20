@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -82,7 +83,7 @@ namespace DurableTask.EventSourced.Emulated
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                partitionStates[i] = new EmulatedStorage();
+                var partitionState = partitionStates[i] = new EmulatedStorage();
                 var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
@@ -116,7 +117,7 @@ namespace DurableTask.EventSourced.Emulated
             }
         }
 
-        private Task SendEvents(Backend.IClient client, List<Event> events)
+        private Task SendEvents(Backend.IClient client, IEnumerable<Event> events)
         {
             try
             {
@@ -134,7 +135,7 @@ namespace DurableTask.EventSourced.Emulated
             return Task.CompletedTask;
         }
 
-        private Task SendEvents(Backend.IPartition partition, List<Event> events)
+        private Task SendEvents(Backend.IPartition partition, IEnumerable<Event> events)
         {
             try
             {
@@ -152,7 +153,7 @@ namespace DurableTask.EventSourced.Emulated
             return Task.CompletedTask;
         }
 
-        private void SendEvents(List<Event> events, uint? sendingPartition)
+        private void SendEvents(IEnumerable<Event> events, uint? sendingPartition)
         {
             foreach (var evt in events)
             {

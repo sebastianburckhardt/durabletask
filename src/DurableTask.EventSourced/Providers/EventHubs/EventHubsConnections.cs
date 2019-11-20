@@ -31,8 +31,8 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubClient _partitionEventHubsClient;
         public Dictionary<uint, EventHubClient> _clientEventHubsClients = new Dictionary<uint, EventHubClient>();
-        public Dictionary<uint, EventSender<PartitionEvent>> _partitionSenders = new Dictionary<uint, EventSender<PartitionEvent>>();
-        public Dictionary<Guid, EventSender<ClientEvent>> _clientSenders = new Dictionary<Guid, EventSender<ClientEvent>>();
+        public Dictionary<uint, EventHubsSender<PartitionEvent>> _partitionSenders = new Dictionary<uint, EventHubsSender<PartitionEvent>>();
+        public Dictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new Dictionary<Guid, EventHubsSender<ClientEvent>>();
 
         public PartitionReceiver ClientReceiver { get; private set; }
 
@@ -96,7 +96,7 @@ namespace DurableTask.EventSourced.EventHubs
             return ClientReceiver = client.CreateReceiver(ClientsConsumerGroup, (clientBucket % NumPartitionsPerClientPath).ToString(), EventPosition.FromEnd());
         }
       
-        public EventSender<PartitionEvent> GetPartitionSender(uint partitionId)
+        public EventHubsSender<PartitionEvent> GetPartitionSender(uint partitionId)
         {
             lock (_partitionSenders)
             {
@@ -104,14 +104,14 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     var client = GetPartitionEventHubsClient();
                     var partitionSender = client.CreatePartitionSender(partitionId.ToString());
-                    _partitionSenders[partitionId] = sender = new EventSender<PartitionEvent>(host, partitionSender);
+                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionEvent>(host, partitionSender);
                     //System.Diagnostics.Trace.TraceInformation($"Created PartitionSender {partitionSender.ClientId} from {client.ClientId}");
                 }
                 return sender;
             }
         }
 
-        public EventSender<ClientEvent> GetClientSender(Guid clientId)
+        public EventHubsSender<ClientEvent> GetClientSender(Guid clientId)
         {
             lock (_clientSenders)
             {
@@ -120,7 +120,7 @@ namespace DurableTask.EventSourced.EventHubs
                     uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
                     var client = GetClientBucketEventHubsClient(clientBucket);
                     var partitionSender = client.CreatePartitionSender((clientBucket % NumPartitionsPerClientPath).ToString());
-                    _clientSenders[clientId] = sender = new EventSender<ClientEvent>(host, partitionSender);
+                    _clientSenders[clientId] = sender = new EventHubsSender<ClientEvent>(host, partitionSender);
                     //System.Diagnostics.Trace.TraceInformation($"Created ResponseSender {partitionSender.ClientId} from {client.ClientId}");
                 }
                 return sender;

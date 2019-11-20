@@ -70,7 +70,7 @@ namespace DurableTask.EventSourced
             if (!this.IsExecutableInstance(out var warningMessage))
             {
                 // discard the messages, by marking the batch as processed, without updating the state
-                this.Partition.Submit(new BatchProcessed()
+                this.Partition.Commit(new BatchProcessed()
                 {
                     PartitionId = this.Partition.PartitionId,
                     SessionId = this.SessionId,

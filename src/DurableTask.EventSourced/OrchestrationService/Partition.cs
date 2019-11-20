@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
 
         public CancellationToken PartitionShutdownToken => this.partitionShutdown.Token;
 
-        public BatchTimer<Event> PendingTimers { get; private set; }
+        public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
         public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
 
@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced
         public async Task<long> StartAsync()
         {
             // initialize collections for pending work
-            this.PendingTimers = new BatchTimer<Event>(this.PartitionShutdownToken, this.TimersFired);
+            this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
@@ -100,12 +100,12 @@ namespace DurableTask.EventSourced
             EtwSource.Log.PartitionStopped(this.PartitionId);
         }
 
-        private void TimersFired(List<Event> timersFired)
+        private void TimersFired(List<PartitionEvent> timersFired)
         {
             this.TraceContext.Value = "TWorker";
             foreach (var t in timersFired)
             {
-                this.Submit(t);
+                this.Commit((PartitionEvent) t);
             }
         }
 
@@ -135,11 +135,18 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Submit(Event evt, Backend.ISendConfirmationListener listener = null)
+        public void Send(Event evt, Backend.ISendConfirmationListener listener = null)
         {
             TraceSend(evt);
 
             this.BatchSender.Submit(evt, listener);
+        }
+
+        public void Commit(PartitionEvent evt)
+        {
+            TraceCommit(evt);
+
+            this.State.Commit(evt);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
@@ -182,13 +189,13 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void TraceCommit(PartitionEvent evt)
+        public void TraceProcess(PartitionEvent evt)
         {
             this.TraceContext.Value = $"{evt.CommitPosition:D7}   ";
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D7} Committing {evt} {evt.WorkItem}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D7} Processing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -201,6 +208,18 @@ namespace DurableTask.EventSourced
             if (EtwSource.EmitDiagnosticsTrace)
             {
                 this.DiagnosticsTrace($"Sending {evt} {evt.WorkItem}");
+            }
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+            }
+        }
+
+        public void TraceCommit(Event evt)
+        {
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                this.DiagnosticsTrace($"Committing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -238,7 +257,7 @@ namespace DurableTask.EventSourced
 
                 if (response != null)
                 {
-                    this.Submit(response);
+                    this.Send(response);
                 }
             }
             catch (TaskCanceledException)
@@ -303,7 +322,7 @@ namespace DurableTask.EventSourced
                     OrchestrationState = orchestrationState,
                 };
 
-                this.Submit(response);
+                this.Send(response);
             }
             catch (TaskCanceledException)
             {

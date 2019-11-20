@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
                 && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
             {
                 // An instance in this state already exists. do nothing but respond to client.
-                this.Partition.Submit(new CreationResponseReceived()
+                this.Partition.Send(new CreationResponseReceived()
                 {
                     ClientId = evt.ClientId,
                     RequestId = evt.RequestId,
@@ -60,7 +60,7 @@ namespace DurableTask.EventSourced
                 effect.ApplyTo(State.Sessions);
                 effect.ApplyTo(this);
 
-                this.Partition.Submit(new CreationResponseReceived()
+                this.Partition.Send(new CreationResponseReceived()
                 {
                     ClientId = evt.ClientId,
                     RequestId = evt.RequestId,

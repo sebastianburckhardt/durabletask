@@ -342,7 +342,7 @@ namespace DurableTask.EventSourced
             var partition = orchestrationWorkItem.Partition;
 
             partition.TraceContext.Value = "OWorker";
-            partition.Submit(new BatchProcessed()
+            partition.Commit(new BatchProcessed()
             {
                 PartitionId = orchestrationWorkItem.Partition.PartitionId,
                 SessionId = orchestrationWorkItem.SessionId,
@@ -422,7 +422,7 @@ namespace DurableTask.EventSourced
             var activityWorkItem = (ActivityWorkItem)workItem;
             var partition = activityWorkItem.Partition;
             partition.TraceContext.Value = "AWorker";
-            partition.Submit(new ActivityCompleted()
+            partition.Commit(new ActivityCompleted()
             {
                 PartitionId = activityWorkItem.Partition.PartitionId,
                 ActivityId = activityWorkItem.ActivityId,

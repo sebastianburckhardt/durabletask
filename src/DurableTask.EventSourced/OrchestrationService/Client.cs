@@ -97,7 +97,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Submit(Event evt, Backend.ISendConfirmationListener listener)
+        public void Send(Event evt, Backend.ISendConfirmationListener listener)
         {
             TraceSend(evt);
             this.BatchSender.Submit(evt, listener);
@@ -153,7 +153,7 @@ namespace DurableTask.EventSourced
             this.ResponseWaiters.TryAdd(request.RequestId, waiter);
             this.ResponseTimeouts.Schedule(DateTime.UtcNow + request.Timeout, waiter);
 
-            this.Submit(request, doneWhenSent ? waiter : null);
+            this.Send(request, doneWhenSent ? waiter : null);
 
             return waiter.Task;
         }
