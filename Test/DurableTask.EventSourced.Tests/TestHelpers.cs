@@ -55,9 +55,9 @@ namespace DurableTask.EventSourced.Tests
             // return "Emulator:4";
             // return "Emulator:32";
             // return "EmulatorS:1";
-            // return "EmulatorS:4";
+             return "EmulatorS:4";
             // return "EmulatorS:32";
-             return GetTestSetting("EventHubsConnectionString", false);
+            // return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)

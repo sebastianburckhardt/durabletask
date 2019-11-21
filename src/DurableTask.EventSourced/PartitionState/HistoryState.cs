@@ -28,9 +28,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public string InstanceId { get; set; }
 
-        [IgnoreDataMember]
-        public override string Key => $"History-{this.InstanceId}";
-
         [DataMember]
         public string ExecutionId { get; set; }
 

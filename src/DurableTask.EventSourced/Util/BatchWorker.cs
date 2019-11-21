@@ -41,6 +41,8 @@ namespace DurableTask.EventSourced
 
         private Action<Task> checkForMoreWorkAction;
 
+        private bool suspended;
+
         /// <summary>Implement this member in derived classes to process a batch</summary>
         protected abstract Task Process(List<T> batch);
 
@@ -48,7 +50,7 @@ namespace DurableTask.EventSourced
         {
             lock (this.lockable)
             {
-                queue.Add(entry);
+                this.queue.Add(entry);
                 this.Notify();
             }
         }
@@ -57,8 +59,8 @@ namespace DurableTask.EventSourced
         {
             lock (this.lockable)
             {
-                queue.Add(entry1);
-                queue.Add(entry2);
+                this.queue.Add(entry1);
+                this.queue.Add(entry2);
                 this.Notify();
             }
         }
@@ -68,7 +70,7 @@ namespace DurableTask.EventSourced
             lock (this.lockable)
             {
                 this.queue.InsertRange(0, entries);
-                Notify();
+                this.Notify();
             }
         }
 
@@ -76,12 +78,12 @@ namespace DurableTask.EventSourced
         {
             lock (this.lockable)
             {
-                if (queue.Count == 0)
+                if (this.queue.Count == 0)
                     return;
 
                 var temp = queue;
-                queue = batch;
-                batch = temp;
+                this.queue = batch;
+                this.batch = temp;
             }
 
             if (!cancellationToken.IsCancellationRequested)
@@ -89,7 +91,7 @@ namespace DurableTask.EventSourced
                 await this.Process(batch);
             }
 
-            batch.Clear();
+            this.batch.Clear();
         }
 
         /// <summary>
@@ -102,30 +104,47 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Constructor including a cancellation token.
         /// </summary>
-        public BatchWorker(CancellationToken cancellationToken)
+        public BatchWorker(CancellationToken cancellationToken, bool suspended = false)
         {
             this.cancellationToken = cancellationToken;
+            this.suspended = suspended;
             // store delegate so it does not get newly allocated on each call
             this.checkForMoreWorkAction = (t) => this.CheckForMoreWork();
         }
 
+        public void Suspend()
+        {
+            lock (this.lockable)
+            {
+                this.suspended = true;
+            }
+        }
+
+        public void Resume()
+        {
+            lock (this.lockable)
+            {
+                this.suspended = false;
+                this.Notify();
+            }
+        }
 
         /// <summary>
         /// Notify the worker that there is more work.
         /// </summary>
         public void Notify()
         {
-            lock (lockable)
+            lock (this.lockable)
             {
-                if (currentWorkCycle != null)
+                if (this.currentWorkCycle != null || this.suspended)
                 {
                     // lets the current work cycle know that there is more work
-                    moreWork = true;
+                    this.moreWork = true;
                 }
                 else
                 {
                     // start a work cycle
-                    Start();
+                    this.Start();
                 }
             }
         }
@@ -135,12 +154,12 @@ namespace DurableTask.EventSourced
             try
             {
                 // Start the task that is doing the work
-                currentWorkCycle = Task.Run(Work);
+                this.currentWorkCycle = Task.Run(this.Work);
             }
             finally
             {
                 // chain a continuation that checks for more work
-                currentWorkCycle.ContinueWith(this.checkForMoreWorkAction);
+                this.currentWorkCycle.ContinueWith(this.checkForMoreWorkAction);
             }
         }
 
@@ -149,18 +168,18 @@ namespace DurableTask.EventSourced
         /// </summary>
         private void CheckForMoreWork()
         {
-            lock (lockable)
+            lock (this.lockable)
             {
-                if (moreWork)
+                if (this.moreWork && !this.suspended)
                 {
-                    moreWork = false;
+                    this.moreWork = false;
 
                     // start the next work cycle
-                    Start();
+                    this.Start();
                 }
                 else
                 {
-                    currentWorkCycle = null;
+                    this.currentWorkCycle = null;
                 }
             }
         }

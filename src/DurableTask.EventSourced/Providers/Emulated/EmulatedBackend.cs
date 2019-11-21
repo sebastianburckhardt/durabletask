@@ -73,8 +73,8 @@ namespace DurableTask.EventSourced.Emulated
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
             var client = this.host.AddClient(clientId, clientSender);
             var clientQueue = this.settings.SerializeInEmulator
-                ? (IEmulatedQueue<ClientEvent>) new EmulatedSerializingClientQueue(client, this.shutdownTokenSource.Token)
-                : (IEmulatedQueue<ClientEvent>) new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
+                ? (IEmulatedQueue<ClientEvent>)new EmulatedSerializingClientQueue(client, this.shutdownTokenSource.Token)
+                : (IEmulatedQueue<ClientEvent>)new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(client, list));
 
@@ -104,6 +104,13 @@ namespace DurableTask.EventSourced.Emulated
 
                 this.partitionQueues[i].Send(evt);
             }
+
+            // start all the emulated queues
+            foreach (var partitionQueue in this.partitionQueues)
+            {
+                partitionQueue.Resume();
+            }
+            clientQueue.Resume();
         }
 
         async Task Backend.ITaskHub.StopAsync()

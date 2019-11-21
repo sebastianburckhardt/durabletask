@@ -42,12 +42,14 @@ namespace DurableTask.EventSourced.Emulated
         public ActivitiesState Activities { get; private set; }
 
         [DataMember]
+        public RecoveryState Recovery { get; private set; }
+
+        [DataMember]
         public SessionsState Sessions { get; private set; }
 
         [DataMember]
         internal long CommitPosition { get; private set; }
 
-        // TODO custom serialization of instances and histories for Ambrosia
 
         private ConcurrentDictionary<string, InstanceState> instances;
         private ConcurrentDictionary<string, HistoryState> histories;
@@ -65,6 +67,7 @@ namespace DurableTask.EventSourced.Emulated
             this.Outbox = new OutboxState();
             this.Timers = new TimersState();
             this.Activities = new ActivitiesState();
+            this.Recovery = new RecoveryState();
             this.Sessions = new SessionsState();
             this.instances = new ConcurrentDictionary<string, InstanceState>();
             this.histories = new ConcurrentDictionary<string, HistoryState>();
@@ -98,52 +101,41 @@ namespace DurableTask.EventSourced.Emulated
             return history;
         }
 
-        public Task<long> RestoreAsync(Partition partition)
+        public Task RestoreAsync(Partition partition)
         {
             this.partition = partition;
 
-            long nextToProcess = 0;
-
-            foreach (var trackedObject in this.GetTrackedObjects())
+            // first, connect objects to partition and restart all in-flight tasks
+            this.Dedup.Restore(partition);
+            this.Clients.Restore(partition);
+            this.Reassembly.Restore(partition);
+            this.Outbox.Restore(partition);
+            this.Timers.Restore(partition);
+            this.Activities.Restore(partition);
+            this.Recovery.Restore(partition);
+            this.Sessions.Restore(partition);
+            foreach(var instance in instances.Values)
             {
-                long lastProcessed = trackedObject.Restore(partition);
-
-                if (lastProcessed > nextToProcess)
-                {
-                    nextToProcess = lastProcessed;
-                }
+                instance.Restore(partition);
+            }
+            foreach(var history in histories.Values)
+            {
+                history.Restore(partition);
             }
 
-            return Task.FromResult(nextToProcess);
-        }
-
-        private IEnumerable<TrackedObject> GetTrackedObjects()
-        {
-            yield return Dedup;
-            yield return Clients;
-            yield return Reassembly;
-            yield return Outbox;
-            yield return Timers;
-            yield return Activities;
-            yield return Sessions;
-
-            foreach (var kvp in instances)
+            // then, finish any potentially incomplete commit batches
+            if (this.Recovery.Pending != null)
             {
-                yield return kvp.Value;
+                this.Process(this.Recovery.Pending);
             }
-            foreach (var kvp in histories)
-            {
-                yield return kvp.Value;
-            }
+
+            return Task.CompletedTask;
         }
 
         public Task ShutdownAsync()
         {
             return Task.Delay(10);
         }
-
-        // reuse these collection objects between updates (note that updates are never concurrent by design)
-        TrackedObject.EffectTracker tracker = new TrackedObject.EffectTracker();
 
         public void Commit(PartitionEvent evt)
         {
@@ -152,17 +144,31 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override Task Process(List<PartitionEvent> batch)
         {
-            foreach (var partitionEvent in batch)
+            Recovery.Pending = batch;
+
+            this.ProcessBatch(batch, Recovery.LastProcessed + 1);
+
+            Recovery.LastProcessed = Recovery.LastProcessed + batch.Count;
+            Recovery.Pending = null;
+
+            return Task.CompletedTask;
+        }
+
+        private void ProcessBatch(List<PartitionEvent> batch, long nextCommitPosition)
+        {
+            for (int i = 0; i < batch.Count; i++)
             {
-                partitionEvent.CommitPosition = ++this.CommitPosition;
+                var partitionEvent = batch[i];
+                partitionEvent.CommitPosition = nextCommitPosition + i;
                 partition.TraceProcess(partitionEvent);
                 var target = partitionEvent.StartProcessingOnObject(this);
                 target.ProcessRecursively(partitionEvent, tracker);
                 tracker.Clear();
             }
-
-            return Task.CompletedTask;
         }
+
+        // reuse these collection objects between updates (note that updates are never concurrent by design)
+        TrackedObject.EffectTracker tracker = new TrackedObject.EffectTracker();
 
         public Task<TResult> ReadAsync<TResult>(Func<TResult> read)
         {
@@ -170,7 +176,7 @@ namespace DurableTask.EventSourced.Emulated
             {
                 throw new ArgumentException("Target must be a tracked object.", nameof(read));
             }
-            lock (to.Lock)
+            lock (to.AccessLock)
             {
                 return Task.FromResult(read());
             }
@@ -182,10 +188,19 @@ namespace DurableTask.EventSourced.Emulated
             {
                 throw new ArgumentException("Target must be a tracked object.", nameof(read));
             }
-            lock (to.Lock)
+            lock (to.AccessLock)
             {
                 return Task.FromResult(read(argument));
             }
+        }
+
+        public void Update(TrackedObject target, PartitionEvent evt)
+        {
+            dynamic dynamicTarget = target;
+            dynamic dynamicPartitionEvent = evt;
+            dynamicTarget.Apply(dynamicPartitionEvent);
+
+            target.LastProcessed = evt.CommitPosition;
         }
     }
 }

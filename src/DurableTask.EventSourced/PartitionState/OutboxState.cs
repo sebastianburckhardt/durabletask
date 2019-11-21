@@ -37,9 +37,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public bool AckBatchInProgress { get; set; } = false;
 
-        [IgnoreDataMember]
-        public override string Key => "Outbox";
-
         protected override void Restore()
         {
             // re-send all messages as they could have been lost after the failure

@@ -31,13 +31,17 @@ namespace DurableTask.EventSourced
         {
             // ------ intialization ------
 
-            Task<long> RestoreAsync(Partition localPartition);
+            Task RestoreAsync(Partition localPartition);
 
             Task ShutdownAsync();
 
             // ------ commit an event atomically and asynchronously ------
 
             void Commit(PartitionEvent evt);
+
+            // ------ methods called from the update thread ------
+
+            void Update(TrackedObject target, PartitionEvent evt);
 
             // ------ methods called from any thread ------
 
@@ -58,6 +62,8 @@ namespace DurableTask.EventSourced
             TimersState Timers { get; }
 
             ActivitiesState Activities { get; }
+
+            RecoveryState Recovery { get; }
 
             SessionsState Sessions { get; }
 

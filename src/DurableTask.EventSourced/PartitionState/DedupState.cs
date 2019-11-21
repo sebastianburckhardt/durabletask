@@ -24,9 +24,6 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class DedupState : TrackedObject
     {
-        [IgnoreDataMember]
-        public override string Key => "Dedup";
-
         [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
 

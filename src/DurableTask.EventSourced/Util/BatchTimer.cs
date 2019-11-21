@@ -37,9 +37,12 @@ namespace DurableTask.EventSourced
             this.schedule = new SortedList<DateTime, T>(this);
             this.notify = new SemaphoreSlim(0, int.MaxValue);
 
-            new Thread(ExpirationCheckLoop).Start();
-
             token.Register(() => this.notify.Release());
+        }
+
+        public void Start()
+        {
+            new Thread(ExpirationCheckLoop).Start();
         }
 
         public int Compare(DateTime x, DateTime y)

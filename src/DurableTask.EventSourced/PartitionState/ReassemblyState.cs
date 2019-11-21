@@ -24,9 +24,6 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ReassemblyState : TrackedObject
     {
-        [IgnoreDataMember]
-        public override string Key => "Reassembly";
-
         [DataMember]
         public Dictionary<Guid, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<Guid, List<PartitionEventFragment>>();
 

@@ -51,6 +51,7 @@ namespace DurableTask.EventSourced
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
             this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
+            this.ResponseTimeouts.Start();
         }
 
         public Task StopAsync()

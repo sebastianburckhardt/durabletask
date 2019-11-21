@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced
         {
             uint PartitionId { get; }
 
-            Task<long> StartAsync();
+            Task StartAsync();
 
             Task ProcessAsync(PartitionEvent partitionEvent);
 

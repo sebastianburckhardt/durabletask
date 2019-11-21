@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Dynamitey;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
@@ -23,23 +24,22 @@ namespace DurableTask.EventSourced
         protected Partition Partition;
 
         [DataMember]
-        long LastProcessed { get; set; } = -1;
+        internal long LastProcessed { get; set; } = -1;
 
         [IgnoreDataMember]
-        public abstract string Key { get; }
+        public TrackedObjectKey Key { get; set; }
 
         [IgnoreDataMember]
         protected Storage.IPartitionState State => Partition.State;
 
-        // protects conflicts between the event processor and local tasks
-        internal object Lock { get; private set; } = new object();
+        // used by the state storage backend to protect from conflicts
+        internal object AccessLock { get; private set; } = new object();
 
-        // call after deserialization to fill in non-serialized fields
-        public long Restore(Partition Partition)
+        // call after deserialization, or after simulating a recovery
+        public void Restore(Partition Partition)
         {
             this.Partition = Partition;
             this.Restore();
-            return LastProcessed;
         }
 
         protected virtual void Restore()
@@ -89,7 +89,7 @@ namespace DurableTask.EventSourced
                 ObjectsToApplyTo.Clear();
             }
         }
-        
+
         public void ProcessRecursively(PartitionEvent evt, EffectTracker effect)
         {
             if (evt.CommitPosition > this.LastProcessed)
@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced
                     }
                 }
 
-                // apply all objects  as determined by effect tracker
+                // apply all objects as determined by effect tracker
                 if (numObjectsToApplyTo > 0)
                 {
                     for (int i = 0; i < numObjectsToApplyTo; i++)
@@ -130,17 +130,12 @@ namespace DurableTask.EventSourced
                         var target = effect.ObjectsToApplyTo[applyToStartPos + i];
                         if (target.LastProcessed < evt.CommitPosition)
                         {
-                            lock (target.Lock)
+                            if (EtwSource.EmitDiagnosticsTrace)
                             {
-                                if (EtwSource.EmitDiagnosticsTrace)
-                                {
-                                    this.Partition.DiagnosticsTrace($"Apply to [{target.Key}]");
-                                }
-
-                                dynamic dynamicTarget = target;
-                                dynamicTarget.Apply(dynamicPartitionEvent);
-                                target.LastProcessed = evt.CommitPosition;
+                                this.Partition.DiagnosticsTrace($"Apply to [{target.Key}]");
                             }
+
+                            this.Partition.State.Update(target, evt);
                         }
                     }
                 }

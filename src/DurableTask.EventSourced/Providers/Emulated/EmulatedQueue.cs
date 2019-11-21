@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced.Emulated
     {
         private long position = 0;
 
-        public EmulatedQueue(CancellationToken cancellationToken) : base(cancellationToken)
+        public EmulatedQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
         {
         }
 

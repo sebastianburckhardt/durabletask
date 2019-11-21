@@ -47,9 +47,6 @@ namespace DurableTask.EventSourced
             public bool ForceNewExecution { get; set; }
         }
 
-        [IgnoreDataMember]
-        public override string Key => "Sessions";
-
         protected override void Restore()
         {
             // create work items for all sessions

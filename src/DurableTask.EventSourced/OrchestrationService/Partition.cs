@@ -71,7 +71,7 @@ namespace DurableTask.EventSourced
             this.TraceContext = new AsyncLocal<string>();
         }
 
-        public async Task<long> StartAsync()
+        public async Task StartAsync()
         {
             // initialize collections for pending work
             this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
@@ -80,10 +80,10 @@ namespace DurableTask.EventSourced
 
             // restore from last snapshot
             this.TraceContext.Value = "restore";
-            var resumeFrom = await State.RestoreAsync(this);
+            await State.RestoreAsync(this);
             this.TraceContext.Value = null;
 
-            return resumeFrom;
+            this.PendingTimers.Start();
         }
 
         public Task ProcessAsync(PartitionEvent partitionEvent)

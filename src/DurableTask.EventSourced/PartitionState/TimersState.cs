@@ -29,9 +29,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long SequenceNumber { get; set; }
 
-        [IgnoreDataMember]
-        public override string Key => "Timers";
-
         protected override void Restore()
         {
             // restore the pending timers

@@ -24,9 +24,6 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ClientsState : TrackedObject
     {
-        [IgnoreDataMember]
-        public override string Key => "Clients";
-
         // this is where we would add client-tracking state if we need it at some point
         // for now this just dispatches the processing, but keeps no state
 

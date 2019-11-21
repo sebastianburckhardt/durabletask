@@ -13,18 +13,19 @@
 
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Runtime.Serialization;
+using System.Text;
+using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
-namespace DurableTask.EventSourced.Emulated
+namespace DurableTask.EventSourced
 {
-    /// <summary>
-    /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
-    /// </summary>
-    internal interface IEmulatedQueue<T>
+    [DataContract]
+    internal class RecoveryState : TrackedObject
     {
-        void Send(T evt);
-
-        void Resume();
+        [DataMember]
+        public List<PartitionEvent> Pending { get; set; }
     }
 }

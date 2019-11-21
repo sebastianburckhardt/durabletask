@@ -32,10 +32,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long SequenceNumber { get; set; }
 
-        [IgnoreDataMember]
-        public override string Key => "Activities";
-
-
         protected override void Restore()
         {
             // reschedule work items
