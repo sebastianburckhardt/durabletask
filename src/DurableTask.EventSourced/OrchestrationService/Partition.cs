@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced
 
         public Task ProcessAsync(PartitionEvent partitionEvent)
         {
-            this.State.Commit(partitionEvent);
+            this.State.Enqueue(partitionEvent);
             return Task.CompletedTask;
         }
 
@@ -146,7 +146,7 @@ namespace DurableTask.EventSourced
         {
             TraceCommit(evt);
 
-            this.State.Commit(evt);
+            this.State.Enqueue(evt);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
@@ -298,7 +298,10 @@ namespace DurableTask.EventSourced
 
             public async Task ReadFromStateAsync(Storage.IPartitionState state)
             {
-                var orchestrationState = await state.ReadAsync(state.GetInstance(Key).GetOrchestrationState);
+                var orchestrationState = await state.ReadAsync<InstanceState,OrchestrationState>(
+                    TrackedObjectKey.Instance(this.Key),
+                    InstanceState.GetOrchestrationState);
+
                 this.Notify(orchestrationState);
             }
 
@@ -313,7 +316,9 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                var orchestrationState = await this.State.ReadAsync(this.State.GetInstance(request.InstanceId).GetOrchestrationState);
+                var orchestrationState = await this.State.ReadAsync<InstanceState,OrchestrationState>(
+                     TrackedObjectKey.Instance(request.InstanceId),
+                     InstanceState.GetOrchestrationState);
 
                 var response = new StateResponseReceived()
                 {

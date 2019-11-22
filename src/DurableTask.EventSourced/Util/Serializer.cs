@@ -17,6 +17,7 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
@@ -24,7 +25,7 @@ namespace DurableTask.EventSourced
     {
         private static DataContractSerializer eventSerializer 
             = new DataContractSerializer(typeof(Event));
-        
+
         public static byte[] SerializeEvent(Event e)
         {
             var stream = new MemoryStream();

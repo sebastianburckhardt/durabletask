@@ -34,9 +34,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public PartitionEvent ReassembledEvent;
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Reassembly;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Reassembly;
     }
 }

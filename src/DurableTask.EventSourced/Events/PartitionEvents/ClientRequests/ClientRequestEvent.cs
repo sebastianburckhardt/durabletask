@@ -27,9 +27,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TimeSpan Timeout { get; set; }
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Clients;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Clients;
     }
 }

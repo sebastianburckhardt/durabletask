@@ -25,15 +25,18 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class InstanceState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(InstanceState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [IgnoreDataMember]
-        public string InstanceId { get; set; }
+        public string InstanceId => Key.InstanceId;
 
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
-        public OrchestrationState GetOrchestrationState()
+        public static OrchestrationState GetOrchestrationState(InstanceState state)
         {
-            return this.OrchestrationState;
+            return state.OrchestrationState;
         }
 
         // CreationRequestReceived
@@ -54,8 +57,8 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
 
                 this.Partition.Send(new CreationResponseReceived()
                 {

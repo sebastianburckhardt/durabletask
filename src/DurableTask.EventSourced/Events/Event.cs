@@ -20,21 +20,7 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    [KnownType(typeof(ClientEventFragment))]
-    [KnownType(typeof(CreationResponseReceived))]
-    [KnownType(typeof(StateResponseReceived))]
-    [KnownType(typeof(WaitResponseReceived))]
-    [KnownType(typeof(ClientTaskMessagesReceived))]
-    [KnownType(typeof(CreationRequestReceived))]
-    [KnownType(typeof(StateRequestReceived))]
-    [KnownType(typeof(WaitRequestReceived))]
-    [KnownType(typeof(ActivityCompleted))]
-    [KnownType(typeof(BatchProcessed))]
-    [KnownType(typeof(SentMessagesAcked))]
-    [KnownType(typeof(TimerFired))]
-    [KnownType(typeof(TaskhubCreated))]
-    [KnownType(typeof(TaskMessageReceived))]
-    [KnownType(typeof(PartitionEventFragment))]
+    [KnownTypeAttribute("KnownTypes")]
     internal abstract class Event
     {
         /// <summary>
@@ -59,6 +45,25 @@ namespace DurableTask.EventSourced
 
         protected virtual void TraceInformation(StringBuilder s)
         {
+        }
+
+        public static IEnumerable<Type> KnownTypes()
+        {
+            yield return typeof(ClientEventFragment);
+            yield return typeof(CreationResponseReceived);
+            yield return typeof(StateResponseReceived);
+            yield return typeof(WaitResponseReceived);
+            yield return typeof(ClientTaskMessagesReceived);
+            yield return typeof(CreationRequestReceived);
+            yield return typeof(StateRequestReceived);
+            yield return typeof(WaitRequestReceived);
+            yield return typeof(ActivityCompleted);
+            yield return typeof(BatchProcessed);
+            yield return typeof(SentMessagesAcked);
+            yield return typeof(TimerFired);
+            yield return typeof(TaskhubCreated);
+            yield return typeof(TaskMessageReceived);
+            yield return typeof(PartitionEventFragment);
         }
 
         #region ETW trace properties

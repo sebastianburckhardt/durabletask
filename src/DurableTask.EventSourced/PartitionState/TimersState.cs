@@ -23,6 +23,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class TimersState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(TimersState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public Dictionary<long, TaskMessage> PendingTimers { get; private set; } = new Dictionary<long, TaskMessage>();
 
@@ -49,8 +52,8 @@ namespace DurableTask.EventSourced
         {
             if (PendingTimers.ContainsKey(evt.TimerId))
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 

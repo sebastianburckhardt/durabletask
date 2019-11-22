@@ -26,6 +26,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ActivitiesState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(ActivitiesState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public Dictionary<long, TaskMessage> PendingActivities { get; private set; } = new Dictionary<long, TaskMessage>();
 
@@ -47,8 +50,8 @@ namespace DurableTask.EventSourced
         {
             if (PendingActivities.ContainsKey(evt.ActivityId))
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 

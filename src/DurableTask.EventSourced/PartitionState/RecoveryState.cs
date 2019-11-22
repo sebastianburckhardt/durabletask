@@ -25,6 +25,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class RecoveryState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(RecoveryState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public List<PartitionEvent> Pending { get; set; }
     }

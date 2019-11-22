@@ -32,10 +32,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Timers;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Timers;
 
         [IgnoreDataMember]
         public override string WorkItem => $"T{TimerId:D6}";

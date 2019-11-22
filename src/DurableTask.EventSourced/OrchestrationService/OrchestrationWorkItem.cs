@@ -63,8 +63,9 @@ namespace DurableTask.EventSourced
             else
             {
                 // load the runtime state
-                this.OrchestrationRuntimeState = await Partition.State.ReadAsync(
-                    Partition.State.GetHistory(this.InstanceId).GetRuntimeState);
+                this.OrchestrationRuntimeState = await Partition.State.ReadAsync<HistoryState,OrchestrationRuntimeState>(
+                    TrackedObjectKey.History(InstanceId),
+                    HistoryState.GetRuntimeState);
             }
 
             if (!this.IsExecutableInstance(out var warningMessage))

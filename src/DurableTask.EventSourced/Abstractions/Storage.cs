@@ -29,47 +29,14 @@ namespace DurableTask.EventSourced
         /// </summary>
         internal interface IPartitionState
         {
-            // ------ intialization ------
-
             Task RestoreAsync(Partition localPartition);
 
             Task ShutdownAsync();
 
-            // ------ commit an event atomically and asynchronously ------
+            void Enqueue(PartitionEvent evt);
 
-            void Commit(PartitionEvent evt);
-
-            // ------ methods called from the update thread ------
-
-            void Update(TrackedObject target, PartitionEvent evt);
-
-            // ------ methods called from any thread ------
-
-            Task<TResult> ReadAsync<TResult>(Func<TResult> read);
-
-            Task<TResult> ReadAsync<TArgument1, TResult>(Func<TArgument1, TResult> read, TArgument1 argument);
-
-            // ------ tracked objects ------
-
-            DedupState Dedup { get; }
-
-            ClientsState Clients { get; }
-
-            ReassemblyState Reassembly { get; }
-
-            OutboxState Outbox { get; }
-
-            TimersState Timers { get; }
-
-            ActivitiesState Activities { get; }
-
-            RecoveryState Recovery { get; }
-
-            SessionsState Sessions { get; }
-
-            InstanceState GetInstance(string instanceId);
-
-            HistoryState GetHistory(string instanceId);
+            Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
+                where TObject: TrackedObject;
         }
     }
 }

@@ -25,8 +25,11 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class HistoryState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(HistoryState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [IgnoreDataMember]
-        public string InstanceId { get; set; }
+        public string InstanceId => Key.InstanceId;
 
         [DataMember]
         public string ExecutionId { get; set; }
@@ -37,11 +40,10 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         private OrchestrationRuntimeState cachedRuntimeState;
 
-        public OrchestrationRuntimeState GetRuntimeState()
+        public static OrchestrationRuntimeState GetRuntimeState(HistoryState state)
         {
-            return this.cachedRuntimeState ?? (this.cachedRuntimeState = new OrchestrationRuntimeState(History));
+            return state.cachedRuntimeState ?? (state.cachedRuntimeState = new OrchestrationRuntimeState(state.History));
         }
-
 
         // BatchProcessed
 

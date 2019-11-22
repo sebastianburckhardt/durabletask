@@ -25,6 +25,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class OutboxState : TrackedObject, Backend.ISendConfirmationListener
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(OutboxState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public SortedList<long, Dictionary<uint, TaskMessageReceived>> Outbox { get; private set; } = new SortedList<long, Dictionary<uint, TaskMessageReceived>>();
 
@@ -147,7 +150,7 @@ namespace DurableTask.EventSourced
 
         public void Process(SentMessagesAcked evt, EffectTracker effect)
         {
-            effect.ApplyTo(this);
+            effect.ApplyTo(this.Key);
         }
 
         public void Apply(SentMessagesAcked evt)

@@ -28,6 +28,6 @@ namespace DurableTask.EventSourced
         public override bool AtLeastOnceDelivery => true; 
 
         // returns set of affected objects
-        public abstract TrackedObject StartProcessingOnObject(Storage.IPartitionState state);
+        public abstract TrackedObjectKey StartProcessingOnObject { get; }
     }
 }

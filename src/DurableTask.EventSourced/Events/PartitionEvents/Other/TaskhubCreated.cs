@@ -34,10 +34,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long[] StartPositions { get; set; }
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Dedup;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
     }
 
 }

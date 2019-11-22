@@ -24,6 +24,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ReassemblyState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(ReassemblyState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public Dictionary<Guid, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<Guid, List<PartitionEventFragment>>();
 
@@ -39,11 +42,11 @@ namespace DurableTask.EventSourced
                     this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
                 }
 
-                var target = evt.ReassembledEvent.StartProcessingOnObject(Partition.State);
+                var target = evt.ReassembledEvent.StartProcessingOnObject;
                 effect.ProcessOn(target);
             }
 
-            effect.ApplyTo(this);
+            effect.ApplyTo(this.Key);
         }
 
         public override void Apply(PartitionEventFragment evt)

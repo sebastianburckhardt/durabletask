@@ -173,7 +173,7 @@ namespace DurableTask.EventSourced.Emulated
                     if (partitionEvent.PartitionId == sendingPartition)
                     {
                         // a loop-back message (impulse) can be committed immediately
-                        this.partitionStates[sendingPartition.Value].Commit(partitionEvent);
+                        this.partitionStates[sendingPartition.Value].Enqueue(partitionEvent);
                     }
                     else
                     {

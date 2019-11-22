@@ -25,6 +25,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class SessionsState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(SessionsState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public Dictionary<string, Session> Sessions { get; private set; } = new Dictionary<string, Session>();
 
@@ -146,26 +149,26 @@ namespace DurableTask.EventSourced
                 && session.SessionId == evt.SessionId
                 && session.BatchStartPosition == evt.BatchStartPosition)
             {
-                effect.ApplyTo(State.GetInstance(evt.InstanceId));
+                effect.ApplyTo(TrackedObjectKey.Instance(evt.InstanceId));
 
-                effect.ApplyTo(State.GetHistory(evt.InstanceId));
+                effect.ApplyTo(TrackedObjectKey.History(evt.InstanceId));
 
                 if (evt.OrchestratorMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Outbox);
+                    effect.ApplyTo(TrackedObjectKey.Outbox);
                 }
 
                 if (evt.ActivityMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Activities);
+                    effect.ApplyTo(TrackedObjectKey.Activities);
                 }
 
                 if (evt.TimerMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Timers);
+                    effect.ApplyTo(TrackedObjectKey.Timers);
                 }
 
-                effect.ApplyTo(this);
+                effect.ApplyTo(this.Key);
             }
         }
 

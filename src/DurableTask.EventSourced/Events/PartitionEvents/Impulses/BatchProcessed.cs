@@ -53,10 +53,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public DateTime Timestamp { get; set; }
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Sessions;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Sessions;
 
         protected override void TraceInformation(StringBuilder s)
         {

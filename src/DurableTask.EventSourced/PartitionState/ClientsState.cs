@@ -24,17 +24,20 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ClientsState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(ClientsState));
+        protected override DataContractSerializer Serializer => serializer;
+
         // this is where we would add client-tracking state if we need it at some point
         // for now this just dispatches the processing, but keeps no state
 
         public void Process(ClientTaskMessagesReceived evt, EffectTracker effect)
         {
-            effect.ApplyTo(Partition.State.Sessions);
+            effect.ApplyTo(TrackedObjectKey.Sessions);
         }
 
         public void Process(CreationRequestReceived evt, EffectTracker effect)
         {
-            effect.ProcessOn(Partition.State.GetInstance(evt.InstanceId));
+            effect.ProcessOn(TrackedObjectKey.Instance(evt.InstanceId));
         }
 
         public void Process(StateRequestReceived evt, EffectTracker effect)

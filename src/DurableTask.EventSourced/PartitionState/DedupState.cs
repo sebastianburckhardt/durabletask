@@ -24,6 +24,9 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class DedupState : TrackedObject
     {
+        private static DataContractSerializer serializer = new DataContractSerializer(typeof(DedupState));
+        protected override DataContractSerializer Serializer => serializer;
+
         [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
 
@@ -31,7 +34,7 @@ namespace DurableTask.EventSourced
 
         public void Process(TaskhubCreated evt, EffectTracker effect)
         {
-            effect.ApplyTo(this);
+            effect.ApplyTo(this.Key);
         }
 
         public void Apply(TaskhubCreated evt)
@@ -49,12 +52,12 @@ namespace DurableTask.EventSourced
         {
             if (this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
             {
-                effect.ApplyTo(State.Sessions);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
             }
             else if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 
