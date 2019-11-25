@@ -13,32 +13,18 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    /// <summary>
-    /// Abstractions for the storage, that allow different providers to be used.
-    /// </summary>
-    internal static class Storage
+    [DataContract]
+    internal class RecoveryStateChanged : PartitionEvent
     {
-        /// <summary>
-        /// The event-sourced state of a partition, suitable for asynchronous checkpointing
-        /// </summary>
-        internal interface IPartitionState
-        {
-            Task RestoreAsync(Partition localPartition);
+        [DataMember]
+        public List<PartitionEvent> Pending { get; set; }
 
-            Task WaitForTerminationAsync();
-
-            void Submit(PartitionEvent evt);
-
-            void SubmitRange(IEnumerable<PartitionEvent> evt);
-
-            Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
-                where TObject: TrackedObject;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Recovery;
     }
 }

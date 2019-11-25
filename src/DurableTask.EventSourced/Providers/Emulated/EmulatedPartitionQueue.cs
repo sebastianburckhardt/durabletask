@@ -44,11 +44,11 @@ namespace DurableTask.EventSourced.Emulated
             return evt;
         }
 
-        protected override async Task Deliver(PartitionEvent evt)
+        protected override void Deliver(PartitionEvent evt)
         {
             try
             {
-                await partition.ProcessAsync(evt);
+                partition.Submit(evt);
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {

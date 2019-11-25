@@ -20,20 +20,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Dynamitey;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
     internal class ActivitiesState : TrackedObject
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(ActivitiesState));
-        protected override DataContractSerializer Serializer => serializer;
-
         [DataMember]
         public Dictionary<long, TaskMessage> PendingActivities { get; private set; } = new Dictionary<long, TaskMessage>();
 
         [DataMember]
         public long SequenceNumber { get; set; }
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Activities);
 
         protected override void Restore()
         {

@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,7 +41,7 @@ namespace DurableTask.EventSourced.Emulated
 
         public TrackedObject GetOrAdd(TrackedObjectKey key)
         {
-            var result = trackedObjects.GetOrAdd(key, TrackedObjectKey.TrackedObjectFactory);
+            var result = trackedObjects.GetOrAdd(key, TrackedObjectKey.Factory);
             result.Restore(this.partition);
             return result;
         }
@@ -66,7 +67,7 @@ namespace DurableTask.EventSourced.Emulated
             return Task.CompletedTask;
         }
 
-        public Task ShutdownAsync()
+        public Task WaitForTerminationAsync()
         {
             return Task.Delay(10);
         }
@@ -74,32 +75,33 @@ namespace DurableTask.EventSourced.Emulated
         public Task<TResult> ReadAsync<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
             var target = (TObject)this.GetOrAdd(key);
-            lock (target.AccessLock)
+
+            lock (target.AccessLock) // prevent conflict with writers
             {
                 return Task.FromResult(read(target));
             }
         }
 
-        public void Enqueue(PartitionEvent evt)
-        {
-            this.Submit(evt);
-        }
-
-        protected override Task Process(List<PartitionEvent> batch)
+        protected override Task Process(IReadOnlyList<PartitionEvent> batch)
         {
             var recoveryState = (RecoveryState)this.GetOrAdd(TrackedObjectKey.Recovery);
 
-            recoveryState.Pending = batch;
+            recoveryState.Pending = batch.ToList();
 
             this.ProcessBatch(batch, recoveryState.LastProcessed + 1);
 
             recoveryState.LastProcessed = recoveryState.LastProcessed + batch.Count;
             recoveryState.Pending = null;
 
+            foreach(var evt in batch)
+            {
+                evt.ConfirmationListener?.Confirm(evt);
+            }
+
             return Task.CompletedTask;
         }
 
-        private void ProcessBatch(List<PartitionEvent> batch, long nextCommitPosition)
+        private void ProcessBatch(IReadOnlyList<PartitionEvent> batch, long nextCommitPosition)
         {
             for (int i = 0; i < batch.Count; i++)
             {
@@ -163,10 +165,13 @@ namespace DurableTask.EventSourced.Emulated
                                 this.partition.DiagnosticsTrace($"Apply to [{target.Key}]");
                             }
 
-                            dynamic dynamicTarget = target;
-                            dynamicTarget.Apply(dynamicPartitionEvent);
+                            lock (target.AccessLock) // prevent conflict with readers
+                            {
+                                dynamic dynamicTarget = target;
+                                dynamicTarget.Apply(dynamicPartitionEvent);
 
-                            target.LastProcessed = evt.CommitPosition;
+                                target.LastProcessed = evt.CommitPosition;
+                            }
                         }
                     }
                 }

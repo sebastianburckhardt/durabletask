@@ -26,6 +26,9 @@ namespace DurableTask.EventSourced
         private static DataContractSerializer eventSerializer 
             = new DataContractSerializer(typeof(Event));
 
+        private static DataContractSerializer trackedObjectSerializer
+            = new DataContractSerializer(typeof(TrackedObject));
+
         public static byte[] SerializeEvent(Event e)
         {
             var stream = new MemoryStream();
@@ -48,6 +51,21 @@ namespace DurableTask.EventSourced
         {
             var stream = new MemoryStream(bytes);
             return (Event)eventSerializer.ReadObject(stream);
+        }
+
+        public static void SerializeTrackedObject(TrackedObject trackedObject)
+        {
+            var stream = new MemoryStream();
+            trackedObjectSerializer.WriteObject(stream, trackedObject);
+            trackedObject.SerializedSnapshot = stream.ToArray();
+        }
+
+        public static TrackedObject DeserializeTrackedObject(byte[] bytes)
+        {
+            var stream = new MemoryStream(bytes);
+            var result = (TrackedObject) trackedObjectSerializer.ReadObject(stream);
+            result.SerializedSnapshot = bytes;
+            return result;
         }
     }
 }

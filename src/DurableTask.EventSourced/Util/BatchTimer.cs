@@ -40,9 +40,11 @@ namespace DurableTask.EventSourced
             token.Register(() => this.notify.Release());
         }
 
-        public void Start()
+        public void Start(string name)
         {
-            new Thread(ExpirationCheckLoop).Start();
+            var thread = new Thread(ExpirationCheckLoop);
+            thread.Name = name;
+            thread.Start();
         }
 
         public int Compare(DateTime x, DateTime y)

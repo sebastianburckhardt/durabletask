@@ -24,11 +24,12 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ReassemblyState : TrackedObject
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(ReassemblyState));
-        protected override DataContractSerializer Serializer => serializer;
-
         [DataMember]
         public Dictionary<Guid, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<Guid, List<PartitionEventFragment>>();
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Reassembly);
+
 
         // PartitionEventFragment is stored locally, OR processed if it is the last
 

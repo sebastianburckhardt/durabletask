@@ -20,40 +20,37 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class SendWorker : BatchWorker<(Event evt, Backend.ISendConfirmationListener listener)>, Backend.ISender
+    internal class SendWorker : BatchWorker<Event>, Backend.ISender
     {
-        private Func<IEnumerable<Event>, Task> sendHandler;
+        private Action<IEnumerable<Event>> sendHandler;
 
         public SendWorker(CancellationToken token)
             : base(token)
         {
         }
 
-        public void SetHandler(Func<IEnumerable<Event>, Task> sendHandler)
+        public void SetHandler(Action<IEnumerable<Event>> sendHandler)
         {
             this.sendHandler = sendHandler ?? throw new ArgumentNullException(nameof(sendHandler));
         }
 
-        void Backend.ISender.Submit(Event element, Backend.ISendConfirmationListener confirmationListener)
+        void Backend.ISender.Submit(Event element)
         {
-            this.Submit((element, confirmationListener));
+            this.Submit(element);
         }
 
-        protected override async Task Process(List<(Event evt, Backend.ISendConfirmationListener listener)> batch)
+        protected override Task Process(IReadOnlyList<Event> batch)
         {
             try
             {
-                await sendHandler(batch.Select(x => x.evt));
+                sendHandler(batch);
             }
             catch (Exception e)
             {
                 System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
             }
 
-            for (int i = 0; i < batch.Count; i++)
-            {
-                batch[i].listener?.ConfirmDurablySent(batch[i].evt);
-            }
+            return Task.CompletedTask;
         }
     }
 }

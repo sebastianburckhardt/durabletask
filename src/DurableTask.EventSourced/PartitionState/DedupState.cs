@@ -24,11 +24,11 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class DedupState : TrackedObject
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(DedupState));
-        protected override DataContractSerializer Serializer => serializer;
-
         [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
 
         // TaskhubCreated is always the first event, we use it to initialize the deduplication logic
 

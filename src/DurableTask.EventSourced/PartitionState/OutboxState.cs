@@ -23,11 +23,8 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OutboxState : TrackedObject, Backend.ISendConfirmationListener
+    internal class OutboxState : TrackedObject, Backend.IConfirmationListener
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(OutboxState));
-        protected override DataContractSerializer Serializer => serializer;
-
         [DataMember]
         public SortedList<long, Dictionary<uint, TaskMessageReceived>> Outbox { get; private set; } = new SortedList<long, Dictionary<uint, TaskMessageReceived>>();
 
@@ -40,6 +37,10 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public bool AckBatchInProgress { get; set; } = false;
 
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
+
+
         protected override void Restore()
         {
             // re-send all messages as they could have been lost after the failure
@@ -47,7 +48,8 @@ namespace DurableTask.EventSourced
             {
                 foreach (var outmessage in kvp.Value.Values)
                 {
-                    Partition.Send(outmessage, this);
+                    outmessage.ConfirmationListener = this;
+                    Partition.Send(outmessage);
                 }
             }
         }
@@ -76,11 +78,12 @@ namespace DurableTask.EventSourced
 
             foreach (var outmessage in toSend.Values)
             {
-                Partition.Send(outmessage, this);
+                outmessage.ConfirmationListener = this;
+                Partition.Send(outmessage);
             }
         }
 
-        public void ConfirmDurablySent(Event evt)
+        public void Confirm(Event evt)
         {
             if (evt is TaskMessageReceived taskMessageReceived)
             {
@@ -89,7 +92,7 @@ namespace DurableTask.EventSourced
                 if (!this.AckBatchInProgress)
                 {
                     this.Partition.TraceContext.Value = "SWorker";
-                    this.Partition.Commit(new SentMessagesAcked()
+                    this.Partition.Submit(new SentMessagesAcked()
                     {
                         PartitionId = this.Partition.PartitionId,
                         DurablySent = this.CurrentAckBatch.ToArray(),
@@ -100,7 +103,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void ReportSenderException(Event evt, Exception e)
+        public void ReportException(Event evt, Exception e)
         {
             // this should never be called because all events sent by partitions are at-least-once
             throw new NotImplementedException();
@@ -142,7 +145,12 @@ namespace DurableTask.EventSourced
 
             foreach (var outmessage in toSend.Values)
             {
-                Partition.Send(outmessage, this.Partition.Settings.PartitionCommunicationIsExactlyOnce ? null : this);
+                if (!this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
+                {
+                    outmessage.ConfirmationListener = this;
+                }
+
+                Partition.Send(outmessage);
             }
         }
 
@@ -169,7 +177,7 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                this.Partition.Commit(new SentMessagesAcked()
+                this.Partition.Submit(new SentMessagesAcked()
                 {
                     PartitionId = this.Partition.PartitionId,
                     DurablySent = this.CurrentAckBatch.ToArray(),

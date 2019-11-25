@@ -11,9 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced.Faster;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,6 +28,7 @@ namespace DurableTask.EventSourced.Emulated
 
         private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
         private IEmulatedQueue<PartitionEvent>[] partitionQueues;
+        private Backend.IClient client;
         private Storage.IPartitionState[] partitionStates;
         private CancellationTokenSource shutdownTokenSource;
 
@@ -71,19 +74,19 @@ namespace DurableTask.EventSourced.Emulated
             // create a client
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
-            var client = this.host.AddClient(clientId, clientSender);
+            this.client = this.host.AddClient(clientId, clientSender);
             var clientQueue = this.settings.SerializeInEmulator
-                ? (IEmulatedQueue<ClientEvent>)new EmulatedSerializingClientQueue(client, this.shutdownTokenSource.Token)
-                : (IEmulatedQueue<ClientEvent>)new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
+                ? (IEmulatedQueue<ClientEvent>)new EmulatedSerializingClientQueue(this.client, this.shutdownTokenSource.Token)
+                : (IEmulatedQueue<ClientEvent>)new EmulatedClientQueue(this.client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
-            clientSender.SetHandler(list => SendEvents(client, list));
+            clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
             for (uint i = 0; i < this.settings.EmulatedPartitions; i++)
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partitionState = partitionStates[i] = new EmulatedStorage();
+                var partitionState = partitionStates[i] = new FasterStorage();
                 var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
@@ -115,16 +118,17 @@ namespace DurableTask.EventSourced.Emulated
 
         async Task Backend.ITaskHub.StopAsync()
         {
-            await Task.Delay(simulatedDelay);
-
             if (this.shutdownTokenSource != null)
             {
                 this.shutdownTokenSource.Cancel();
                 this.shutdownTokenSource = null;
+
+                await this.client.StopAsync();
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.WaitForTerminationAsync()));
             }
         }
 
-        private Task SendEvents(Backend.IClient client, IEnumerable<Event> events)
+        private void SendEvents(Backend.IClient client, IEnumerable<Event> events)
         {
             try
             {
@@ -137,12 +141,10 @@ namespace DurableTask.EventSourced.Emulated
             catch (Exception e)
             {
                 client.ReportError(nameof(SendEvents), e);
-                throw e;
             }
-            return Task.CompletedTask;
         }
 
-        private Task SendEvents(Backend.IPartition partition, IEnumerable<Event> events)
+        private void SendEvents(Backend.IPartition partition, IEnumerable<Event> events)
         {
             try
             {
@@ -155,9 +157,7 @@ namespace DurableTask.EventSourced.Emulated
             catch (Exception e)
             {
                 partition.ReportError(nameof(SendEvents), e);
-                throw e;
             }
-            return Task.CompletedTask;
         }
 
         private void SendEvents(IEnumerable<Event> events, uint? sendingPartition)
@@ -173,7 +173,7 @@ namespace DurableTask.EventSourced.Emulated
                     if (partitionEvent.PartitionId == sendingPartition)
                     {
                         // a loop-back message (impulse) can be committed immediately
-                        this.partitionStates[sendingPartition.Value].Enqueue(partitionEvent);
+                        this.partitionStates[sendingPartition.Value].Submit(partitionEvent);
                     }
                     else
                     {

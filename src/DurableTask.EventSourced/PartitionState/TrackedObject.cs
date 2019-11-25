@@ -21,6 +21,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     [DataContract]
+    [KnownTypeAttribute("KnownTypes")]
     internal abstract class TrackedObject
     {
         [DataMember]
@@ -30,20 +31,14 @@ namespace DurableTask.EventSourced
         protected Partition Partition;
 
         [IgnoreDataMember]
-        public TrackedObjectKey Key { get; set; }
+        public abstract TrackedObjectKey Key { get; }
 
         [IgnoreDataMember]
-        protected Storage.IPartitionState State => Partition.State;
-
-        [IgnoreDataMember]
-        internal byte[] SerializedSnapshot { get; private set; }
-
-        [IgnoreDataMember]
-        protected abstract DataContractSerializer Serializer { get; }
+        internal byte[] SerializedSnapshot { get; set; }
 
         // used by the state storage backend to protect from conflicts
         [IgnoreDataMember]
-        internal object AccessLock { get; private set; } = new object();
+        internal object AccessLock => this;
 
         // call after deserialization, or after simulating a recovery
         public void Restore(Partition Partition)
@@ -65,13 +60,10 @@ namespace DurableTask.EventSourced
             {
                 yield return t;
             }
-        }
-
-        internal void SerializeSnapshot()
-        {
-            var stream = new MemoryStream();
-            this.Serializer.WriteObject(stream, this);
-            this.SerializedSnapshot = stream.ToArray();
+            foreach (var t in TrackedObjectKey.TypeMap.Values)
+            {
+                yield return t;
+            }
         }
 
         protected virtual void Restore()

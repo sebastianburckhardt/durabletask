@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
             this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
-            this.ResponseTimeouts.Start();
+            this.ResponseTimeouts.Start("ClientTimer");
         }
 
         public Task StopAsync()
@@ -96,12 +96,13 @@ namespace DurableTask.EventSourced
             {
                 waiter.TrySetResult(clientEvent);
             }
+            clientEvent.ConfirmationListener?.Confirm(clientEvent);
         }
 
-        public void Send(Event evt, Backend.ISendConfirmationListener listener)
+        public void Send(Event evt)
         {
             TraceSend(evt);
-            this.BatchSender.Submit(evt, listener);
+            this.BatchSender.Submit(evt);
         }
 
         public void ReportError(string where, Exception e)
@@ -154,12 +155,17 @@ namespace DurableTask.EventSourced
             this.ResponseWaiters.TryAdd(request.RequestId, waiter);
             this.ResponseTimeouts.Schedule(DateTime.UtcNow + request.Timeout, waiter);
 
-            this.Send(request, doneWhenSent ? waiter : null);
+            if (doneWhenSent)
+            {
+                request.ConfirmationListener = waiter;
+            }
+
+            this.Send(request);
 
             return waiter.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.ISendConfirmationListener
+        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.IConfirmationListener
         {
             private long id;
             private Client client;
@@ -170,12 +176,12 @@ namespace DurableTask.EventSourced
                 this.client = client;
             }
 
-            public void ConfirmDurablySent(Event evt)
+            public void Confirm(Event evt)
             {
                 this.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
             }
 
-            public void ReportSenderException(Event evt, Exception e)
+            public void ReportException(Event evt, Exception e)
             {
                 this.TrySetException(e); // task finishes with exception
             }

@@ -25,19 +25,21 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class InstanceState : TrackedObject
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(InstanceState));
-        protected override DataContractSerializer Serializer => serializer;
-
-        [IgnoreDataMember]
-        public string InstanceId => Key.InstanceId;
+        [DataMember]
+        public string InstanceId { get; set; }
 
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
+
 
         public static OrchestrationState GetOrchestrationState(InstanceState state)
         {
             return state.OrchestrationState;
         }
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
+
 
         // CreationRequestReceived
 

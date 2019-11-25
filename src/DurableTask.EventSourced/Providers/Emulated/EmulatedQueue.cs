@@ -34,9 +34,9 @@ namespace DurableTask.EventSourced.Emulated
         protected abstract B Serialize(T evt);
         protected abstract T Deserialize(B evt);
 
-        protected abstract Task Deliver(T evt);
+        protected abstract void Deliver(T evt);
 
-        protected override async Task Process(List<B> batch)
+        protected override Task Process(IReadOnlyList<B> batch)
         {
             var eventbatch = new T[batch.Count];
 
@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced.Emulated
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 eventbatch[i] = this.Deserialize(batch[i]);
@@ -55,13 +55,15 @@ namespace DurableTask.EventSourced.Emulated
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
-                await Deliver(evt);          
+                Deliver(evt);          
             }
 
             position = position + batch.Count;
+
+            return Task.CompletedTask;
         }
 
         public void Send(T evt)

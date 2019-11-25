@@ -25,9 +25,6 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class SessionsState : TrackedObject
     {
-        private static DataContractSerializer serializer = new DataContractSerializer(typeof(SessionsState));
-        protected override DataContractSerializer Serializer => serializer;
-
         [DataMember]
         public Dictionary<string, Session> Sessions { get; private set; } = new Dictionary<string, Session>();
 
@@ -49,6 +46,10 @@ namespace DurableTask.EventSourced
             [DataMember]
             public bool ForceNewExecution { get; set; }
         }
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
+
 
         protected override void Restore()
         {

@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            this.partition = host.AddPartition(partitionId, new Emulated.EmulatedStorage(), this.sender);
+            this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(), this.sender);
             return this.partition.StartAsync();
         }
 
@@ -56,14 +56,36 @@ namespace DurableTask.EventSourced.EventHubs
             return Task.FromResult<object>(null);
         }
 
-        async Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> messages)
+        Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> messages)
         {
+            var batch = new Batch();
+
             foreach(var eventData in messages)
             {
-                var evt = Serializer.DeserializeEvent(eventData.Body);
-                //evt.QueuePosition = eventData.SystemProperties.SequenceNumber;
-                await this.partition.ProcessAsync((PartitionEvent) evt);
+                var evt = (PartitionEvent) Serializer.DeserializeEvent(eventData.Body);
+                batch.Add(evt);
             }
-        }    
+
+            batch[batch.Count - 1].ConfirmationListener = batch;
+
+            this.partition.SubmitRange(batch);
+
+            return batch.Tcs.Task;
+        }
+
+        private class Batch : List<PartitionEvent>, Backend.IConfirmationListener
+        {
+            public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
+
+            public void Confirm(Event evt)
+            {
+                Tcs.TrySetResult(null);
+            }
+
+            public void ReportException(Event evt, Exception e)
+            {
+                Tcs.TrySetException(e);
+            }
+        }
     }
 }

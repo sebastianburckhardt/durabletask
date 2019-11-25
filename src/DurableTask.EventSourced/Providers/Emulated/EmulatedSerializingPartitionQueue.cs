@@ -36,6 +36,7 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override byte[] Serialize(PartitionEvent evt)
         {
+            evt.ConfirmationListener?.Confirm(evt);
             return Serializer.SerializeEvent(evt);
         }
 
@@ -44,11 +45,11 @@ namespace DurableTask.EventSourced.Emulated
             return (PartitionEvent) Serializer.DeserializeEvent(bytes);
         }
 
-        protected override async Task Deliver(PartitionEvent evt)
+        protected override void Deliver(PartitionEvent evt)
         {
             try
             {
-                await partition.ProcessAsync(evt);
+                partition.Submit(evt);
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {

@@ -22,7 +22,7 @@ using System.Xml;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventHubsSender<T> : BatchWorker<EventHubsSender<T>.Entry> where T: Event
+    internal class EventHubsSender<T> : BatchWorker<Event> where T: Event
     {
         private readonly PartitionSender sender;
         private readonly Backend.IHost host;
@@ -32,24 +32,13 @@ namespace DurableTask.EventSourced.EventHubs
             this.host = host;
             this.sender = sender;
         }
-
-        public struct Entry
-        {
-            public T Event;
-            public Backend.ISendConfirmationListener Listener;
-        }
-
-        public void Add(T evt, Backend.ISendConfirmationListener listener)
-        {
-            this.Submit(new Entry() { Event = evt, Listener = listener });
-        }
    
         // we reuse the same memory stream t
         private readonly MemoryStream stream = new MemoryStream();
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
 
-        protected override async Task Process(List<Entry> toSend)
+        protected override async Task Process(IReadOnlyList<Event> toSend)
         {
             // track progress in case of exception
             var sentSuccessfully = 0;
@@ -64,7 +53,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     var startpos = (int)stream.Position;
 
-                    Serializer.SerializeEvent(toSend[i].Event, stream);
+                    Serializer.SerializeEvent(toSend[i], stream);
 
                     var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), startpos, (int)stream.Position - startpos);
                     var eventData = new EventData(arraySegment);
@@ -87,7 +76,7 @@ namespace DurableTask.EventSourced.EventHubs
                     else
                     {
                         // the message is too big. Break it into fragments, and send each individually.
-                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i].Event);
+                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i]);
                         maybeSent = i;
                         foreach (var fragment in fragments)
                         {
@@ -112,28 +101,28 @@ namespace DurableTask.EventSourced.EventHubs
             }
 
             // Confirm all sent ones, and retry or report maybe-sent ones
-            List<Entry> requeue = null;
+            List<Event> requeue = null;
 
             try
             {
                 for (int i = 0; i < toSend.Count; i++)
                 {
-                    var entry = toSend[i];
+                    var evt = toSend[i];
 
                     if (i < sentSuccessfully)
                     {
                         // the event was definitely sent successfully
-                        entry.Listener?.ConfirmDurablySent(entry.Event);
+                        evt.ConfirmationListener?.Confirm(evt);
                     }
-                    else if (i > maybeSent || entry.Event.AtLeastOnceDelivery)
+                    else if (i > maybeSent || evt.AtLeastOnceDelivery)
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
-                        (requeue ?? (requeue = new List<Entry>())).Add(entry);
+                        (requeue ?? (requeue = new List<Event>())).Add(evt);
                     }
                     else
                     {
                         // the event may have been sent or maybe not, report problem to listener
-                        entry.Listener?.ReportSenderException(entry.Event, senderException);
+                        evt.ConfirmationListener?.ReportException(evt, senderException);
                     }
                 }
 
@@ -151,14 +140,14 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        private IEnumerable<EventData> Serialize(IEnumerable<Entry> entries)
+        private IEnumerable<EventData> Serialize(IEnumerable<Event> events)
         {
             using (var stream = new MemoryStream())
             {
-                foreach (var entry in entries)
+                foreach (var evt in events)
                 {
                     stream.Seek(0, SeekOrigin.Begin);
-                    Serializer.SerializeEvent(entry.Event, stream);
+                    Serializer.SerializeEvent(evt, stream);
                     var length = (int)stream.Position;
                     yield return new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length));
                 }
