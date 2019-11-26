@@ -182,7 +182,7 @@ namespace DurableTask.EventSourced.Tests
             // This test creates history payloads that exceed the 4 MB limit imposed by Azure Storage
             // when 100 entities are uploaded at a time.
             var client = await host.StartOrchestrationAsync(typeof(Orchestrations.SemiLargePayloadFanOutFanIn), 90);
-            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(120));
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
         }
@@ -245,6 +245,129 @@ namespace DurableTask.EventSourced.Tests
 
             Assert.Equal(OrchestrationStatus.Terminated, status?.OrchestrationStatus);
             Assert.Equal("sayōnara", status?.Output);
+        }
+
+        /// <summary>
+        /// End-to-end test which validates that a completed singleton instance can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateCompletedInstance()
+        {
+            string singletonInstanceId = $"HelloSingleton_{Guid.NewGuid():N}";
+
+            var client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.SayHelloWithActivity),
+                input: "One",
+                instanceId: singletonInstanceId);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal("One", JToken.Parse(status?.Input));
+            Assert.Equal("Hello, One!", JToken.Parse(status?.Output));
+
+            client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.SayHelloWithActivity),
+                input: "Two",
+                instanceId: singletonInstanceId);
+            status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal("Two", JToken.Parse(status?.Input));
+            Assert.Equal("Hello, Two!", JToken.Parse(status?.Output));
+        }
+
+        /// <summary>
+        /// End-to-end test which validates that a failed singleton instance can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateFailedInstance()
+        {
+            string singletonInstanceId = $"HelloSingleton_{Guid.NewGuid():N}";
+
+            var client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.SayHelloWithActivity),
+                input: null, // this will cause the orchestration to fail
+                instanceId: singletonInstanceId);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Failed, status?.OrchestrationStatus);
+
+            client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.SayHelloWithActivity),
+                input: "NotNull",
+                instanceId: singletonInstanceId);
+            status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal("Hello, NotNull!", JToken.Parse(status?.Output));
+        }
+
+        /// <summary>
+        /// End-to-end test which validates that a terminated orchestration can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateTerminatedInstance()
+        {
+            string singletonInstanceId = $"SingletonCounter_{Guid.NewGuid():N}";
+
+            // Using the counter orchestration because it will wait indefinitely for input.
+            var client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.Counter),
+                input: -1,
+                instanceId: singletonInstanceId);
+
+            // Need to wait for the instance to start before we can terminate it.
+            await client.WaitForStartupAsync(TimeSpan.FromSeconds(10));
+
+            await client.TerminateAsync("sayōnara");
+
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(OrchestrationStatus.Terminated, status?.OrchestrationStatus);
+            Assert.Equal("-1", status?.Input);
+            Assert.Equal("sayōnara", status?.Output);
+
+            client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.Counter),
+                input: 0,
+                instanceId: singletonInstanceId);
+            status = await client.WaitForStartupAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(OrchestrationStatus.Running, status?.OrchestrationStatus);
+            Assert.Equal("0", status?.Input);
+        }
+
+        /// <summary>
+        /// End-to-end test which validates that a running orchestration can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateRunningInstance()
+        {
+            string singletonInstanceId = $"SingletonCounter_{DateTime.Now:o}";
+
+            // Using the counter orchestration because it will wait indefinitely for input.
+            var client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.Counter),
+                input: 0,
+                instanceId: singletonInstanceId);
+
+            var status = await client.WaitForStartupAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(OrchestrationStatus.Running, status?.OrchestrationStatus);
+            Assert.Equal("0", status?.Input);
+            Assert.Equal(null, status?.Output);
+
+            client = await host.StartOrchestrationAsync(
+                typeof(Orchestrations.Counter),
+                input: 99,
+                instanceId: singletonInstanceId);
+
+            // Note that with extended sessions, the startup time may take longer because the dispatcher
+            // will wait for the current extended session to expire before the new create message is accepted.
+            status = await client.WaitForStartupAsync(TimeSpan.FromSeconds(20));
+
+            Assert.Equal(OrchestrationStatus.Running, status?.OrchestrationStatus);
+            Assert.Equal("99", status?.Input);
         }
 
         [Fact]
@@ -443,6 +566,8 @@ namespace DurableTask.EventSourced.Tests
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
         }
+
+
 
         static class Orchestrations
         {

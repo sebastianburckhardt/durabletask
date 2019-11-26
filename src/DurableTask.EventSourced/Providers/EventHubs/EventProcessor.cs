@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced.EventHubs
     {
         private readonly Backend.IHost host;
         private readonly Backend.ISender sender;
+        private readonly Guid processorId;
 
         private Backend.IPartition partition;
 
@@ -34,6 +35,7 @@ namespace DurableTask.EventSourced.EventHubs
         {
             this.host = host;
             this.sender = sender;
+            this.processorId = Guid.NewGuid();
         }
 
         Task IEventProcessor.OpenAsync(PartitionContext context)
@@ -43,14 +45,14 @@ namespace DurableTask.EventSourced.EventHubs
             return this.partition.StartAsync();
         }
 
-        Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
+        async Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
         {
-            return this.partition.StopAsync();
+            await this.partition.StopAsync();
         }
 
         Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception error)
         {
-            partition.ReportError("Exception in EventProcessor", error);
+            partition.ReportError("EventHubs", error);
             return Task.FromResult<object>(null);
         }
 

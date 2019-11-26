@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced
 {
     internal class Client : Backend.IClient
     {
+        private readonly EventSourcedOrchestrationService host;
         private readonly CancellationToken shutdownToken; 
         private static TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
@@ -40,8 +41,9 @@ namespace DurableTask.EventSourced
 
         public string AbbreviatedClientId; // used for tracing
         
-        public Client(Guid clientId, Backend.ISender batchSender, CancellationToken shutdownToken)
+        public Client(EventSourcedOrchestrationService host, Guid clientId, Backend.ISender batchSender, CancellationToken shutdownToken)
         {
+            this.host = host;
             this.ClientId = clientId;
             this.AbbreviatedClientId = clientId.ToString("N").Substring(0,7);
             this.BatchSender = batchSender;
@@ -51,6 +53,11 @@ namespace DurableTask.EventSourced
             this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
         }
 
+        public Task StopAsync()
+        {
+            EtwSource.Log.ClientStopped(this.ClientId);
+            return Task.CompletedTask;
+        }
 
         public void Process(IEnumerable<ClientEvent> batch)
         {
@@ -58,7 +65,6 @@ namespace DurableTask.EventSourced
             {
                 if (!(clientEvent is ClientEventFragment fragment))
                 {
-                    TraceReceive(clientEvent);
                     Process(clientEvent);
                 }
                 else
@@ -76,7 +82,6 @@ namespace DurableTask.EventSourced
                         var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble(this.Fragments[fragment.CohortId], fragment);
                         this.Fragments.Remove(fragment.CohortId);
 
-                        TraceReceive(reassembledEvent);
                         Process(reassembledEvent);
                     }
                 }
@@ -85,6 +90,7 @@ namespace DurableTask.EventSourced
 
         public void Process(ClientEvent clientEvent)
         {
+            TraceReceive(clientEvent);
             if (this.ResponseWaiters.TryGetValue(clientEvent.RequestId, out var waiter))
             {
                 waiter.TrySetResult(clientEvent);
@@ -97,21 +103,40 @@ namespace DurableTask.EventSourced
             this.BatchSender.Submit(evt, listener);
         }
 
-        public void ReportError(string msg, Exception e)
+        public void ReportError(string where, Exception e)
         {
-            Trace.TraceError($"Client.{this.AbbreviatedClientId} !!! {msg}: {e}");
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                Trace.TraceError($"Client.{this.AbbreviatedClientId} !!! Exception in {where}: {e}");
+            }
+            if (EtwSource.EmitEtwTrace)
+            {
+                EtwSource.Log.ClientErrorReported(this.ClientId, where, e.GetType().Name, e.Message);
+            }
         }
 
-        [Conditional("DEBUG")]
         private void TraceSend(Event m)
         {
-            Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Sending {m}");
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Sending {m}");
+            }
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.ClientEventSent(this.ClientId, m.ToString());
+            }
         }
 
-        [Conditional("DEBUG")]
         private void TraceReceive(Event m)
         {
-            Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Processing {m}");
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Processing {m}");
+            }
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.ClientEventReceived(this.ClientId, m.ToString());
+            }
         }
 
         private static void Timeout<T>(IEnumerable<CancellableCompletionSource<T>> promises) where T : class

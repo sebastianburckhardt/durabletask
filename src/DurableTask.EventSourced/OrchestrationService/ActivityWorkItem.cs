@@ -32,5 +32,8 @@ namespace DurableTask.EventSourced
             this.LockedUntilUtc = DateTime.MaxValue;
             this.TaskMessage = message;
         }
+
+        public string WorkItemId => $"A{ActivityId:D6}";
+
     }
 }

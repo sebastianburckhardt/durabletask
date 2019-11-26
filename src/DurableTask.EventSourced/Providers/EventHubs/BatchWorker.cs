@@ -20,14 +20,11 @@ namespace DurableTask.EventSourced.EventHubs
     /// to service queued work. Each work cycle handles ALL the queued work. 
     /// If new work arrives during a work cycle, another cycle is scheduled. 
     /// The worker never executes more than one instance of the work cycle at a time, 
-    /// and consumes no thread or task resources when idle. It uses TaskScheduler.Current 
-    /// to schedule the work cycles.
+    /// and consumes no thread or task resources when idle.
     /// </summary>
     internal abstract class BatchWorker
     {
-        private readonly object lockable = new object();
-
-        private bool startingCurrentWorkCycle;
+        protected readonly object lockable = new object();
 
         // Task for the current work cycle, or null if idle
         private volatile Task currentWorkCycle;
@@ -56,7 +53,7 @@ namespace DurableTask.EventSourced.EventHubs
         {
             lock (lockable)
             {
-                if (currentWorkCycle != null || startingCurrentWorkCycle)
+                if (currentWorkCycle != null)
                 {
                     // lets the current work cycle know that there is more work
                     moreWork = true;
@@ -71,26 +68,20 @@ namespace DurableTask.EventSourced.EventHubs
 
         private void Start()
         {
-            // Indicate that we are starting the worker (to prevent double-starts on self-notify)
-            startingCurrentWorkCycle = true;
-
             try
             {
                 // Start the task that is doing the work
-                currentWorkCycle = Work();
+                currentWorkCycle = Task.Run(Work);
             }
             finally
             {
-                // By now we have started, and stored the task in currentWorkCycle
-                startingCurrentWorkCycle = false;
-
-                // chain a continuation that checks for more work, on the same scheduler
-                currentWorkCycle.ContinueWith(this.checkForMoreWorkAction, TaskScheduler.Current);
+                // chain a continuation that checks for more work
+                currentWorkCycle.ContinueWith(this.checkForMoreWorkAction);
             }
         }
 
         /// <summary>
-        /// Executes at the end of each work cycle on the same task scheduler.
+        /// Executes at the end of each work cycle.
         /// </summary>
         private void CheckForMoreWork()
         {

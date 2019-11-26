@@ -12,7 +12,9 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,46 +23,69 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedQueue<T> where T : Event
+    internal abstract class EmulatedQueue<T,B> : EventHubs.BatchWorker where T:Event
     {
-        private readonly TimeSpan pollInterval;
-        private readonly List<T> messages = new List<T>();
         private readonly CancellationToken cancellationToken;
 
-        public EmulatedQueue(TimeSpan pollInterval, CancellationToken cancellationToken)
+        private List<B> batch = new List<B>();
+        private List<B> queue = new List<B>();
+
+        private long position = 0;
+
+        public EmulatedQueue(CancellationToken cancellationToken)
         {
-            this.pollInterval = pollInterval;
             this.cancellationToken = cancellationToken;
         }
 
-        public async Task<List<T>> ReceiveBatchAsync(long fromPosition)
+        protected abstract B Serialize(T evt);
+        protected abstract T Deserialize(B evt);
+
+        protected abstract Task Deliver(T evt);
+
+        protected override async Task Work()
         {
-            while (true)
+            lock (this.lockable)
             {
-                await Task.Delay(pollInterval, this.cancellationToken);
-
-                if (this.cancellationToken.IsCancellationRequested)
-                {
-                    return null;
-                }
-
-                lock (messages)
-                {
-                    if (this.messages.Count > fromPosition)
-                    {
-                        return this.messages.GetRange((int)fromPosition, (int)(this.messages.Count - fromPosition));
-                    }
-                }
+                var temp = queue;
+                queue = batch;
+                batch = temp;
             }
+
+            var eventbatch = new T[batch.Count];
+
+            for (int i = 0; i < batch.Count; i++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                eventbatch[i] = this.Deserialize(batch[i]);
+                eventbatch[i].QueuePosition = position + i;
+            }
+
+            foreach (var evt in eventbatch)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                await Deliver(evt);          
+            }
+
+            position = position + batch.Count;
+            batch.Clear();
         }
 
-        public async Task SendAsync(T @event)
+        public void Send(T evt)
         {
-            await Task.Delay(pollInterval);
+            var serialized = Serialize(evt);
 
-            lock (messages)
+            lock (this.lockable)
             {
-                this.messages.Add(@event);
+                queue.Add(serialized);
+                this.Notify();
             }
         }
     }

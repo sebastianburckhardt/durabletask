@@ -42,6 +42,9 @@ namespace DurableTask.EventSourced
 
             [DataMember]
             public List<TaskMessage> Batch { get; set; }
+
+            [DataMember]
+            public bool ForceNewExecution { get; set; }
         }
 
         [IgnoreDataMember]
@@ -56,11 +59,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private void AddMessageToSession(TaskMessage message)
+        private void AddMessageToSession(TaskMessage message, bool createNewExecution)
         {
             var instanceId = message.OrchestrationInstance.InstanceId;
 
-            if (this.Sessions.TryGetValue(instanceId, out var session))
+            if (this.Sessions.TryGetValue(instanceId, out var session) && !createNewExecution)
             {
                 session.Batch.Add(message);
             }
@@ -70,7 +73,8 @@ namespace DurableTask.EventSourced
                 {
                     SessionId = SequenceNumber++,
                     Batch = new List<TaskMessage>() { message },
-                    BatchStartPosition = 0
+                    BatchStartPosition = 0,
+                    ForceNewExecution = createNewExecution,
                 };
 
                 OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
@@ -119,21 +123,21 @@ namespace DurableTask.EventSourced
 
         public void Apply(CreationRequestReceived creationRequestReceived)
         {
-            this.AddMessageToSession(creationRequestReceived.TaskMessage);
+            this.AddMessageToSession(creationRequestReceived.TaskMessage, true);
         }
 
         // TimerFired
 
         public void Apply(TimerFired timerFired)
         {
-            this.AddMessageToSession(timerFired.TimerFiredMessage);
+            this.AddMessageToSession(timerFired.TimerFiredMessage, false);
         }
 
         // ActivityCompleted
 
         public void Apply(ActivityCompleted activityCompleted)
         {
-            this.AddMessageToSession(activityCompleted.Response);
+            this.AddMessageToSession(activityCompleted.Response, false);
         }
 
         // BatchProcessed

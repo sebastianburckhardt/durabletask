@@ -33,7 +33,6 @@ namespace DurableTask.EventSourced.EventHubs
             this.sender = sender;
         }
 
-        private Object lockable = new object();
         private List<Entry> queue = new List<Entry>();
         private List<Entry> toSend = new List<Entry>();
 
@@ -48,8 +47,8 @@ namespace DurableTask.EventSourced.EventHubs
             lock (lockable)
             {
                 queue.Add(new Entry() { Event = evt, Listener = listener });
+                Notify();
             }
-            Notify();
         }
 
         private void Requeue(IEnumerable<Entry> requeue)
@@ -57,8 +56,8 @@ namespace DurableTask.EventSourced.EventHubs
             lock (lockable)
             {
                 this.queue.InsertRange(0, requeue);
+                Notify();
             }
-            Notify();
         }
 
         // we reuse the same memory stream t
@@ -142,33 +141,41 @@ namespace DurableTask.EventSourced.EventHubs
             // Confirm all sent ones, and retry or report maybe-sent ones
             List<Entry> requeue = null;
 
-            for (int i = 0; i < toSend.Count; i++)
+            try
             {
-                var entry = toSend[i];
+                for (int i = 0; i < toSend.Count; i++)
+                {
+                    var entry = toSend[i];
 
-                if (i < sentSuccessfully)
-                {
-                    // the event was definitely sent successfully
-                    entry.Listener?.ConfirmDurablySent(entry.Event);
+                    if (i < sentSuccessfully)
+                    {
+                        // the event was definitely sent successfully
+                        entry.Listener?.ConfirmDurablySent(entry.Event);
+                    }
+                    else if (i > maybeSent || entry.Event.AtLeastOnceDelivery)
+                    {
+                        // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
+                        (requeue ?? (requeue = new List<Entry>())).Add(entry);
+                    }
+                    else
+                    {
+                        // the event may have been sent or maybe not, report problem to listener
+                        entry.Listener?.ReportSenderException(entry.Event, senderException);
+                    }
                 }
-                else if (i > maybeSent || entry.Event.AtLeastOnceDelivery)
+
+                if (requeue != null)
                 {
-                    // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
-                    (requeue ?? (requeue = new List<Entry>())).Add(entry);
-                }
-                else
-                {
-                    // the event may have been sent or maybe not, report problem to listener
-                    entry.Listener?.ReportSenderException(entry.Event, senderException);
+                    // take a deep breath before trying again
+                    await Task.Delay(backoff);
+
+                    this.Requeue(requeue);
                 }
             }
-
-            if (requeue != null)
+            catch(Exception e)
             {
-                // take a deep breath before trying again
-                await Task.Delay(backoff);
-
-                this.Requeue(requeue);
+                host.ReportError("Internal error: failure in requeue", e);
+                senderException = e;
             }
 
             // and clear the queue so we can reuse it for the next batch

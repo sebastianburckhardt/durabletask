@@ -60,7 +60,7 @@ namespace DurableTask.EventSourced
 
         protected override void TraceInformation(StringBuilder s)
         {
-            s.Append($" S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]");
+            base.TraceInformation(s);
 
             if (State != null)
             {
@@ -71,6 +71,10 @@ namespace DurableTask.EventSourced
             s.Append(' ');
             s.Append(this.InstanceId);
         }
+
+        [IgnoreDataMember]
+        public override string WorkItem => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
+
     }
 
 }

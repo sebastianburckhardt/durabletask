@@ -33,9 +33,7 @@ namespace DurableTask.EventSourced
             return state.Activities;
         }
 
-        protected override void TraceInformation(StringBuilder s)
-        {
-            s.Append($" A{ActivityId:D6}");
-        }
+        [IgnoreDataMember]
+        public override string WorkItem => $"A{ActivityId:D6}";
     }
 }

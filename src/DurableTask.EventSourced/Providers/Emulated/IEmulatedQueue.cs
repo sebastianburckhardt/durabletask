@@ -13,31 +13,16 @@
 
 using System;
 using System.Collections.Generic;
-using System.Runtime.Serialization;
-using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.History;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced
+namespace DurableTask.EventSourced.Emulated
 {
-    [DataContract]
-    internal class TimerFired : PartitionEvent
+    /// <summary>
+    /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
+    /// </summary>
+    internal interface IEmulatedQueue<T>
     {
-        [DataMember]
-        public long TimerId { get; set; }
-
-        [DataMember]
-        public TaskMessage TimerFiredMessage { get; set; }
-
-        [IgnoreDataMember]
-        public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
-
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Timers;
-        }
-
-        [IgnoreDataMember]
-        public override string WorkItem => $"T{TimerId:D6}";
+        void Send(T evt);
     }
 }

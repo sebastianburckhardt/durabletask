@@ -138,12 +138,17 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Bypasses event hubs and uses in-memory emulation instead.
         /// </summary>
-        public bool UseEmulatedBackend => (this.EventHubsConnectionString.StartsWith("Emulator:"));
+        public bool UseEmulatedBackend => (this.EventHubsConnectionString.StartsWith("Emulator"));
+
+        /// <summary>
+        /// Serialize all messages being sent in emulator
+        /// </summary>
+        public bool SerializeInEmulator => (this.EventHubsConnectionString.StartsWith("EmulatorS"));
 
         /// <summary>
         /// Gets the number of partitions when using the emulator
         /// </summary>
-        public uint EmulatedPartitions => uint.Parse(this.EventHubsConnectionString.Substring(9));
+        public uint EmulatedPartitions => uint.Parse(this.EventHubsConnectionString.Substring(this.SerializeInEmulator ? 10 : 9));
 
         /// <summary>
         /// Returns the name of the eventhubs namespace

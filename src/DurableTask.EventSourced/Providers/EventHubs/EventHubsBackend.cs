@@ -195,6 +195,7 @@ namespace DurableTask.EventSourced.EventHubs
         async Task Backend.ITaskHub.StopAsync()
         {
             System.Diagnostics.Trace.TraceInformation("Shutting down EventHubsBackend");
+            await client.StopAsync();
             this.shutdownSource.Cancel();
             await this.eventProcessorHost.UnregisterEventProcessorAsync();
             await this.connections.Close();

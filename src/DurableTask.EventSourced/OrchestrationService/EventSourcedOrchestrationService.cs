@@ -55,6 +55,8 @@ namespace DurableTask.EventSourced
                 : this.taskHub = new EventHubs.EventHubsBackend(this, settings);
         }
 
+        internal Guid HostId { get; } = Guid.NewGuid();
+
         /******************************/
         // management methods
         /******************************/
@@ -97,6 +99,8 @@ namespace DurableTask.EventSourced
                 return;
             }
 
+            EtwSource.Log.HostStarted(this.HostId, System.Environment.MachineName);
+
             this.serviceShutdownSource = new CancellationTokenSource();
 
             this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
@@ -125,6 +129,8 @@ namespace DurableTask.EventSourced
                 this.serviceShutdownSource = null;
 
                 await this.taskHub.StopAsync();
+
+                EtwSource.Log.HostStopped(this.HostId);
             }
         }
 
@@ -148,12 +154,22 @@ namespace DurableTask.EventSourced
         Backend.IClient Backend.IHost.AddClient(Guid clientId, Backend.ISender batchSender)
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
-            this.Client = new Client(clientId, batchSender, this.serviceShutdownSource.Token);
+
+            this.Client = new Client(this, clientId, batchSender, this.serviceShutdownSource.Token);
+
+            EtwSource.Log.ClientStarted(clientId);
+
             return this.Client;
         }
 
         Backend.IPartition Backend.IHost.AddPartition(uint partitionId, Storage.IPartitionState state, Backend.ISender batchSender)
-            => new Partition(partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+        {
+            var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+
+            EtwSource.Log.PartitionStarted(partitionId);
+
+            return partition;
+        }
 
         void Backend.IHost.ReportError(string msg, Exception e)
             => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
