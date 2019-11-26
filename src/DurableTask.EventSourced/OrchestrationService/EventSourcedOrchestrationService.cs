@@ -11,21 +11,16 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
+using DurableTask.Core.History;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace DurableTask.EventSourced
 {
-    using DurableTask.Core;
-    using DurableTask.Core.Common;
-    using DurableTask.Core.Exceptions;
-    using DurableTask.Core.History;
-    using Newtonsoft.Json;
-    using System;
-    using System.Collections.Concurrent;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
-    using System.Threading;
-    using System.Threading.Tasks;
-
     /// <summary>
     /// Local partition of the distributed orchestration service.
     /// </summary>
@@ -55,35 +50,26 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings)
         {
             this.settings = settings;
-
-            if (settings.UseEmulatedBackend)
-            {
-                this.taskHub = new Emulated.EmulatedBackend(this, settings);
-            }
-            else
-            {
-                this.taskHub = new EventHubs.EventHubsBackend(this, settings);
-            }
+            this.taskHub = settings.UseEmulatedBackend
+                ? this.taskHub = new Emulated.EmulatedBackend(this, settings)
+                : this.taskHub = new EventHubs.EventHubsBackend(this, settings);
         }
 
         /******************************/
         // management methods
         /******************************/
 
-        async Task IOrchestrationService.CreateAsync()
-        {
-  
-            await ((IOrchestrationService)this).CreateAsync(true);
-        }
+        /// <inheritdoc />
+        public async Task CreateAsync() => await ((IOrchestrationService)this).CreateAsync(true);
 
-        async Task IOrchestrationService.CreateAsync(bool recreateInstanceStore)
+        /// <inheritdoc />
+        public async Task CreateAsync(bool recreateInstanceStore)
         {
             if (await this.taskHub.ExistsAsync())
             {
                 if (recreateInstanceStore)
                 {
                     await this.taskHub.DeleteAsync();
-
                     await this.taskHub.CreateAsync();
                 }
             }
@@ -93,38 +79,32 @@ namespace DurableTask.EventSourced
             }
         }
 
-        async Task IOrchestrationService.CreateIfNotExistsAsync()
-        {
-            await ((IOrchestrationService)this).CreateAsync(false);
-        }
+        /// <inheritdoc />
+        public async Task CreateIfNotExistsAsync() => await ((IOrchestrationService)this).CreateAsync(false);
 
-        async Task IOrchestrationService.DeleteAsync()
-        {
-            await this.taskHub.DeleteAsync();
-        }
+        /// <inheritdoc />
+        public async Task DeleteAsync() => await this.taskHub.DeleteAsync();
 
-        async Task IOrchestrationService.DeleteAsync(bool deleteInstanceStore)
-        {
-            await this.taskHub.DeleteAsync();
-        }
+        /// <inheritdoc />
+        public async Task DeleteAsync(bool deleteInstanceStore) => await this.taskHub.DeleteAsync();
 
-        async Task IOrchestrationService.StartAsync()
+        /// <inheritdoc />
+        public async Task StartAsync()
         {
             if (this.serviceShutdownSource != null)
             {
                 // we left the service running. No need to start it again.
+                return;
             }
-            else
-            {
-                this.serviceShutdownSource = new CancellationTokenSource();
 
-                this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
-                this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.serviceShutdownSource = new CancellationTokenSource();
 
-                await taskHub.StartAsync();
+            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
-                System.Diagnostics.Debug.Assert(this.Client != null, "Backend should have added client");
-            }
+            await taskHub.StartAsync();
+
+            System.Diagnostics.Debug.Assert(this.Client != null, "Backend should have added client");
         }
 
         private static void SendNullResponses<T>(IEnumerable<CancellableCompletionSource<T>> waiters) where T : class
@@ -135,7 +115,8 @@ namespace DurableTask.EventSourced
             }
         }
 
-        async Task IOrchestrationService.StopAsync(bool isForced)
+        /// <inheritdoc />
+        public async Task StopAsync(bool isForced)
         {
             if (!this.settings.KeepServiceRunning && this.serviceShutdownSource != null)
             {
@@ -147,26 +128,18 @@ namespace DurableTask.EventSourced
             }
         }
 
-        Task IOrchestrationService.StopAsync()
-        {
-            return ((IOrchestrationService) this).StopAsync(false);
-        }
+        /// <inheritdoc />
+        public Task StopAsync() => ((IOrchestrationService)this).StopAsync(false);
 
         /// <inheritdoc/>
-        public void Dispose()
-        {
-            this.taskHub.StopAsync();
-        }
+        public void Dispose() => this.taskHub.StopAsync();
 
         /// <summary>
         /// Computes the partition for the given instance.
         /// </summary>
         /// <param name="instanceId">The instance id.</param>
         /// <returns>The partition id.</returns>
-        public uint GetPartitionId(string instanceId)
-        {
-            return Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
-        }
+        public uint GetPartitionId(string instanceId) => Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
 
         /******************************/
         // host methods
@@ -175,131 +148,103 @@ namespace DurableTask.EventSourced
         Backend.IClient Backend.IHost.AddClient(Guid clientId, Backend.ISender batchSender)
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
-
             this.Client = new Client(clientId, batchSender, this.serviceShutdownSource.Token);
-
             return this.Client;
         }
 
         Backend.IPartition Backend.IHost.AddPartition(uint partitionId, Storage.IPartitionState state, Backend.ISender batchSender)
-        {
-            var partition = new Partition(partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
-
-            return partition;
-        }
+            => new Partition(partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
 
         void Backend.IHost.ReportError(string msg, Exception e)
-        {
-            System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
-        }
-
+            => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
 
         /******************************/
         // client methods
         /******************************/
 
-        Task IOrchestrationServiceClient.CreateTaskOrchestrationAsync(TaskMessage creationMessage)
-        {
-            return Client.CreateTaskOrchestrationAsync(
+        /// <inheritdoc />
+        public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage)
+            => Client.CreateTaskOrchestrationAsync(
                 this.GetPartitionId(creationMessage.OrchestrationInstance.InstanceId),
-                creationMessage, 
+                creationMessage,
                 null);
-        }
 
-        Task IOrchestrationServiceClient.CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
-        {
-            return Client.CreateTaskOrchestrationAsync(
+        /// <inheritdoc />
+        public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
+            => Client.CreateTaskOrchestrationAsync(
                 this.GetPartitionId(creationMessage.OrchestrationInstance.InstanceId),
-                creationMessage, 
+                creationMessage,
                 dedupeStatuses);
-        }
 
-        Task IOrchestrationServiceClient.SendTaskOrchestrationMessageAsync(TaskMessage message)
-        {
-            return Client.SendTaskOrchestrationMessageBatchAsync(
-                this.GetPartitionId(message.OrchestrationInstance.InstanceId), 
+        /// <inheritdoc />
+        public Task SendTaskOrchestrationMessageAsync(TaskMessage message)
+            => Client.SendTaskOrchestrationMessageBatchAsync(
+                this.GetPartitionId(message.OrchestrationInstance.InstanceId),
                 new[] { message });
-        }
 
-        Task IOrchestrationServiceClient.SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
-        {
-            if (messages.Length == 0)
-            {
-                return completedTask;
-            }
-            else
-            {
-                return Task.WhenAll(messages
+        /// <inheritdoc />
+        public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
+            => messages.Length == 0
+                ? completedTask
+                : Task.WhenAll(messages
                     .GroupBy(tm => this.GetPartitionId(tm.OrchestrationInstance.InstanceId))
                     .Select(group => Client.SendTaskOrchestrationMessageBatchAsync(group.Key, group)));
-            }
-        }
 
-        Task<OrchestrationState> IOrchestrationServiceClient.WaitForOrchestrationAsync(
-            string instanceId,
-            string executionId,
-            TimeSpan timeout,
-            CancellationToken cancellationToken)
-        {
-            return Client.WaitForOrchestrationAsync(
+        /// <inheritdoc />
+        public Task<OrchestrationState> WaitForOrchestrationAsync(
+                string instanceId,
+                string executionId,
+                TimeSpan timeout,
+                CancellationToken cancellationToken) 
+            => Client.WaitForOrchestrationAsync(
                 this.GetPartitionId(instanceId),
-                instanceId, 
-                executionId, 
-                timeout, 
+                instanceId,
+                executionId,
+                timeout,
                 cancellationToken);
-        }
 
-        async Task<OrchestrationState> IOrchestrationServiceClient.GetOrchestrationStateAsync(
+        /// <inheritdoc />
+        public async Task<OrchestrationState> GetOrchestrationStateAsync(
             string instanceId, 
             string executionId)
         {
-            var partitionId = this.GetPartitionId(instanceId);
-            var state = await Client.GetOrchestrationStateAsync(partitionId, instanceId);
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId);
 
-            if (state != null &&
-                (executionId == null || executionId == state.OrchestrationInstance.ExecutionId))
-            {
-                return state;
-            }
-            else
-            {
-                return null;
-            }
+            return state != null
+                    && (executionId == null || executionId == state.OrchestrationInstance.ExecutionId)
+                ? state
+                : null;
         }
 
-        async Task<IList<OrchestrationState>> IOrchestrationServiceClient.GetOrchestrationStateAsync(
+        /// <inheritdoc />
+        public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(
             string instanceId, 
             bool allExecutions)
         {
             var partitionId = this.GetPartitionId(instanceId);
             var state = await Client.GetOrchestrationStateAsync(partitionId, instanceId);
 
-            if (state != null)
-            {
-                return new[] { state };
-            }
-            else
-            {
-                return new OrchestrationState[0];
-            }
+            return state != null 
+                ? (new[] { state }) 
+                : (new OrchestrationState[0]);
         }
 
+        /// <inheritdoc />
         Task IOrchestrationServiceClient.ForceTerminateTaskOrchestrationAsync(
-            string instanceId, 
-            string message)
-        {
-            var partitionId = this.GetPartitionId(instanceId);
-            return this.Client.ForceTerminateTaskOrchestrationAsync(partitionId, instanceId, message);
-        }
+                string instanceId, 
+                string message)
+            => this.Client.ForceTerminateTaskOrchestrationAsync(this.GetPartitionId(instanceId), instanceId, message);
 
-        Task<string> IOrchestrationServiceClient.GetOrchestrationHistoryAsync(
+        /// <inheritdoc />
+        public Task<string> GetOrchestrationHistoryAsync(
             string instanceId, 
             string executionId)
         {
             throw new NotSupportedException(); //TODO
         }
 
-        Task IOrchestrationServiceClient.PurgeOrchestrationHistoryAsync(
+        /// <inheritdoc />
+        public Task PurgeOrchestrationHistoryAsync(
             DateTime thresholdDateTimeUtc, 
             OrchestrationStateTimeRangeFilterType 
             timeRangeFilterType)
@@ -430,6 +375,5 @@ namespace DurableTask.EventSourced
         int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => settings.MaxConcurrentTaskActivityWorkItems;
 
         int IOrchestrationService.TaskActivityDispatcherCount => 1;
-
     }
 }
