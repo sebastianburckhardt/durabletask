@@ -24,9 +24,6 @@ namespace DurableTask.EventSourced
     [KnownTypeAttribute("KnownTypes")]
     internal abstract class TrackedObject
     {
-        [DataMember]
-        internal long LastProcessed { get; set; } = -1;
-
         [IgnoreDataMember]
         protected Partition Partition;
 

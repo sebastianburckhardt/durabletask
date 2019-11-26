@@ -23,7 +23,7 @@ namespace DurableTask.EventSourced
     internal class RecoveryStateChanged : PartitionEvent
     {
         [DataMember]
-        public List<PartitionEvent> Pending { get; set; }
+        public int BatchSize { get; set; }
 
         public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Recovery;
     }

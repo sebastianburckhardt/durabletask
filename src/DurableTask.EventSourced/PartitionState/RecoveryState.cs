@@ -25,19 +25,20 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class RecoveryState : TrackedObject
     {
-        [DataMember]
-        public List<PartitionEvent> Pending { get; set; }
-
         [IgnoreDataMember]
-        public long NextCommitPosition => this.LastProcessed + (Pending == null ? 1 : Pending.Count);
+        public long NextCommitPosition { get; set; }
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Recovery);
 
+        public void Process(RecoveryStateChanged evt, EffectTracker tracker)
+        {
+            tracker.ApplyTo(this.Key);
+        }
 
         public void Apply(RecoveryStateChanged evt)
         {
-            this.Pending = evt.Pending;
+            this.NextCommitPosition += evt.BatchSize;
         }
     }
 }

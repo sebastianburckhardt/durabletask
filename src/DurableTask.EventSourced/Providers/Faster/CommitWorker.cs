@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Faster
             this.thisLock = new object();
             this.commitLoopTask = new Task(CommitLoop);
             cancellationToken.Register(Release);
-            
+
             var thread = new Thread(() => commitLoopTask.RunSynchronously());
             thread.Name = $"CommitWorker{partition.PartitionId:D2}";
             thread.Start();
@@ -63,7 +63,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 this.commitQueue.Add(evt);
-          }
+            }
         }
 
         public void SubmitRange(IEnumerable<PartitionEvent> evts)
@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     Monitor.Pulse(this.thisLock);
                 }
-  
+
                 this.commitQueue.AddRange(evts);
             }
         }
@@ -110,13 +110,6 @@ namespace DurableTask.EventSourced.Faster
 
                 var recoveryState = (RecoveryState)store.GetOrCreate(TrackedObjectKey.Recovery);
                 FasterKV.Key recoveryKey = recoveryState.Key;
-
-                // finish any potentially incomplete commit batches
-
-                //if (recoveryState.Pending != null)
-                //{
-                //    this.Process(recoveryState.Pending);
-                //}
 
                 var tracker = new TrackedObject.EffectTracker();
 
@@ -159,8 +152,8 @@ namespace DurableTask.EventSourced.Faster
                     if (commitBatch != null)
                     {
                         long nextCommitPosition = recoveryState.NextCommitPosition;
-                        PartitionEvent update = new RecoveryStateChanged() { Pending = commitBatch, CommitPosition = nextCommitPosition };
-                        store.RMW(ref recoveryKey, ref update, Empty.Default, 0);
+
+                        commitBatch.Add(new RecoveryStateChanged() { BatchSize = commitBatch.Count + 1 });
 
                         for (int i = 0; i < commitBatch.Count; i++)
                         {
@@ -217,7 +210,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (readBatch != null)
             {
-                foreach(Task t in readBatch)
+                foreach (Task t in readBatch)
                 {
                     t.RunSynchronously();
                 }
@@ -226,70 +219,56 @@ namespace DurableTask.EventSourced.Faster
 
         public void ProcessRecursively(TrackedObject thisObject, PartitionEvent evt, TrackedObject.EffectTracker effect)
         {
-            if (evt.CommitPosition <= thisObject.LastProcessed)
+            if (EtwSource.EmitDiagnosticsTrace)
             {
-                if (EtwSource.EmitDiagnosticsTrace)
+                partition.DiagnosticsTrace($"Process on [{thisObject.Key}]");
+            }
+
+            // remember the initial position of the lists so we can tell
+            // which elements were added by this frame, and remove them at the end.
+
+            var processOnStartPos = effect.ObjectsToProcessOn.Count;
+            var applyToStartPos = effect.ObjectsToApplyTo.Count;
+
+            // start with processing the event on this object, determining effect
+            dynamic dynamicThis = thisObject;
+            dynamic dynamicPartitionEvent = evt;
+            dynamicThis.Process(dynamicPartitionEvent, effect);
+
+            var numObjectsToProcessOn = effect.ObjectsToProcessOn.Count - processOnStartPos;
+            var numObjectsToApplyTo = effect.ObjectsToApplyTo.Count - applyToStartPos;
+
+            // recursively process all objects as determined by effect tracker
+            if (numObjectsToProcessOn > 0)
+            {
+                for (int i = 0; i < numObjectsToProcessOn; i++)
                 {
-                    partition.DiagnosticsTrace($"Ignore Duplicate on [{thisObject.Key}]");
+                    var t = store.GetOrCreate(effect.ObjectsToProcessOn[processOnStartPos + i]);
+                    this.ProcessRecursively(t, evt, effect);
                 }
             }
-            else
+
+            // apply all objects as determined by effect tracker
+            if (numObjectsToApplyTo > 0)
             {
-                if (EtwSource.EmitDiagnosticsTrace)
+                for (int i = 0; i < numObjectsToApplyTo; i++)
                 {
-                    partition.DiagnosticsTrace($"Process on [{thisObject.Key}]");
-                }
+                    var targetKey = effect.ObjectsToApplyTo[applyToStartPos + i];
+                    var target = store.GetOrCreate(targetKey);
 
-                // remember the initial position of the lists so we can tell
-                // which elements were added by this frame, and remove them at the end.
-
-                var processOnStartPos = effect.ObjectsToProcessOn.Count;
-                var applyToStartPos = effect.ObjectsToApplyTo.Count;
-
-                // start with processing the event on this object, determining effect
-                dynamic dynamicThis = thisObject;
-                dynamic dynamicPartitionEvent = evt;
-                dynamicThis.Process(dynamicPartitionEvent, effect);
-
-                var numObjectsToProcessOn = effect.ObjectsToProcessOn.Count - processOnStartPos;
-                var numObjectsToApplyTo = effect.ObjectsToApplyTo.Count - applyToStartPos;
-
-                // recursively process all objects as determined by effect tracker
-                if (numObjectsToProcessOn > 0)
-                {
-                    for (int i = 0; i < numObjectsToProcessOn; i++)
+                    if (EtwSource.EmitDiagnosticsTrace)
                     {
-                        var t = store.GetOrCreate(effect.ObjectsToProcessOn[processOnStartPos + i]);
-                        this.ProcessRecursively(t, evt, effect);
+                        this.partition.DiagnosticsTrace($"Apply to [{target.Key}]");
                     }
+
+                    dynamic dynamicTarget = target;
+                    dynamicTarget.Apply(dynamicPartitionEvent);
                 }
-
-                // apply all objects as determined by effect tracker
-                if (numObjectsToApplyTo > 0)
-                {
-                    for (int i = 0; i < numObjectsToApplyTo; i++)
-                    {
-                        var targetKey = effect.ObjectsToApplyTo[applyToStartPos + i];
-                        var target = store.GetOrCreate(targetKey);
-                        if (target.LastProcessed < evt.CommitPosition)
-                        {
-                            if (EtwSource.EmitDiagnosticsTrace)
-                            {
-                                this.partition.DiagnosticsTrace($"Apply to [{target.Key}]");
-                            }
-
-                            dynamic dynamicTarget = target;
-                            dynamicTarget.Apply(dynamicPartitionEvent);
-
-                            target.LastProcessed = evt.CommitPosition;
-                        }
-                    }
-                }
-
-                // remove the elements that were added in this frame
-                effect.ObjectsToProcessOn.RemoveRange(processOnStartPos, numObjectsToProcessOn);
-                effect.ObjectsToApplyTo.RemoveRange(applyToStartPos, numObjectsToApplyTo);
             }
+
+            // remove the elements that were added in this frame
+            effect.ObjectsToProcessOn.RemoveRange(processOnStartPos, numObjectsToProcessOn);
+            effect.ObjectsToApplyTo.RemoveRange(applyToStartPos, numObjectsToApplyTo);
         }
     }
 }

@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced
         private bool suspended;
 
         /// <summary>Implement this member in derived classes to process a batch</summary>
-        protected abstract Task Process(IReadOnlyList<T> batch);
+        protected abstract Task Process(IList<T> batch);
 
         public void Submit(T entry)
         {

@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Emulated
 
         protected abstract void Deliver(T evt);
 
-        protected override Task Process(IReadOnlyList<B> batch)
+        protected override Task Process(IList<B> batch)
         {
             var eventbatch = new T[batch.Count];
 

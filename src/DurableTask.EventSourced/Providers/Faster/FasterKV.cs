@@ -197,7 +197,6 @@ namespace DurableTask.EventSourced.Faster
                 dynamic targetObject = t;
                 dynamic evt = e;
                 targetObject.Apply(evt);
-                t.LastProcessed = e.CommitPosition;
             }
 
             public void InitialUpdater(ref Key key, ref PartitionEvent input, ref Value value)

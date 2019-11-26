@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
 
-        protected override async Task Process(IReadOnlyList<Event> toSend)
+        protected override async Task Process(IList<Event> toSend)
         {
             // track progress in case of exception
             var sentSuccessfully = 0;

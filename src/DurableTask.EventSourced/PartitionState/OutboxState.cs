@@ -154,7 +154,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // OutgoingMessagesAcked
+        // SentMessagesAcked
 
         public void Process(SentMessagesAcked evt, EffectTracker effect)
         {

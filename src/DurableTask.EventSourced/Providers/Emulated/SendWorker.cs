@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Emulated
             this.Submit(element);
         }
 
-        protected override Task Process(IReadOnlyList<Event> batch)
+        protected override Task Process(IList<Event> batch)
         {
             try
             {
