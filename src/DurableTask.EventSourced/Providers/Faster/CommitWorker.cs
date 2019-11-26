@@ -165,7 +165,7 @@ namespace DurableTask.EventSourced.Faster
                             tracker.Clear();
                         }
 
-                        store.TakeFullCheckpoint(out Guid token);
+                        store.TakeHybridLogCheckpoint(out _);
 
                         while (!store.CompleteCheckpoint(false))
                         {
@@ -182,11 +182,10 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
+                store.TakeIndexCheckpoint(out _);
+                store.CompleteCheckpoint(true);
                 store.StopSession();
-
-                // Dispose FASTER instance and log
                 store.Dispose();
-
             }
             catch (Exception e)
             {

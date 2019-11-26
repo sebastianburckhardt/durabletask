@@ -1,6 +1,5 @@
 ﻿using Dynamitey;
 using FASTER.core;
-using Microsoft.WindowsAzure.Storage.Blob.Protocol;
 using System;
 using System.Collections.Generic;
 using System.IO;

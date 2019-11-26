@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using FASTER.core;
+using FASTER.devices;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -25,23 +26,25 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterStorage : Storage.IPartitionState
     {
+        private readonly string connectionString;
+
         private Partition partition;
+        private BlobManager blobManager;
         private CommitWorker commitWorker;
         private FasterKV store;
         private CancellationToken token;
 
+        public FasterStorage(string connectionString)
+        {
+            this.connectionString = connectionString;
+        }
+
         public Task RestoreAsync(Partition partition)
         {
             this.partition = partition;
+            this.blobManager = new BlobManager(this.connectionString, "faster", partition.PartitionId);
 
-            var directory = Path.Combine(Path.GetTempPath(), "faster");
-            var logFileName = Path.Combine(directory, $"part{partition.PartitionId:D2}.log");
-            var objectLogFileName = Path.Combine(directory, $"part{partition.PartitionId:D2}.obj.log");
-            var checkpoints = Path.Combine(directory, $"part{partition.PartitionId:D2}.checkpoints");
-            IDevice log = Devices.CreateLogDevice(logFileName.ToString());
-            IDevice objlog = Devices.CreateLogDevice(objectLogFileName.ToString());
-
-            store = new FasterKV(partition, log, objlog, checkpoints);
+            store = new FasterKV(partition, blobManager);
 
             this.token = partition.PartitionShutdownToken;
             this.commitWorker = new CommitWorker(store, partition, token);

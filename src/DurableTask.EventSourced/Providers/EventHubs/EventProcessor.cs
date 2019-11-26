@@ -26,22 +26,24 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly Backend.IHost host;
         private readonly Backend.ISender sender;
         private readonly Guid processorId;
+        private readonly EventSourcedOrchestrationServiceSettings settings;
 
         private Backend.IPartition partition;
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
-        public EventProcessor(Backend.IHost host, Backend.ISender sender)
+        public EventProcessor(Backend.IHost host, Backend.ISender sender, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.sender = sender;
             this.processorId = Guid.NewGuid();
+            this.settings = settings;
         }
 
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(), this.sender);
+            this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(settings.StorageConnectionString), this.sender);
             return this.partition.StartAsync();
         }
 

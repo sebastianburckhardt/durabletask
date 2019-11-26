@@ -9,26 +9,21 @@ namespace DurableTask.EventSourced.Faster
     internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, PartitionEvent, TrackedObject, Empty, FasterKV.Functions>, IDisposable
     {
         private readonly Partition partition;
-        private readonly IDevice fasterLog;
-        private readonly IDevice objectLog;
-
-        public FasterKV(
-            Partition partition,
-            IDevice fasterLog,  
-            IDevice objectLog,
-            string checkpointDirectory) 
+        private readonly BlobManager blobManager;
+ 
+        public FasterKV(Partition partition, BlobManager blobManager) 
             : base(
-                1L << 20, 
+                1L << 17, 
                 new Functions(partition),
                 new LogSettings 
                 { 
-                    LogDevice = fasterLog, 
-                    ObjectLogDevice = objectLog, 
+                    LogDevice = blobManager.HybridLogDevice, 
+                    ObjectLogDevice = blobManager.ObjectLogDevice, 
                     MemorySizeBits = 29,
                 },
                 new CheckpointSettings 
                 {
-                    CheckpointDir = checkpointDirectory,
+                    CheckpointManager = blobManager,
                     CheckPointType = CheckpointType.FoldOver,
                 },
                 new SerializerSettings<FasterKV.Key, FasterKV.Value> 
@@ -38,15 +33,14 @@ namespace DurableTask.EventSourced.Faster
                 })
         {
             this.partition = partition;
-            this.fasterLog = fasterLog;
-            this.objectLog = objectLog;
+            this.blobManager = blobManager;
         }
 
         public new void Dispose()
         {
             base.Dispose();
-            fasterLog.Close();
-            objectLog.Close();
+            this.blobManager.HybridLogDevice.Close();
+            this.blobManager.ObjectLogDevice.Close();
         }
 
         public struct Key : IFasterEqualityComparer<Key>

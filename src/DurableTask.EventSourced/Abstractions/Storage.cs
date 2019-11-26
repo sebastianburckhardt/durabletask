@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
     internal static class Storage
     {
         /// <summary>
-        /// The event-sourced state of a partition, suitable for asynchronous checkpointing
+        /// Storage abstraction for the event-sourced state of a partition
         /// </summary>
         internal interface IPartitionState
         {

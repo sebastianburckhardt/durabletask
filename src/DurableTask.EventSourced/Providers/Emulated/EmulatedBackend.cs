@@ -86,7 +86,7 @@ namespace DurableTask.EventSourced.Emulated
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partitionState = partitionStates[i] = new FasterStorage();
+                var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
                 var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
