@@ -96,7 +96,7 @@ namespace DurableTask.EventSourced
             {
                 waiter.TrySetResult(clientEvent);
             }
-            clientEvent.ConfirmationListener?.Confirm(clientEvent);
+            clientEvent.AckListener?.Acknowledge(clientEvent);
         }
 
         public void Send(Event evt)
@@ -157,7 +157,7 @@ namespace DurableTask.EventSourced
 
             if (doneWhenSent)
             {
-                request.ConfirmationListener = waiter;
+                request.AckListener = waiter;
             }
 
             this.Send(request);
@@ -165,7 +165,7 @@ namespace DurableTask.EventSourced
             return waiter.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.IConfirmationListener
+        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.IAckOrExceptionListener
         {
             private long id;
             private Client client;
@@ -176,7 +176,7 @@ namespace DurableTask.EventSourced
                 this.client = client;
             }
 
-            public void Confirm(Event evt)
+            public void Acknowledge(Event evt)
             {
                 this.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
             }

@@ -114,7 +114,7 @@ namespace DurableTask.EventSourced.EventHubs
                 };
 
                 var partitionSender = this.connections.GetPartitionSender(i);
-                evt.ConfirmationListener = ackCounter;
+                evt.AckListener = ackCounter;
                 partitionSender.Submit(evt);
             }
 
@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced.EventHubs
             public long[] StartPositions { get; set; }
         }
 
-        private class AckCounter : Backend.IConfirmationListener
+        private class AckCounter : Backend.IAckListener
         {
             private readonly TaskCompletionSource<object> tcs = new TaskCompletionSource<object>();
             private int count;
@@ -139,18 +139,13 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 count = numberAcks;
             }
-            public void Confirm(Event evt)
+            public void Acknowledge(Event evt)
             {
                 var val = Interlocked.Decrement(ref count);
                 if (val == 0)
                 {
                     tcs.TrySetResult(null);
                 }
-            }
-            public void ReportException(Event evt, Exception e)
-            {
-                // not applicable for this type of event
-                throw new NotImplementedException();
             }
             public Task WaitAsync()
             {

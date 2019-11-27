@@ -68,25 +68,20 @@ namespace DurableTask.EventSourced.EventHubs
                 batch.Add(evt);
             }
 
-            batch[batch.Count - 1].ConfirmationListener = batch;
+            batch[batch.Count - 1].AckListener = batch;
 
             this.partition.SubmitRange(batch);
 
             return batch.Tcs.Task;
         }
 
-        private class Batch : List<PartitionEvent>, Backend.IConfirmationListener
+        private class Batch : List<PartitionEvent>, Backend.IAckListener
         {
             public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
-            public void Confirm(Event evt)
+            public void Acknowledge(Event evt)
             {
                 Tcs.TrySetResult(null);
-            }
-
-            public void ReportException(Event evt, Exception e)
-            {
-                Tcs.TrySetException(e);
             }
         }
     }

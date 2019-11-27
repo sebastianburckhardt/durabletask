@@ -50,11 +50,7 @@ namespace DurableTask.EventSourced
 
         public void Process(TaskMessageReceived evt, EffectTracker effect)
         {
-            if (this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
-            {
-                effect.ApplyTo(TrackedObjectKey.Sessions);
-            }
-            else if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
+            if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
             {
                 effect.ApplyTo(TrackedObjectKey.Sessions);
                 effect.ApplyTo(this.Key);

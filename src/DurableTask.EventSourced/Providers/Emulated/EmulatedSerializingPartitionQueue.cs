@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override byte[] Serialize(PartitionEvent evt)
         {
-            evt.ConfirmationListener?.Confirm(evt);
+            evt.AckListener?.Acknowledge(evt);
             return Serializer.SerializeEvent(evt);
         }
 

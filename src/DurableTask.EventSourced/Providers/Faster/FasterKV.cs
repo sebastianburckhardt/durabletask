@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public PartitionEvent NoInput = new RecoveryStateChanged() { }; // just a dummy non-null object
+        public PartitionEvent NoInput = new CommitStateChanged() { }; // just a dummy non-null object
 
         public TrackedObject GetOrCreate(TrackedObjectKey k)
         {

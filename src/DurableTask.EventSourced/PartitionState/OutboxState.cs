@@ -23,34 +23,36 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OutboxState : TrackedObject, Backend.IConfirmationListener
+    internal class OutboxState : TrackedObject, Backend.IAckListener
     {
         [DataMember]
-        public SortedList<long, Dictionary<uint, TaskMessageReceived>> Outbox { get; private set; } = new SortedList<long, Dictionary<uint, TaskMessageReceived>>();
-
-        [DataMember]
-        public long LastPersistedAck { get; set; } = -1;
+        public Dictionary<uint, List<TaskMessageReceived>> Outbox { get; private set; } = new Dictionary<uint, List<TaskMessageReceived>>();
 
         [IgnoreDataMember]
-        public List<(long, uint)> CurrentAckBatch { get; set; } = new List<(long, uint)>();
-
-        [IgnoreDataMember]
-        public bool AckBatchInProgress { get; set; } = false;
+        public long LastKnownPersistedPosition { get; set; } = -1;
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
-
         protected override void Restore()
         {
-            // re-send all messages as they could have been lost after the failure
-            foreach (var kvp in Outbox)
+            long lastPersistedPosition = -1;
+            foreach(var kvp in this.Outbox)
             {
-                foreach (var outmessage in kvp.Value.Values)
+                if (kvp.Value.Count > 0)
                 {
-                    outmessage.ConfirmationListener = this;
-                    Partition.Send(outmessage);
+                    lastPersistedPosition = Math.Max(lastPersistedPosition, kvp.Value.Last().OriginPosition);
                 }
+            }
+
+            // submit to self so the LastKnownPersistedPosition gets updated and messages are resent
+            if (lastPersistedPosition > -1)
+            {
+                this.Partition.Submit(new SentOrPersisted()
+                {
+                    PartitionId = this.Partition.PartitionId,
+                    DurablyPersistedPosition = lastPersistedPosition,
+                });
             }
         }
 
@@ -78,36 +80,11 @@ namespace DurableTask.EventSourced
 
             foreach (var outmessage in toSend.Values)
             {
-                outmessage.ConfirmationListener = this;
+                outmessage.AckListener = this;
                 Partition.Send(outmessage);
             }
         }
 
-        public void Confirm(Event evt)
-        {
-            if (evt is TaskMessageReceived taskMessageReceived)
-            {
-                this.CurrentAckBatch.Add((taskMessageReceived.OriginPosition, taskMessageReceived.OriginPartition));
-
-                if (!this.AckBatchInProgress)
-                {
-                    this.Partition.TraceContext.Value = "SWorker";
-                    this.Partition.Submit(new SentMessagesAcked()
-                    {
-                        PartitionId = this.Partition.PartitionId,
-                        DurablySent = this.CurrentAckBatch.ToArray(),
-                    });
-                    this.CurrentAckBatch.Clear();
-                    this.AckBatchInProgress = true;
-                }
-            }
-        }
-
-        public void ReportException(Event evt, Exception e)
-        {
-            // this should never be called because all events sent by partitions are at-least-once
-            throw new NotImplementedException();
-        }
 
         // BatchProcessed
 
@@ -122,7 +99,7 @@ namespace DurableTask.EventSourced
 
                 if (partitionId == this.Partition.PartitionId)
                 {
-                    continue;
+                    continue; // message is submitted to this partition directly, not sent via outbox
                 }
 
                 if (!toSend.TryGetValue(partitionId, out var outmessage))
@@ -138,51 +115,92 @@ namespace DurableTask.EventSourced
                 outmessage.TaskMessages.Add(message);
             }
 
-            if (!this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
+            foreach (var kvp in toSend)
             {
-                Outbox.Add(evt.CommitPosition, toSend);
-            }
-
-            foreach (var outmessage in toSend.Values)
-            {
-                if (!this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
+                if (!this.Outbox.TryGetValue(kvp.Key, out var list))
                 {
-                    outmessage.ConfirmationListener = this;
+                    this.Outbox.Add(kvp.Key, list = new List<TaskMessageReceived>());
                 }
 
-                Partition.Send(outmessage);
+                list.Add(kvp.Value);
+            }
+
+            evt.AckListener = this;
+        }
+
+        public void Acknowledge(Event evt)
+        {
+            if (evt is TaskMessageReceived taskMessageReceived)
+            {
+                this.Partition.Submit(new SentOrPersisted()
+                {
+                    PartitionId = this.Partition.PartitionId,
+                    DurablySentMessages = (taskMessageReceived.PartitionId, taskMessageReceived.OriginPosition)
+                });
+            }
+            else if (evt is BatchProcessed batchProcessed)
+            {
+                this.Partition.Submit(new SentOrPersisted()
+                {
+                    PartitionId = this.Partition.PartitionId,
+                    DurablyPersistedPosition = batchProcessed.CommitPosition,
+                });
             }
         }
 
-        // SentMessagesAcked
 
-        public void Process(SentMessagesAcked evt, EffectTracker effect)
+        // SentOrPersisted
+
+        public void Process(SentOrPersisted evt, EffectTracker effect)
         {
             effect.ApplyTo(this.Key);
         }
 
-        public void Apply(SentMessagesAcked evt)
+        public void Apply(SentOrPersisted evt)
         {
-            foreach(var (commitPosition, destination) in evt.DurablySent)
+            // send messages whose batch has been persisted
+            if (evt.DurablyPersistedPosition.HasValue)
             {
-                if (this.Outbox.TryGetValue(commitPosition, out var dictionary))
+                foreach (var kvp in this.Outbox)
                 {
-                    dictionary.Remove(destination);
+                    foreach (var message in kvp.Value)
+                    {
+                        if (message.OriginPosition <= this.LastKnownPersistedPosition)
+                        {
+                            continue;
+                        }
+                        if (message.OriginPosition > evt.DurablyPersistedPosition.Value)
+                        {
+                            break;
+                        }
+
+                        message.AckListener = this;
+                        Partition.Send(message);
+                    }
                 }
+
+                this.LastKnownPersistedPosition = evt.DurablyPersistedPosition.Value;
             }
 
-            if (this.CurrentAckBatch.Count == 0)
+            // remove messages whose sending has been confirmed
+            if (evt.DurablySentMessages.HasValue)
             {
-                this.AckBatchInProgress = false;
-            }
-            else
-            {
-                this.Partition.Submit(new SentMessagesAcked()
+                var (destination, sentPosition) = evt.DurablySentMessages.Value;
+            
+                if (this.Outbox.TryGetValue(destination, out var messages))
                 {
-                    PartitionId = this.Partition.PartitionId,
-                    DurablySent = this.CurrentAckBatch.ToArray(),
-                });
-                this.CurrentAckBatch.Clear();
+                    int count = 0;
+
+                    while (count < messages.Count && messages[count].OriginPosition <= sentPosition)
+                    {
+                        count++;
+                    }
+
+                    if (count > 0)
+                    {
+                        messages.RemoveRange(0, count);
+                    }
+                }
             }
         }
     }

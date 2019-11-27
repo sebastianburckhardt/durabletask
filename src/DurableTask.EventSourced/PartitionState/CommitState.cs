@@ -23,20 +23,20 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class RecoveryState : TrackedObject
+    internal class CommitState : TrackedObject
     {
         [IgnoreDataMember]
         public long NextCommitPosition { get; set; }
 
         [IgnoreDataMember]
-        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Recovery);
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Commit);
 
-        public void Process(RecoveryStateChanged evt, EffectTracker tracker)
+        public void Process(CommitStateChanged evt, EffectTracker tracker)
         {
             tracker.ApplyTo(this.Key);
         }
 
-        public void Apply(RecoveryStateChanged evt)
+        public void Apply(CommitStateChanged evt)
         {
             this.NextCommitPosition += evt.BatchSize;
         }

@@ -60,10 +60,13 @@ namespace DurableTask.EventSourced
             void Submit(Event element);
         }
 
-        public interface IConfirmationListener
+        public interface IAckListener
         {
-            void Confirm(Event evt);
+            void Acknowledge(Event evt);
+        }
 
+        public interface IAckOrExceptionListener : IAckListener
+        {
             void ReportException(Event evt, Exception e);
         }
 

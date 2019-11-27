@@ -53,6 +53,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public DateTime Timestamp { get; set; }
 
+        [IgnoreDataMember]
+        public OrchestrationRuntimeState InMemoryRuntimeState { get; set; }
+
         public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Sessions;
 
         protected override void TraceInformation(StringBuilder s)

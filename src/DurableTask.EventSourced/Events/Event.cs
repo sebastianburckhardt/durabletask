@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
         public abstract bool AtLeastOnceDelivery { get; }
 
         [IgnoreDataMember]
-        public Backend.IConfirmationListener ConfirmationListener { get; set; }
+        public Backend.IAckListener AckListener { get; set; }
 
         public override string ToString()
         {
@@ -62,9 +62,9 @@ namespace DurableTask.EventSourced
             yield return typeof(WaitRequestReceived);
             yield return typeof(ActivityCompleted);
             yield return typeof(BatchProcessed);
-            yield return typeof(SentMessagesAcked);
+            yield return typeof(SentOrPersisted);
             yield return typeof(TimerFired);
-            yield return typeof(RecoveryStateChanged);
+            yield return typeof(CommitStateChanged);
             yield return typeof(TaskhubCreated);
             yield return typeof(TaskMessageReceived);
             yield return typeof(PartitionEventFragment);

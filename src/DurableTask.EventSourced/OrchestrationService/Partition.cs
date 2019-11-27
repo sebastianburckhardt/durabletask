@@ -45,7 +45,8 @@ namespace DurableTask.EventSourced
 
         private readonly CancellationTokenSource partitionShutdown;
 
-        public AsyncLocal<string> TraceContext { get; private set; }
+        [ThreadStatic]
+        public static string TraceContext;
 
         public Partition(
             EventSourcedOrchestrationService host,
@@ -68,7 +69,6 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
 
             this.partitionShutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            this.TraceContext = new AsyncLocal<string>();
         }
 
         public async Task StartAsync()
@@ -79,9 +79,7 @@ namespace DurableTask.EventSourced
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
             // restore from last snapshot
-            this.TraceContext.Value = "restore";
             await State.RestoreAsync(this);
-            this.TraceContext.Value = null;
 
             this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
         }
@@ -101,7 +99,6 @@ namespace DurableTask.EventSourced
 
         private void TimersFired(List<PartitionEvent> timersFired)
         {
-            this.TraceContext.Value = "TWorker";
             this.SubmitRange(timersFired);
         }
 
@@ -160,7 +157,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.ActivityWorkItemQueue.Add(item);
@@ -174,7 +171,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.OrchestrationWorkItemQueue.Add(item);
@@ -194,7 +191,7 @@ namespace DurableTask.EventSourced
 
         public void TraceProcess(PartitionEvent evt)
         {
-            this.TraceContext.Value = $"{evt.CommitPosition:D7}   ";
+            Partition.TraceContext = $"{evt.CommitPosition:D7}   ";
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
@@ -202,7 +199,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
@@ -214,7 +211,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
@@ -226,16 +223,16 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
         public void DiagnosticsTrace(string msg)
         {
-            var context = this.TraceContext.Value;
+            var context = Partition.TraceContext;
             if (string.IsNullOrEmpty(context))
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}         {msg}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2} {msg}");
             }
             else
             {

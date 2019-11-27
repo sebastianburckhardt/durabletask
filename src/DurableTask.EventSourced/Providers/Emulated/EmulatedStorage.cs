@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced.Emulated
             this.GetOrAdd(TrackedObjectKey.Dedup);
             this.GetOrAdd(TrackedObjectKey.Outbox);
             this.GetOrAdd(TrackedObjectKey.Reassembly);
-            this.GetOrAdd(TrackedObjectKey.Recovery);
+            this.GetOrAdd(TrackedObjectKey.Commit);
             this.GetOrAdd(TrackedObjectKey.Sessions);
             this.GetOrAdd(TrackedObjectKey.Timers);
         }
@@ -75,15 +75,15 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override Task Process(IList<PartitionEvent> batch)
         {
-            var recoveryState = (RecoveryState)this.GetOrAdd(TrackedObjectKey.Recovery);
+            var commitState = (CommitState)this.GetOrAdd(TrackedObjectKey.Commit);
 
-            batch.Add(new RecoveryStateChanged() { BatchSize = batch.Count + 1 });
+            batch.Add(new CommitStateChanged() { BatchSize = batch.Count + 1 });
 
-            this.ProcessBatch(batch, recoveryState.NextCommitPosition);
+            this.ProcessBatch(batch, commitState.NextCommitPosition);
 
             foreach (var evt in batch)
             {
-                evt.ConfirmationListener?.Confirm(evt);
+                evt.AckListener?.Acknowledge(evt);
             }
 
             return Task.CompletedTask;

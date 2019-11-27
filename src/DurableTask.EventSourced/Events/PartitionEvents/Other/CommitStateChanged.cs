@@ -13,22 +13,18 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class SentOrPersisted : PartitionEvent
+    internal class CommitStateChanged : PartitionEvent
     {
         [DataMember]
-        public (uint, long)? DurablySentMessages { get; set; }
+        public int BatchSize { get; set; }
 
-        [DataMember]
-        public long? DurablyPersistedPosition { get; set; }
-
-
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Outbox;
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Commit;
     }
 }

@@ -341,7 +341,6 @@ namespace DurableTask.EventSourced
 
             var partition = orchestrationWorkItem.Partition;
 
-            partition.TraceContext.Value = "OWorker";
             partition.Submit(new BatchProcessed()
             {
                 PartitionId = orchestrationWorkItem.Partition.PartitionId,
@@ -350,6 +349,7 @@ namespace DurableTask.EventSourced
                 BatchStartPosition = orchestrationWorkItem.BatchStartPosition,
                 BatchLength = orchestrationWorkItem.BatchLength,
                 NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
+                InMemoryRuntimeState = newOrchestrationRuntimeState,
                 State = state,
                 ActivityMessages = (List<TaskMessage>)outboundMessages,
                 OrchestratorMessages = (List<TaskMessage>)orchestratorMessages,
@@ -421,7 +421,6 @@ namespace DurableTask.EventSourced
         {
             var activityWorkItem = (ActivityWorkItem)workItem;
             var partition = activityWorkItem.Partition;
-            partition.TraceContext.Value = "AWorker";
             partition.Submit(new ActivityCompleted()
             {
                 PartitionId = activityWorkItem.Partition.PartitionId,

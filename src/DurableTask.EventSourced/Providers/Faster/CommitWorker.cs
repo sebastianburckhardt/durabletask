@@ -108,8 +108,8 @@ namespace DurableTask.EventSourced.Faster
                     store.GetOrCreate(k);
                 }
 
-                var recoveryState = (RecoveryState)store.GetOrCreate(TrackedObjectKey.Recovery);
-                FasterKV.Key recoveryKey = recoveryState.Key;
+                var commitState = (CommitState)store.GetOrCreate(TrackedObjectKey.Commit);
+                FasterKV.Key commitKey = commitState.Key;
 
                 var tracker = new TrackedObject.EffectTracker();
 
@@ -151,9 +151,9 @@ namespace DurableTask.EventSourced.Faster
 
                     if (commitBatch != null)
                     {
-                        long nextCommitPosition = recoveryState.NextCommitPosition;
+                        long nextCommitPosition = commitState.NextCommitPosition;
 
-                        commitBatch.Add(new RecoveryStateChanged() { BatchSize = commitBatch.Count + 1 });
+                        commitBatch.Add(new CommitStateChanged() { BatchSize = commitBatch.Count + 1 });
 
                         for (int i = 0; i < commitBatch.Count; i++)
                         {
@@ -176,7 +176,7 @@ namespace DurableTask.EventSourced.Faster
                         {
                             foreach (var evt in commitBatch)
                             {
-                                evt.ConfirmationListener?.Confirm(evt);
+                                evt.AckListener?.Acknowledge(evt);
                             }
                         }
                     }

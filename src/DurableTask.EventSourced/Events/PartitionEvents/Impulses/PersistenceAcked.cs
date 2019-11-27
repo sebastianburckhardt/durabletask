@@ -13,18 +13,18 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class RecoveryStateChanged : PartitionEvent
+    internal class PersistenceAcked : PartitionEvent
     {
         [DataMember]
-        public int BatchSize { get; set; }
+        public long DurablyPersisted { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Recovery;
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Outbox;
     }
 }

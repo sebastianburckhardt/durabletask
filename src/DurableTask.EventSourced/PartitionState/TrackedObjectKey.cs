@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced
             Instance,
             Outbox,
             Reassembly,
-            Recovery,
+            Commit,
             Sessions,
             Timers
         }
@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced
             { TrackedObjectType.Instance, typeof(InstanceState) },
             { TrackedObjectType.Outbox, typeof(OutboxState) },
             { TrackedObjectType.Reassembly, typeof(ReassemblyState) },
-            { TrackedObjectType.Recovery, typeof(RecoveryState) },
+            { TrackedObjectType.Commit, typeof(CommitState) },
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
         };
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
         public static TrackedObjectKey Dedup = new TrackedObjectKey() { ObjectType = TrackedObjectType.Dedup };
         public static TrackedObjectKey Outbox = new TrackedObjectKey() { ObjectType = TrackedObjectType.Outbox };
         public static TrackedObjectKey Reassembly = new TrackedObjectKey() { ObjectType = TrackedObjectType.Reassembly };
-        public static TrackedObjectKey Recovery = new TrackedObjectKey() { ObjectType = TrackedObjectType.Recovery };
+        public static TrackedObjectKey Commit = new TrackedObjectKey() { ObjectType = TrackedObjectType.Commit };
         public static TrackedObjectKey Sessions = new TrackedObjectKey() { ObjectType = TrackedObjectType.Sessions };
         public static TrackedObjectKey Timers = new TrackedObjectKey() { ObjectType = TrackedObjectType.Timers };
 
@@ -84,8 +84,8 @@ namespace DurableTask.EventSourced
                     return new OutboxState();
                 case TrackedObjectKey.TrackedObjectType.Reassembly:
                     return new ReassemblyState();
-                case TrackedObjectKey.TrackedObjectType.Recovery:
-                    return new RecoveryState();
+                case TrackedObjectKey.TrackedObjectType.Commit:
+                    return new CommitState();
                 case TrackedObjectKey.TrackedObjectType.Sessions:
                     return new SessionsState();
                 case TrackedObjectKey.TrackedObjectType.Timers:
