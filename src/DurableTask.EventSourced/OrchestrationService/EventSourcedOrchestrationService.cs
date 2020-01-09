@@ -57,6 +57,12 @@ namespace DurableTask.EventSourced
 
         internal Guid HostId { get; } = Guid.NewGuid();
 
+        /// <inheritdoc/>
+        public override string ToString()
+        {
+            return $"EventSourcedOrchestrationService on {(settings.UseEmulatedBackend ? "Emulator" : "EventHubs")}";
+        }
+
         /******************************/
         // management methods
         /******************************/

@@ -82,6 +82,12 @@ namespace DurableTask.AzureStorage
             : this(settings, null)
         { }
 
+        /// <inheritdoc/>
+        public override string ToString()
+        {
+            return $"AzureStorageOrchestrationService on {storageAccountName}";
+        }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="AzureStorageOrchestrationService"/> class with a custom instance store.
         /// </summary>
