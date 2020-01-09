@@ -24,5 +24,7 @@ namespace DurableTask.EventSourced.Emulated
     internal interface IEmulatedQueue<T>
     {
         void Send(T evt);
+
+        void Resume();
     }
 }

@@ -13,16 +13,24 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Text;
-//using Ambrosia;
+using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
-namespace DurableTask.EventSourced.Ambrosia
+namespace DurableTask.EventSourced
 {
-    interface IImmortal
+    /// <summary>
+    /// Written to the log by a host that recovers or starts the log.
+    /// </summary>
+    [DataContract]
+    internal class HostStarted : PartitionEvent
     {
-        void OrderedEvent(Event evt);
+        [DataMember]
+        public DateTime StartTime { get; set; }
 
-        //[ImpulseHandler]
-        void ImpulseEvent(Event evt);
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
     }
+
 }

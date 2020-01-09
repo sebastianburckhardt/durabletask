@@ -24,24 +24,31 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class DedupState : TrackedObject
     {
-        [IgnoreDataMember]
-        public override string Key => "Dedup";
-
         [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
+
+        // HostStarted marks the beginning of a host processing events
+
+        public void Process(HostStarted evt, EffectTracker effect)
+        {
+            // no op for now
+        }
 
         // TaskhubCreated is always the first event, we use it to initialize the deduplication logic
 
         public void Process(TaskhubCreated evt, EffectTracker effect)
         {
-            effect.ApplyTo(this);
+            effect.ApplyTo(this.Key);
         }
 
         public void Apply(TaskhubCreated evt)
         {
             for(uint i = 0; i < evt.StartPositions.Length; i++)
             {
-                ProcessedOrigins[i] = evt.StartPositions[i]; // includes first event which is TaskHubCreated
+                ProcessedOrigins[i] = 0;
             }
         }
 
@@ -50,14 +57,10 @@ namespace DurableTask.EventSourced
 
         public void Process(TaskMessageReceived evt, EffectTracker effect)
         {
-            if (this.Partition.Settings.PartitionCommunicationIsExactlyOnce)
+            if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
             {
-                effect.ApplyTo(State.Sessions);
-            }
-            else if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
-            {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 
@@ -65,6 +68,5 @@ namespace DurableTask.EventSourced
         {
             this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
         }
-
     }
 }

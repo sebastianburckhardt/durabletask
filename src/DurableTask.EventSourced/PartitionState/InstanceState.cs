@@ -25,19 +25,21 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class InstanceState : TrackedObject
     {
-        [IgnoreDataMember]
+        [DataMember]
         public string InstanceId { get; set; }
-
-        [IgnoreDataMember]
-        public override string Key => $"Instance-{this.InstanceId}";
 
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
-        public OrchestrationState GetOrchestrationState()
+
+        public static OrchestrationState GetOrchestrationState(InstanceState state)
         {
-            return this.OrchestrationState;
+            return state.OrchestrationState;
         }
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
+
 
         // CreationRequestReceived
 
@@ -48,7 +50,7 @@ namespace DurableTask.EventSourced
                 && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
             {
                 // An instance in this state already exists. do nothing but respond to client.
-                this.Partition.Submit(new CreationResponseReceived()
+                this.Partition.Send(new CreationResponseReceived()
                 {
                     ClientId = evt.ClientId,
                     RequestId = evt.RequestId,
@@ -57,10 +59,10 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
 
-                this.Partition.Submit(new CreationResponseReceived()
+                this.Partition.Send(new CreationResponseReceived()
                 {
                     ClientId = evt.ClientId,
                     RequestId = evt.RequestId,

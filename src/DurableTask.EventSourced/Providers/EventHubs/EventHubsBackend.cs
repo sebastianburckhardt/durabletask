@@ -114,7 +114,8 @@ namespace DurableTask.EventSourced.EventHubs
                 };
 
                 var partitionSender = this.connections.GetPartitionSender(i);
-                partitionSender.Add(evt, ackCounter);
+                evt.AckListener = ackCounter;
+                partitionSender.Submit(evt);
             }
 
             await ackCounter.WaitAsync();
@@ -130,7 +131,7 @@ namespace DurableTask.EventSourced.EventHubs
             public long[] StartPositions { get; set; }
         }
 
-        private class AckCounter : Backend.ISendConfirmationListener
+        private class AckCounter : Backend.IAckListener
         {
             private readonly TaskCompletionSource<object> tcs = new TaskCompletionSource<object>();
             private int count;
@@ -138,18 +139,13 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 count = numberAcks;
             }
-            public void ConfirmDurablySent(Event evt)
+            public void Acknowledge(Event evt)
             {
                 var val = Interlocked.Decrement(ref count);
                 if (val == 0)
                 {
                     tcs.TrySetResult(null);
                 }
-            }
-            public void ReportSenderException(Event evt, Exception e)
-            {
-                // not applicable for this type of event
-                throw new NotImplementedException();
             }
             public Task WaitAsync()
             {
@@ -203,23 +199,23 @@ namespace DurableTask.EventSourced.EventHubs
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext context)
         {
-            var processor = new EventProcessor(this.host, this);
+            var processor = new EventProcessor(this.host, this, this.settings);
             return processor;
         }
 
-        void Backend.ISender.Submit(Event evt, Backend.ISendConfirmationListener listener)
+        void Backend.ISender.Submit(Event evt)
         {
             if (evt is ClientEvent clientEvent)
             {
                 var clientId = clientEvent.ClientId;
                 var sender = this.connections.GetClientSender(clientEvent.ClientId);
-                sender.Add(clientEvent, listener);
+                sender.Submit(clientEvent);
             }
             else if (evt is PartitionEvent partitionEvent)
             {
                 var partitionId = partitionEvent.PartitionId;
                 var sender = this.connections.GetPartitionSender(partitionId);
-                sender.Add(partitionEvent, listener);
+                sender.Submit(partitionEvent);
             }
         }
 

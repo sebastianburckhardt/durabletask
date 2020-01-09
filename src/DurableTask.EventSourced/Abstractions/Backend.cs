@@ -57,14 +57,17 @@ namespace DurableTask.EventSourced
         /// </summary>
         public interface ISender
         {
-            void Submit(Event element, ISendConfirmationListener confirmationListener = null);
+            void Submit(Event element);
         }
 
-        public interface ISendConfirmationListener
+        public interface IAckListener
         {
-            void ConfirmDurablySent(Event evt);
+            void Acknowledge(Event evt);
+        }
 
-            void ReportSenderException(Event evt, Exception e);
+        public interface IAckOrExceptionListener : IAckListener
+        {
+            void ReportException(Event evt, Exception e);
         }
 
         /// <summary>
@@ -88,11 +91,11 @@ namespace DurableTask.EventSourced
         {
             uint PartitionId { get; }
 
-            Task<long> StartAsync();
+            Task StartAsync();
 
-            Task ProcessAsync(PartitionEvent partitionEvent);
+            void Submit(PartitionEvent partitionEvent);
 
-            Task TakeCheckpoint(long position);
+            void SubmitRange(IEnumerable<PartitionEvent> partitionEvent);
 
             void ReportError(string msg, Exception e);
 

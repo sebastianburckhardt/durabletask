@@ -30,7 +30,8 @@ namespace DurableTask.EventSourced
         public long SequenceNumber { get; set; }
 
         [IgnoreDataMember]
-        public override string Key => "Timers";
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Timers);
+
 
         protected override void Restore()
         {
@@ -52,8 +53,8 @@ namespace DurableTask.EventSourced
         {
             if (PendingTimers.ContainsKey(evt.TimerId))
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 

@@ -22,62 +22,24 @@ using System.Xml;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventSender<T> : BatchWorker where T: Event
+    internal class EventHubsSender<T> : BatchWorker<Event> where T: Event
     {
         private readonly PartitionSender sender;
         private readonly Backend.IHost host;
 
-        public EventSender(Backend.IHost host, PartitionSender sender)
+        public EventHubsSender(Backend.IHost host, PartitionSender sender)
         {
             this.host = host;
             this.sender = sender;
         }
-
-        private List<Entry> queue = new List<Entry>();
-        private List<Entry> toSend = new List<Entry>();
-
-        private struct Entry
-        {
-            public T Event;
-            public Backend.ISendConfirmationListener Listener;
-        }
-
-        public void Add(T evt, Backend.ISendConfirmationListener listener)
-        {
-            lock (lockable)
-            {
-                queue.Add(new Entry() { Event = evt, Listener = listener });
-                Notify();
-            }
-        }
-
-        private void Requeue(IEnumerable<Entry> requeue)
-        {
-            lock (lockable)
-            {
-                this.queue.InsertRange(0, requeue);
-                Notify();
-            }
-        }
-
+   
         // we reuse the same memory stream t
         private readonly MemoryStream stream = new MemoryStream();
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
 
-        protected override async Task Work()
+        protected override async Task Process(IList<Event> toSend)
         {
-            lock (lockable)
-            {
-                if (queue.Count == 0)
-                    return;
-
-                // mark queue position
-                var temp = this.toSend;
-                this.toSend = this.queue;
-                this.queue = temp;
-            }
-
             // track progress in case of exception
             var sentSuccessfully = 0;
             var maybeSent = 0;
@@ -91,7 +53,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     var startpos = (int)stream.Position;
 
-                    Serializer.SerializeEvent(toSend[i].Event, stream);
+                    Serializer.SerializeEvent(toSend[i], stream);
 
                     var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), startpos, (int)stream.Position - startpos);
                     var eventData = new EventData(arraySegment);
@@ -114,7 +76,7 @@ namespace DurableTask.EventSourced.EventHubs
                     else
                     {
                         // the message is too big. Break it into fragments, and send each individually.
-                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i].Event);
+                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i]);
                         maybeSent = i;
                         foreach (var fragment in fragments)
                         {
@@ -139,28 +101,29 @@ namespace DurableTask.EventSourced.EventHubs
             }
 
             // Confirm all sent ones, and retry or report maybe-sent ones
-            List<Entry> requeue = null;
+            List<Event> requeue = null;
 
             try
             {
                 for (int i = 0; i < toSend.Count; i++)
                 {
-                    var entry = toSend[i];
+                    var evt = toSend[i];
 
                     if (i < sentSuccessfully)
                     {
                         // the event was definitely sent successfully
-                        entry.Listener?.ConfirmDurablySent(entry.Event);
+                        evt.AckListener?.Acknowledge(evt);
                     }
-                    else if (i > maybeSent || entry.Event.AtLeastOnceDelivery)
+                    else if (i > maybeSent || evt.AtLeastOnceDelivery)
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
-                        (requeue ?? (requeue = new List<Entry>())).Add(entry);
+                        (requeue ?? (requeue = new List<Event>())).Add(evt);
                     }
-                    else
+                    else if (evt.AckListener is Backend.IAckOrExceptionListener listener)
                     {
                         // the event may have been sent or maybe not, report problem to listener
-                        entry.Listener?.ReportSenderException(entry.Event, senderException);
+                        // this is used by clients who can give the exception back to the caller
+                        listener?.ReportException(evt, senderException);
                     }
                 }
 
@@ -175,21 +138,17 @@ namespace DurableTask.EventSourced.EventHubs
             catch(Exception e)
             {
                 host.ReportError("Internal error: failure in requeue", e);
-                senderException = e;
             }
-
-            // and clear the queue so we can reuse it for the next batch
-            this.toSend.Clear();          
         }
 
-        private IEnumerable<EventData> Serialize(IEnumerable<Entry> entries)
+        private IEnumerable<EventData> Serialize(IEnumerable<Event> events)
         {
             using (var stream = new MemoryStream())
             {
-                foreach (var entry in entries)
+                foreach (var evt in events)
                 {
                     stream.Seek(0, SeekOrigin.Begin);
-                    Serializer.SerializeEvent(entry.Event, stream);
+                    Serializer.SerializeEvent(evt, stream);
                     var length = (int)stream.Position;
                     yield return new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length));
                 }

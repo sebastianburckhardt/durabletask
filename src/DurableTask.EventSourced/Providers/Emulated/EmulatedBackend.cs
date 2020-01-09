@@ -11,8 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced.Faster;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,6 +28,8 @@ namespace DurableTask.EventSourced.Emulated
 
         private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
         private IEmulatedQueue<PartitionEvent>[] partitionQueues;
+        private Backend.IClient client;
+        private Storage.IPartitionState[] partitionStates;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
@@ -41,6 +46,7 @@ namespace DurableTask.EventSourced.Emulated
             await Task.Delay(simulatedDelay);
             this.clientQueues = new Dictionary<Guid, IEmulatedQueue<ClientEvent>>();
             this.partitionQueues = new IEmulatedQueue<PartitionEvent>[numberPartitions];
+            this.partitionStates = new Storage.IPartitionState[numberPartitions];
         }
 
         async Task Backend.ITaskHub.DeleteAsync()
@@ -68,19 +74,21 @@ namespace DurableTask.EventSourced.Emulated
             // create a client
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
-            var client = this.host.AddClient(clientId, clientSender);
+            this.client = this.host.AddClient(clientId, clientSender);
             var clientQueue = this.settings.SerializeInEmulator
-                ? (IEmulatedQueue<ClientEvent>) new EmulatedSerializingClientQueue(client, this.shutdownTokenSource.Token)
-                : (IEmulatedQueue<ClientEvent>) new EmulatedClientQueue(client, this.shutdownTokenSource.Token);
+                ? (IEmulatedQueue<ClientEvent>)new EmulatedSerializingClientQueue(this.client, this.shutdownTokenSource.Token)
+                : (IEmulatedQueue<ClientEvent>)new EmulatedClientQueue(this.client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
-            clientSender.SetHandler(list => SendEvents(client, list));
+            clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
             for (uint i = 0; i < this.settings.EmulatedPartitions; i++)
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partition = this.host.AddPartition(i, new MemoryStorage(), partitionSender);
+                var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
+                //var partitionState = partitionStates[i] = new EmulatedStorage();
+                var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
                     ? (IEmulatedQueue<PartitionEvent>)new EmulatedSerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
@@ -100,24 +108,32 @@ namespace DurableTask.EventSourced.Emulated
 
                 this.partitionQueues[i].Send(evt);
             }
+
+            // start all the emulated queues
+            foreach (var partitionQueue in this.partitionQueues)
+            {
+                partitionQueue.Resume();
+            }
+            clientQueue.Resume();
         }
 
         async Task Backend.ITaskHub.StopAsync()
         {
-            await Task.Delay(simulatedDelay);
-
             if (this.shutdownTokenSource != null)
             {
                 this.shutdownTokenSource.Cancel();
                 this.shutdownTokenSource = null;
+
+                await this.client.StopAsync();
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.WaitForTerminationAsync()));
             }
         }
 
-        private Task SendEvents(Backend.IClient client, List<Event> events)
+        private void SendEvents(Backend.IClient client, IEnumerable<Event> events)
         {
             try
             {
-                SendEvents(events);
+                SendEvents(events, null);
             }
             catch (TaskCanceledException)
             {
@@ -126,16 +142,14 @@ namespace DurableTask.EventSourced.Emulated
             catch (Exception e)
             {
                 client.ReportError(nameof(SendEvents), e);
-                throw e;
             }
-            return Task.CompletedTask;
         }
 
-        private Task SendEvents(Backend.IPartition partition, List<Event> events)
+        private void SendEvents(Backend.IPartition partition, IEnumerable<Event> events)
         {
             try
             {
-                SendEvents(events);
+                SendEvents(events, partition.PartitionId);
             }
             catch (TaskCanceledException)
             {
@@ -144,12 +158,10 @@ namespace DurableTask.EventSourced.Emulated
             catch (Exception e)
             {
                 partition.ReportError(nameof(SendEvents), e);
-                throw e;
             }
-            return Task.CompletedTask;
         }
 
-        private void SendEvents(List<Event> events)
+        private void SendEvents(IEnumerable<Event> events, uint? sendingPartition)
         {
             foreach (var evt in events)
             {
@@ -159,7 +171,16 @@ namespace DurableTask.EventSourced.Emulated
                 }
                 else if (evt is PartitionEvent partitionEvent)
                 {
-                    this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
+                    if (partitionEvent.PartitionId == sendingPartition)
+                    {
+                        // a loop-back message (impulse) can be committed immediately
+                        this.partitionStates[sendingPartition.Value].Submit(partitionEvent);
+                    }
+                    else
+                    {
+                        // enqueue this event
+                        this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
+                    }
                 }
             }
         }

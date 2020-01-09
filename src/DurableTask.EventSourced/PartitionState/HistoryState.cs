@@ -25,11 +25,8 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class HistoryState : TrackedObject
     {
-        [IgnoreDataMember]
+        [DataMember]
         public string InstanceId { get; set; }
-
-        [IgnoreDataMember]
-        public override string Key => $"History-{this.InstanceId}";
 
         [DataMember]
         public string ExecutionId { get; set; }
@@ -38,46 +35,38 @@ namespace DurableTask.EventSourced
         public List<HistoryEvent> History { get; set; }
 
         [IgnoreDataMember]
-        private OrchestrationRuntimeState cachedRuntimeState;
+        private OrchestrationRuntimeState inMemoryRuntimeState;
 
-        public OrchestrationRuntimeState GetRuntimeState()
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.History, this.InstanceId);
+
+        public static OrchestrationRuntimeState GetRuntimeState(HistoryState state)
         {
-            return this.cachedRuntimeState ?? (this.cachedRuntimeState = new OrchestrationRuntimeState(History));
+            return state.inMemoryRuntimeState ?? (state.inMemoryRuntimeState = new OrchestrationRuntimeState(state.History));
         }
-
 
         // BatchProcessed
 
         public void Apply(BatchProcessed evt)
         {
-            if (this.History == null)
+            // update the stored history
+
+            if (this.History == null || evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)
             {
                 this.History = new List<HistoryEvent>();
                 this.ExecutionId = evt.State.OrchestrationInstance.ExecutionId;
             }
 
-            else if (evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)
-            {
-                this.History.Clear();
-                this.ExecutionId = evt.State.OrchestrationInstance.ExecutionId;
-            }
+            // TODO add some checking here
 
-            if (this.cachedRuntimeState != null)
-            {
-                if (this.cachedRuntimeState.OrchestrationInstance.ExecutionId == this.ExecutionId)
-                {
-                    this.cachedRuntimeState?.NewEvents.Clear();
-                }
-                else
-                {
-                    this.cachedRuntimeState = null;
-                }
-            }
-            
             if (evt.NewEvents != null)
             {
                 this.History.AddRange(evt.NewEvents);
             }
+
+            // update the in-memory runtime state
+            this.inMemoryRuntimeState = evt.InMemoryRuntimeState;
+            evt.InMemoryRuntimeState?.NewEvents.Clear();            
         }
     }
 }

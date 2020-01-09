@@ -23,70 +23,54 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal abstract class EmulatedQueue<T,B> : EventHubs.BatchWorker where T:Event
+    internal abstract class EmulatedQueue<T,B> : BatchWorker<B> where T:Event
     {
-        private readonly CancellationToken cancellationToken;
-
-        private List<B> batch = new List<B>();
-        private List<B> queue = new List<B>();
-
         private long position = 0;
 
-        public EmulatedQueue(CancellationToken cancellationToken)
+        public EmulatedQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
         {
-            this.cancellationToken = cancellationToken;
         }
 
         protected abstract B Serialize(T evt);
         protected abstract T Deserialize(B evt);
 
-        protected abstract Task Deliver(T evt);
+        protected abstract void Deliver(T evt);
 
-        protected override async Task Work()
+        protected override Task Process(IList<B> batch)
         {
-            lock (this.lockable)
-            {
-                var temp = queue;
-                queue = batch;
-                batch = temp;
-            }
-
             var eventbatch = new T[batch.Count];
 
             for (int i = 0; i < batch.Count; i++)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 eventbatch[i] = this.Deserialize(batch[i]);
-                eventbatch[i].QueuePosition = position + i;
+                eventbatch[i].CommitPosition = position + i;
             }
 
             foreach (var evt in eventbatch)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
-                await Deliver(evt);          
+                Deliver(evt);          
             }
 
             position = position + batch.Count;
-            batch.Clear();
+
+            return Task.CompletedTask;
         }
 
         public void Send(T evt)
         {
             var serialized = Serialize(evt);
 
-            lock (this.lockable)
-            {
-                queue.Add(serialized);
-                this.Notify();
-            }
+            this.Submit(serialized);
         }
     }
 }

@@ -20,14 +20,10 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class SentOrPersisted : PartitionEvent
+    internal class PersistenceAcked : PartitionEvent
     {
         [DataMember]
-        public (uint, long)? DurablySentMessages { get; set; }
-
-        [DataMember]
-        public long? DurablyPersistedPosition { get; set; }
-
+        public long DurablyPersisted { get; set; }
 
         public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Outbox;
     }

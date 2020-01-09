@@ -20,6 +20,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Dynamitey;
 
 namespace DurableTask.EventSourced
 {
@@ -33,8 +34,7 @@ namespace DurableTask.EventSourced
         public long SequenceNumber { get; set; }
 
         [IgnoreDataMember]
-        public override string Key => "Activities";
-
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Activities);
 
         protected override void Restore()
         {
@@ -51,8 +51,8 @@ namespace DurableTask.EventSourced
         {
             if (PendingActivities.ContainsKey(evt.ActivityId))
             {
-                effect.ApplyTo(State.Sessions);
-                effect.ApplyTo(this);
+                effect.ApplyTo(TrackedObjectKey.Sessions);
+                effect.ApplyTo(this.Key);
             }
         }
 

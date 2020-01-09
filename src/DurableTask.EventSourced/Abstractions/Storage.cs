@@ -25,45 +25,20 @@ namespace DurableTask.EventSourced
     internal static class Storage
     {
         /// <summary>
-        /// The event-sourced state of a partition, suitable for asynchronous checkpointing
+        /// Storage abstraction for the event-sourced state of a partition
         /// </summary>
         internal interface IPartitionState
         {
-            // ------ intialization ------
+            Task RestoreAsync(Partition localPartition);
 
-            Task<long> RestoreAsync(Partition localPartition);
+            Task WaitForTerminationAsync();
 
-            Task ShutdownAsync();
+            void Submit(PartitionEvent evt);
 
-            // ------ methods called from updater thread ------
+            void SubmitRange(IEnumerable<PartitionEvent> evt);
 
-            void Process(PartitionEvent evt);
-
-            // ------ methods called from any thread ------
-
-            Task<TResult> ReadAsync<TResult>(Func<TResult> read);
-
-            Task<TResult> ReadAsync<TArgument1, TResult>(Func<TArgument1, TResult> read, TArgument1 argument);
-
-            // ------ tracked objects ------
-
-            DedupState Dedup { get; }
-
-            ClientsState Clients { get; }
-
-            ReassemblyState Reassembly { get; }
-
-            OutboxState Outbox { get; }
-
-            TimersState Timers { get; }
-
-            ActivitiesState Activities { get; }
-
-            SessionsState Sessions { get; }
-
-            InstanceState GetInstance(string instanceId);
-
-            HistoryState GetHistory(string instanceId);
+            Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
+                where TObject: TrackedObject;
         }
     }
 }

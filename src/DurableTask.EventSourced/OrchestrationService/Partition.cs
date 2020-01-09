@@ -39,18 +39,19 @@ namespace DurableTask.EventSourced
 
         public CancellationToken PartitionShutdownToken => this.partitionShutdown.Token;
 
-        public BatchTimer<Event> PendingTimers { get; private set; }
+        public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
         public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
 
         private readonly CancellationTokenSource partitionShutdown;
 
-        public AsyncLocal<string> TraceContext { get; private set; }
+        [ThreadStatic]
+        public static string TraceContext;
 
         public Partition(
             EventSourcedOrchestrationService host,
             uint partitionId,
-            Func<string,uint> partitionFunction,
+            Func<string, uint> partitionFunction,
             Storage.IPartitionState state,
             Backend.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
@@ -68,56 +69,37 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
 
             this.partitionShutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            this.TraceContext = new AsyncLocal<string>();
         }
 
-        public async Task<long> StartAsync()
+        public async Task StartAsync()
         {
             // initialize collections for pending work
-            this.PendingTimers = new BatchTimer<Event>(this.PartitionShutdownToken, this.TimersFired);
+            this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
             // restore from last snapshot
-            this.TraceContext.Value = "restore";
-            var resumeFrom = await State.RestoreAsync(this);
-            this.TraceContext.Value = null;
+            await State.RestoreAsync(this);
 
-            return resumeFrom;
+            this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
         }
 
-        public Task ProcessAsync(PartitionEvent partitionEvent)
+        public void ProcessAsync(PartitionEvent partitionEvent)
         {
-            this.TraceContext.Value = $"{partitionEvent.QueuePosition:D7}   ";
-
-            this.TraceReceive(partitionEvent);
-
-            this.State.Process(partitionEvent);
-
-            return Task.CompletedTask;
+            this.State.Submit(partitionEvent);
         }
 
         public async Task StopAsync()
         {
             this.partitionShutdown.Cancel();
-            await this.State.ShutdownAsync();
+            await this.State.WaitForTerminationAsync();
 
             EtwSource.Log.PartitionStopped(this.PartitionId);
         }
 
-        public Task TakeCheckpoint(long position)
+        private void TimersFired(List<PartitionEvent> timersFired)
         {
-            //TODO
-            throw new NotImplementedException();
-        }
-
-        private void TimersFired(List<Event> timersFired)
-        {
-            this.TraceContext.Value = "TWorker";
-            foreach (var t in timersFired)
-            {
-                this.Submit(t);
-            }
+            this.SubmitRange(timersFired);
         }
 
         public class ResponseWaiter : CancellableCompletionSource<ClientEvent>
@@ -129,28 +111,37 @@ namespace DurableTask.EventSourced
             {
                 this.Request = request;
                 this.Partition = partition;
-                this.Partition.PendingResponses.TryAdd(Request.QueuePosition, this);
+                this.Partition.PendingResponses.TryAdd(Request.RequestId, this);
             }
             protected override void Cleanup()
             {
-                this.Partition.PendingResponses.TryRemove(Request.QueuePosition, out var _);
+                this.Partition.PendingResponses.TryRemove(Request.RequestId, out var _);
                 base.Cleanup();
             }
-        }        
+        }
 
         public void TrySendResponse(ClientRequestEvent request, ClientEvent response)
         {
-            if (this.PendingResponses.TryGetValue(request.QueuePosition, out var waiter))
+            if (this.PendingResponses.TryGetValue(request.RequestId, out var waiter))
             {
                 waiter.TrySetResult(response);
             }
         }
 
-        public void Submit(Event evt, Backend.ISendConfirmationListener listener = null)
+        public void Send(Event evt)
         {
-            TraceSend(evt);
+            this.TraceSend(evt);
+            this.BatchSender.Submit(evt);
+        }
 
-            this.BatchSender.Submit(evt, listener);
+        public void Submit(PartitionEvent evt)
+        {
+            this.State.Submit(evt);
+        }
+
+        public void SubmitRange(IEnumerable<PartitionEvent> partitionEvents)
+        {
+            this.State.SubmitRange(partitionEvents);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
@@ -161,7 +152,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.ActivityWorkItemQueue.Add(item);
@@ -175,7 +166,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, this.TraceContext.Value ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.OrchestrationWorkItemQueue.Add(item);
@@ -193,15 +184,17 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void TraceReceive(PartitionEvent evt)
+        public void TraceProcess(PartitionEvent evt)
         {
+            Partition.TraceContext = $"{evt.CommitPosition:D7}   ";
+
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.QueuePosition:D7} Processing {evt} {evt.WorkItem}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D7} Processing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
@@ -213,16 +206,28 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, this.TraceContext.Value ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+            }
+        }
+
+        public void TraceSubmit(Event evt)
+        {
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                this.DiagnosticsTrace($"Submitting {evt} {evt.WorkItem}");
+            }
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
         public void DiagnosticsTrace(string msg)
         {
-            var context = this.TraceContext.Value;
+            var context = Partition.TraceContext;
             if (string.IsNullOrEmpty(context))
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}         {msg}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2} {msg}");
             }
             else
             {
@@ -247,7 +252,7 @@ namespace DurableTask.EventSourced
 
                 if (response != null)
                 {
-                    this.Submit(response);
+                    this.Send(response);
                 }
             }
             catch (TaskCanceledException)
@@ -288,7 +293,10 @@ namespace DurableTask.EventSourced
 
             public async Task ReadFromStateAsync(Storage.IPartitionState state)
             {
-                var orchestrationState = await state.ReadAsync(state.GetInstance(Key).GetOrchestrationState);
+                var orchestrationState = await state.ReadAsync<InstanceState,OrchestrationState>(
+                    TrackedObjectKey.Instance(this.Key),
+                    InstanceState.GetOrchestrationState);
+
                 this.Notify(orchestrationState);
             }
 
@@ -303,7 +311,9 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                var orchestrationState = await this.State.ReadAsync(this.State.GetInstance(request.InstanceId).GetOrchestrationState);
+                var orchestrationState = await this.State.ReadAsync<InstanceState,OrchestrationState>(
+                     TrackedObjectKey.Instance(request.InstanceId),
+                     InstanceState.GetOrchestrationState);
 
                 var response = new StateResponseReceived()
                 {
@@ -312,7 +322,7 @@ namespace DurableTask.EventSourced
                     OrchestrationState = orchestrationState,
                 };
 
-                this.Submit(response);
+                this.Send(response);
             }
             catch (TaskCanceledException)
             {

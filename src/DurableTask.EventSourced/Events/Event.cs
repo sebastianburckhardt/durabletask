@@ -20,34 +20,23 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    [KnownType(typeof(ClientEventFragment))]
-    [KnownType(typeof(CreationResponseReceived))]
-    [KnownType(typeof(StateResponseReceived))]
-    [KnownType(typeof(WaitResponseReceived))]
-    [KnownType(typeof(ClientTaskMessagesReceived))]
-    [KnownType(typeof(CreationRequestReceived))]
-    [KnownType(typeof(StateRequestReceived))]
-    [KnownType(typeof(WaitRequestReceived))]
-    [KnownType(typeof(ActivityCompleted))]
-    [KnownType(typeof(BatchProcessed))]
-    [KnownType(typeof(SentMessagesAcked))]
-    [KnownType(typeof(TimerFired))]
-    [KnownType(typeof(TaskhubCreated))]
-    [KnownType(typeof(TaskMessageReceived))]
-    [KnownType(typeof(PartitionEventFragment))]
+    [KnownTypeAttribute("KnownTypes")]
     internal abstract class Event
     {
         /// <summary>
-        /// For received events, this is the queue position at which the event was received, and is filled in by the back-end.
+        /// The position at which this event committed, filled in by the storage back-end.
         /// </summary>
         [IgnoreDataMember]
-        public long QueuePosition { get; set; } = -1;
+        public long CommitPosition { get; set; } = -1;
 
         /// <summary>
         /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous
         /// </summary>
         [IgnoreDataMember]
         public abstract bool AtLeastOnceDelivery { get; }
+
+        [IgnoreDataMember]
+        public Backend.IAckListener AckListener { get; set; }
 
         public override string ToString()
         {
@@ -59,6 +48,26 @@ namespace DurableTask.EventSourced
 
         protected virtual void TraceInformation(StringBuilder s)
         {
+        }
+
+        public static IEnumerable<Type> KnownTypes()
+        {
+            yield return typeof(ClientEventFragment);
+            yield return typeof(CreationResponseReceived);
+            yield return typeof(StateResponseReceived);
+            yield return typeof(WaitResponseReceived);
+            yield return typeof(ClientTaskMessagesReceived);
+            yield return typeof(CreationRequestReceived);
+            yield return typeof(StateRequestReceived);
+            yield return typeof(WaitRequestReceived);
+            yield return typeof(ActivityCompleted);
+            yield return typeof(BatchProcessed);
+            yield return typeof(SentOrPersisted);
+            yield return typeof(TimerFired);
+            yield return typeof(HostStarted);
+            yield return typeof(TaskhubCreated);
+            yield return typeof(TaskMessageReceived);
+            yield return typeof(PartitionEventFragment);
         }
 
         #region ETW trace properties

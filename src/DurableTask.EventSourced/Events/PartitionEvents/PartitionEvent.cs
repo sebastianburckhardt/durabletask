@@ -25,9 +25,12 @@ namespace DurableTask.EventSourced
         public uint PartitionId { get; set; }
 
         [IgnoreDataMember]
-        public override bool AtLeastOnceDelivery => true; 
+        public override bool AtLeastOnceDelivery => true;
+
+        [IgnoreDataMember]
+        public ArraySegment<byte> Serialized;
 
         // returns set of affected objects
-        public abstract TrackedObject StartProcessingOnObject(Storage.IPartitionState state);
+        public abstract TrackedObjectKey StartProcessingOnObject { get; }
     }
 }

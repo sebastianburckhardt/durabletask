@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced.Emulated
             return (ClientEvent)Serializer.DeserializeEvent(bytes);
         }
 
-        protected override Task Deliver(ClientEvent evt)
+        protected override void Deliver(ClientEvent evt)
         {
             try
             {
@@ -58,8 +58,6 @@ namespace DurableTask.EventSourced.Emulated
             {
                 client.ReportError(nameof(EmulatedClientQueue), e);
             }
-
-            return Task.CompletedTask;
         }
     }
 }

@@ -50,9 +50,16 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings)
         {
             this.settings = settings;
-            this.taskHub = settings.UseEmulatedBackend
-                ? this.taskHub = new Emulated.EmulatedBackend(this, settings)
-                : this.taskHub = new EventHubs.EventHubsBackend(this, settings);
+
+            if (settings.UseEmulatedBackend)
+            {
+                //this.taskHub = new Emulated.EmulatedBackend(this, settings);
+                this.taskHub = new AzureChannels.AzureChannelsBackend(this, settings);
+            }
+            else
+            {
+                this.taskHub = new EventHubs.EventHubsBackend(this, settings);
+            }
         }
 
         internal Guid HostId { get; } = Guid.NewGuid();
@@ -298,7 +305,6 @@ namespace DurableTask.EventSourced
 
             var partition = orchestrationWorkItem.Partition;
 
-            partition.TraceContext.Value = "OWorker";
             partition.Submit(new BatchProcessed()
             {
                 PartitionId = orchestrationWorkItem.Partition.PartitionId,
@@ -307,6 +313,7 @@ namespace DurableTask.EventSourced
                 BatchStartPosition = orchestrationWorkItem.BatchStartPosition,
                 BatchLength = orchestrationWorkItem.BatchLength,
                 NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
+                InMemoryRuntimeState = newOrchestrationRuntimeState,
                 State = state,
                 ActivityMessages = (List<TaskMessage>)outboundMessages,
                 OrchestratorMessages = (List<TaskMessage>)orchestratorMessages,
@@ -378,7 +385,6 @@ namespace DurableTask.EventSourced
         {
             var activityWorkItem = (ActivityWorkItem)workItem;
             var partition = activityWorkItem.Partition;
-            partition.TraceContext.Value = "AWorker";
             partition.Submit(new ActivityCompleted()
             {
                 PartitionId = activityWorkItem.Partition.PartitionId,

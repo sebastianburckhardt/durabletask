@@ -23,15 +23,56 @@ namespace DurableTask.EventSourced
     public class EventSourcedOrchestrationServiceSettings
     {
         /// <summary>
-        /// Gets or sets the connection string for the event hubs namespace.
-        /// Can be a real connection string, or of the form "Emulator:n" where n is the number of partitions
+        /// Gets or sets the connection string for the event hubs namespace, if needed.
         /// </summary>
         public string EventHubsConnectionString { get; set; }
 
         /// <summary>
-        /// Gets or sets the connection string for the Azure storage used for leases and checkpoints.
+        /// Gets or sets the connection string for the Azure storage account.
         /// </summary>
         public string StorageConnectionString { get; set; }
+
+        //public StorageChoices StorageComponent { get; set; }
+
+        //public TransportChoices TransportComponent { get; set; }
+
+        ///// <summary>
+        ///// Configuration options for the storage component
+        ///// </summary>
+        //public enum StorageChoices
+        //{
+        //    /// <summary>
+        //    /// Does not store any state to durable storage, just keeps it in memory
+        //    /// </summary>
+        //    Memory = 0,
+
+        //    /// <summary>
+        //    /// Uses the Faster key-value store 
+        //    /// </summary>
+        //    Faster = 1,
+        //}
+
+        ///// <summary>
+        ///// Configuration options for the transport component
+        ///// </summary>
+        //public enum TransportChoices
+        //{
+        //    /// <summary>
+        //    /// Passes messages through memory; only works on a single host machine
+        //    /// </summary>
+        //    Memory = 0,
+
+        //    /// <summary>
+        //    /// Passes messages through eventhubs; can distribute over multiple machines via
+        //    /// the eventhubs partition manager.
+        //    /// </summary>
+        //    EventHubs = 1,
+
+        //    /// <summary>
+        //    /// Passes messages through azure tables; currently only works on a single host machine
+        //    /// </summary>
+        //    AzureTable = 2,
+        //}
 
         /// <summary>
         /// Gets or sets the maximum number of work items that can be processed concurrently on a single node.
@@ -51,8 +92,6 @@ namespace DurableTask.EventSourced
         /// </summary>
         public bool KeepServiceRunning { get; set; } = false;
 
-
-        internal bool PartitionCommunicationIsExactlyOnce { get; } = false; // TODO true for ambrosia
 
         /// <inheritdoc/>
         public override bool Equals(object obj)

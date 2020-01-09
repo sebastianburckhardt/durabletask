@@ -33,10 +33,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long OriginPosition { get; set; }
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Dedup;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
 
         protected override void TraceInformation(StringBuilder s)
         {

@@ -11,35 +11,60 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Dynamitey;
+using System;
 using System.Collections.Generic;
+using System.Dynamic;
+using System.IO;
 using System.Runtime.Serialization;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
+    [KnownTypeAttribute("KnownTypes")]
     internal abstract class TrackedObject
     {
         [IgnoreDataMember]
         protected Partition Partition;
 
+        [IgnoreDataMember]
+        public abstract TrackedObjectKey Key { get; }
+
+        [IgnoreDataMember]
+        internal byte[] SerializedSnapshot { get; set; }
+
+        // used by the state storage backend to protect from conflicts
+        [IgnoreDataMember]
+        internal object AccessLock => this;
+
         [DataMember]
-        long LastProcessed { get; set; } = -1;
+        public long CommitPosition { get; set; } = -1;
 
-        [IgnoreDataMember]
-        public abstract string Key { get; }
-
-        [IgnoreDataMember]
-        protected Storage.IPartitionState State => Partition.State;
-
-        // protects conflicts between the event processor and local tasks
-        internal object Lock { get; private set; } = new object();
-
-        // call after deserialization to fill in non-serialized fields
-        public long Restore(Partition Partition)
+        // call after deserialization, or after simulating a recovery
+        public void Restore(Partition Partition)
         {
-            this.Partition = Partition;
-            this.Restore();
-            return LastProcessed;
+            if (this.Partition != Partition)
+            {
+                this.Partition = Partition;
+                this.Restore();
+            }
+        }
+
+        private static IEnumerable<Type> KnownTypes()
+        {
+            foreach (var t in Core.History.HistoryEvent.KnownTypes())
+            {
+                yield return t;
+            }
+            foreach (var t in DurableTask.EventSourced.Event.KnownTypes())
+            {
+                yield return t;
+            }
+            foreach (var t in TrackedObjectKey.TypeMap.Values)
+            {
+                yield return t;
+            }
         }
 
         protected virtual void Restore()
@@ -70,15 +95,15 @@ namespace DurableTask.EventSourced
 
         public class EffectTracker
         {
-            public List<TrackedObject> ObjectsToProcessOn = new List<TrackedObject>();
-            public List<TrackedObject> ObjectsToApplyTo = new List<TrackedObject>();
+            public List<TrackedObjectKey> ObjectsToProcessOn = new List<TrackedObjectKey>();
+            public List<TrackedObjectKey> ObjectsToApplyTo = new List<TrackedObjectKey>();
 
-            public void ProcessOn(TrackedObject o)
+            public void ProcessOn(TrackedObjectKey o)
             {
                 ObjectsToProcessOn.Add(o);
             }
 
-            public void ApplyTo(TrackedObject o)
+            public void ApplyTo(TrackedObjectKey o)
             {
                 ObjectsToApplyTo.Add(o);
             }
@@ -89,66 +114,6 @@ namespace DurableTask.EventSourced
                 ObjectsToApplyTo.Clear();
             }
         }
-        
-        public void ProcessRecursively(PartitionEvent evt, EffectTracker effect)
-        {
-            if (evt.QueuePosition > this.LastProcessed)
-            {
-                if (EtwSource.EmitDiagnosticsTrace)
-                {
-                    this.Partition.DiagnosticsTrace($"Process on [{this.Key}]");
-                }
-
-                // remember the initial position of the lists so we can tell
-                // which elements were added by this frame, and remove them at the end.
-
-                var processOnStartPos = effect.ObjectsToProcessOn.Count;
-                var applyToStartPos = effect.ObjectsToApplyTo.Count;
-
-                // start with processing the event on this object, determining effect
-                dynamic dynamicThis = this;
-                dynamic dynamicPartitionEvent = evt;
-                dynamicThis.Process(dynamicPartitionEvent, effect);
-
-                var numObjectsToProcessOn = effect.ObjectsToProcessOn.Count - processOnStartPos;
-                var numObjectsToApplyTo = effect.ObjectsToApplyTo.Count - applyToStartPos;
-
-                // recursively process all objects as determined by effect tracker
-                if (numObjectsToProcessOn > 0)
-                {
-                    for (int i = 0; i < numObjectsToProcessOn; i++)
-                    {
-                        effect.ObjectsToProcessOn[processOnStartPos + i].ProcessRecursively(evt, effect);
-                    }
-                }
-
-                // apply all objects  as determined by effect tracker
-                if (numObjectsToApplyTo > 0)
-                {
-                    for (int i = 0; i < numObjectsToApplyTo; i++)
-                    {
-                        var target = effect.ObjectsToApplyTo[applyToStartPos + i];
-                        if (target.LastProcessed < evt.QueuePosition)
-                        {
-                            lock (target.Lock)
-                            {
-                                if (EtwSource.EmitDiagnosticsTrace)
-                                {
-                                    this.Partition.DiagnosticsTrace($"Apply to [{target.Key}]");
-                                }
-
-                                dynamic dynamicTarget = target;
-                                dynamicTarget.Apply(dynamicPartitionEvent);
-                                target.LastProcessed = evt.QueuePosition;
-                            }
-                        }
-                    }
-                }
-
-                // remove the elements that were added in this frame
-                effect.ObjectsToProcessOn.RemoveRange(processOnStartPos, numObjectsToProcessOn);
-                effect.ObjectsToApplyTo.RemoveRange(applyToStartPos, numObjectsToApplyTo);
-            }
-        }
+     
     }
 }

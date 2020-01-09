@@ -51,6 +51,7 @@ namespace DurableTask.EventSourced
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
             this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
+            this.ResponseTimeouts.Start("ClientTimer");
         }
 
         public Task StopAsync()
@@ -59,48 +60,46 @@ namespace DurableTask.EventSourced
             return Task.CompletedTask;
         }
 
-        public void Process(IEnumerable<ClientEvent> batch)
+        public void Process(ClientEvent clientEvent)
         {
-            foreach (var clientEvent in batch)
+            if (!(clientEvent is ClientEventFragment fragment))
             {
-                if (!(clientEvent is ClientEventFragment fragment))
+                ProcessInternal(clientEvent);
+            }
+            else
+            {
+                if (!fragment.IsLast)
                 {
-                    Process(clientEvent);
+                    if (!this.Fragments.TryGetValue(fragment.CohortId, out var list))
+                    {
+                        this.Fragments[fragment.CohortId] = list = new List<ClientEventFragment>();
+                    }
+                    list.Add(fragment);
                 }
                 else
                 {
-                    if (!fragment.IsLast)
-                    {
-                        if (!this.Fragments.TryGetValue(fragment.CohortId, out var list))
-                        {
-                            this.Fragments[fragment.CohortId] = list = new List<ClientEventFragment>();
-                        }
-                        list.Add(fragment);
-                    }
-                    else
-                    {
-                        var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble(this.Fragments[fragment.CohortId], fragment);
-                        this.Fragments.Remove(fragment.CohortId);
+                    var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble(this.Fragments[fragment.CohortId], fragment);
+                    this.Fragments.Remove(fragment.CohortId);
 
-                        Process(reassembledEvent);
-                    }
+                    ProcessInternal(reassembledEvent);
                 }
             }
         }
 
-        public void Process(ClientEvent clientEvent)
+        private void ProcessInternal(ClientEvent clientEvent)
         {
             TraceReceive(clientEvent);
             if (this.ResponseWaiters.TryGetValue(clientEvent.RequestId, out var waiter))
             {
                 waiter.TrySetResult(clientEvent);
             }
+            clientEvent.AckListener?.Acknowledge(clientEvent);
         }
 
-        public void Submit(Event evt, Backend.ISendConfirmationListener listener)
+        public void Send(Event evt)
         {
             TraceSend(evt);
-            this.BatchSender.Submit(evt, listener);
+            this.BatchSender.Submit(evt);
         }
 
         public void ReportError(string where, Exception e)
@@ -153,12 +152,17 @@ namespace DurableTask.EventSourced
             this.ResponseWaiters.TryAdd(request.RequestId, waiter);
             this.ResponseTimeouts.Schedule(DateTime.UtcNow + request.Timeout, waiter);
 
-            this.Submit(request, doneWhenSent ? waiter : null);
+            if (doneWhenSent)
+            {
+                request.AckListener = waiter;
+            }
+
+            this.Send(request);
 
             return waiter.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.ISendConfirmationListener
+        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.IAckOrExceptionListener
         {
             private long id;
             private Client client;
@@ -169,12 +173,12 @@ namespace DurableTask.EventSourced
                 this.client = client;
             }
 
-            public void ConfirmDurablySent(Event evt)
+            public void Acknowledge(Event evt)
             {
                 this.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
             }
 
-            public void ReportSenderException(Event evt, Exception e)
+            public void ReportException(Event evt, Exception e)
             {
                 this.TrySetException(e); // task finishes with exception
             }

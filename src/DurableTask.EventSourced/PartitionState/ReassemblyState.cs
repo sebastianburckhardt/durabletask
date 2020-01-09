@@ -24,11 +24,12 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class ReassemblyState : TrackedObject
     {
-        [IgnoreDataMember]
-        public override string Key => "Reassembly";
-
         [DataMember]
         public Dictionary<Guid, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<Guid, List<PartitionEventFragment>>();
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Reassembly);
+
 
         // PartitionEventFragment is stored locally, OR processed if it is the last
 
@@ -42,11 +43,11 @@ namespace DurableTask.EventSourced
                     this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
                 }
 
-                var target = evt.ReassembledEvent.StartProcessingOnObject(Partition.State);
+                var target = evt.ReassembledEvent.StartProcessingOnObject;
                 effect.ProcessOn(target);
             }
 
-            effect.ApplyTo(this);
+            effect.ApplyTo(this.Key);
         }
 
         public override void Apply(PartitionEventFragment evt)

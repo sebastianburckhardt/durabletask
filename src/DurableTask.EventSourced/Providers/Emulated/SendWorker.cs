@@ -13,110 +13,44 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class SendWorker : Backend.ISender
+    internal class SendWorker : BatchWorker<Event>, Backend.ISender
     {
-        private readonly object thisLock = new object();
-        private readonly CancellationToken cancellationToken;
-        private Func<List<Event>, Task> handler;
-        private List<Event> work;
-        private List<Backend.ISendConfirmationListener> listeners;
+        private Action<IEnumerable<Event>> sendHandler;
 
-        public SendWorker(CancellationToken token, Func<List<Event>, Task> handler = null)
+        public SendWorker(CancellationToken token)
+            : base(token)
         {
-            this.cancellationToken = token;
-            this.handler = handler;
-            this.work = new List<Event>();
-            this.listeners = new List<Backend.ISendConfirmationListener>();
-            this.thisLock = new object();
-
-            if (handler != null)
-            {
-                this.SetHandler(handler);
-            }
-
-            cancellationToken.Register(Release);
         }
 
-        private void Release()
+        public void SetHandler(Action<IEnumerable<Event>> sendHandler)
         {
-            lock(this.thisLock)
-            {
-                Monitor.Pulse(this.thisLock);
-            }
+            this.sendHandler = sendHandler ?? throw new ArgumentNullException(nameof(sendHandler));
         }
 
-        public void SetHandler(Func<List<Event>, Task> handler)
+        void Backend.ISender.Submit(Event element)
         {
-            if (this.handler != null)
-            {
-                throw new InvalidOperationException();
-            }
-            this.handler = handler ?? throw new ArgumentNullException(nameof(handler));
-            new Thread(WorkLoop).Start();
+            this.Submit(element);
         }
 
-        void Backend.ISender.Submit(Event element, Backend.ISendConfirmationListener confirmationListener)
+        protected override Task Process(IList<Event> batch)
         {
-            lock (this.thisLock)
+            try
             {
-                if (this.work.Count == 0)
-                {
-                    Monitor.Pulse(this.thisLock);
-                }
-
-                this.work.Add(element);
-                this.listeners.Add(confirmationListener);
+                sendHandler(batch);
             }
-        }
-
-        private void WorkLoop()
-        {
-            List<Event> batch = new List<Event>();
-            List<Backend.ISendConfirmationListener> listeners = new List<Backend.ISendConfirmationListener>();
-
-            while (!cancellationToken.IsCancellationRequested)
+            catch (Exception e)
             {
-                lock (this.thisLock)
-                {
-                    while (this.work.Count == 0 && !cancellationToken.IsCancellationRequested)
-                    {
-                        Monitor.Wait(this.thisLock);
-                    }
-
-                    var temp = this.work;
-                    this.work = batch;
-                    batch = temp;
-
-                    var temp2 = this.listeners;
-                    this.listeners = listeners;
-                    listeners = temp2;
-                }
-
-                if (batch.Count > 0)
-                {
-                    try
-                    {
-                        handler(batch).Wait();
-                    }
-                    catch (Exception e)
-                    {
-                        System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
-                    }
-
-                    for (int i = 0; i < batch.Count; i++)
-                    {
-                        listeners[i]?.ConfirmDurablySent(batch[i]);
-                    }
-
-                    batch.Clear();
-                    listeners.Clear();
-                }
+                System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
             }
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -48,7 +48,8 @@ namespace DurableTask.EventSourced
         }
 
         [IgnoreDataMember]
-        public override string Key => "Sessions";
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
+
 
         protected override void Restore()
         {
@@ -149,36 +150,46 @@ namespace DurableTask.EventSourced
                 && session.SessionId == evt.SessionId
                 && session.BatchStartPosition == evt.BatchStartPosition)
             {
-                effect.ApplyTo(State.GetInstance(evt.InstanceId));
+                effect.ApplyTo(TrackedObjectKey.Instance(evt.InstanceId));
 
-                effect.ApplyTo(State.GetHistory(evt.InstanceId));
+                effect.ApplyTo(TrackedObjectKey.History(evt.InstanceId));
 
                 if (evt.OrchestratorMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Outbox);
+                    effect.ApplyTo(TrackedObjectKey.Outbox);
                 }
 
                 if (evt.ActivityMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Activities);
+                    effect.ApplyTo(TrackedObjectKey.Activities);
                 }
 
                 if (evt.TimerMessages?.Count > 0)
                 {
-                    effect.ApplyTo(State.Timers);
+                    effect.ApplyTo(TrackedObjectKey.Timers);
                 }
 
-                effect.ApplyTo(this);
+                effect.ApplyTo(this.Key);
             }
         }
 
         public void Apply(BatchProcessed evt)
         {
             var session = this.Sessions[evt.InstanceId];
-
+            
+            // remove processed messages from this batch
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 
+            // deliver all messages to this partition directly
+            foreach (var group in evt.OrchestratorMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
+            {
+                if (this.Partition.PartitionFunction(group.Key) == this.Partition.PartitionId)
+                {
+                    this.AddMessagesToSession(group.Key, group);
+                }
+            }
+            
             if (session.Batch.Count == 0)
             {
                 // no more pending messages for this instance, so we delete the session.

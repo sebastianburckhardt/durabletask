@@ -55,16 +55,15 @@ namespace DurableTask.EventSourced
 
         public async Task LoadAsync()
         {
-            if (this.ForceNewExecution)
+            // load the previous runtime state if it exists, or create a new one
+            this.OrchestrationRuntimeState = await Partition.State.ReadAsync<HistoryState,OrchestrationRuntimeState>(
+                TrackedObjectKey.History(InstanceId),
+                HistoryState.GetRuntimeState);
+            
+            if (this.ForceNewExecution && this.OrchestrationRuntimeState.Events.Count > 0)
             {
-                // create a new execution (or replace a previous one)
+                // replace the previous execution with a fresh one
                 this.OrchestrationRuntimeState = new OrchestrationRuntimeState();
-            }
-            else
-            {
-                // load the runtime state
-                this.OrchestrationRuntimeState = await Partition.State.ReadAsync(
-                    Partition.State.GetHistory(this.InstanceId).GetRuntimeState);
             }
 
             if (!this.IsExecutableInstance(out var warningMessage))
@@ -79,6 +78,7 @@ namespace DurableTask.EventSourced
                     BatchLength = this.BatchLength,
                     NewEvents = null,
                     State = null,
+                    InMemoryRuntimeState = null,
                     ActivityMessages = null,
                     OrchestratorMessages = null,
                     TimerMessages = null,

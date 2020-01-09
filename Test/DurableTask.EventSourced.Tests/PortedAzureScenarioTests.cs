@@ -355,7 +355,7 @@ namespace DurableTask.EventSourced.Tests
 
             Assert.Equal(OrchestrationStatus.Running, status?.OrchestrationStatus);
             Assert.Equal("0", status?.Input);
-            Assert.Equal(null, status?.Output);
+            Assert.Null(status?.Output);
 
             client = await host.StartOrchestrationAsync(
                 typeof(Orchestrations.Counter),

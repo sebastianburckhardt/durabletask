@@ -28,10 +28,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override TrackedObject StartProcessingOnObject(Storage.IPartitionState state)
-        {
-            return state.Activities;
-        }
+        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Activities;
 
         [IgnoreDataMember]
         public override string WorkItem => $"A{ActivityId:D6}";
