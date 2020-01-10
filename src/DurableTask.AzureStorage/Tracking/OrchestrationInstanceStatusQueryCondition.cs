@@ -24,6 +24,11 @@ namespace DurableTask.AzureStorage.Tracking
     /// </summary>
     public class OrchestrationInstanceStatusQueryCondition
     {
+        private static readonly List<string> ColumnsWithoutInput = typeof(OrchestrationInstanceStatus).GetProperties()
+            .Where(prop => !prop.Name.Equals(nameof(OrchestrationInstanceStatus.Input)))
+            .Select(prop => prop.Name)
+            .ToList();
+
         /// <summary>
         /// RuntimeStatus
         /// </summary>
@@ -50,6 +55,11 @@ namespace DurableTask.AzureStorage.Tracking
         public string InstanceIdPrefix { get; set; }
 
         /// <summary>
+        /// If true, the input will be returned with the results. The default value is true.
+        /// </summary>
+        public bool FetchInput { get; set; } = true;
+
+        /// <summary>
         /// Get the TableQuery object
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -64,6 +74,11 @@ namespace DurableTask.AzureStorage.Tracking
                 this.TaskHubNames == null &&
                 this.InstanceIdPrefix == null))
             {
+                if (!this.FetchInput)
+                {
+                    query.Select(ColumnsWithoutInput);
+                }
+
                 query.Where(this.GetConditions());
             }
 
@@ -74,21 +89,22 @@ namespace DurableTask.AzureStorage.Tracking
         {
             var conditions = new List<string>();
 
-            if (default(DateTime) != this.CreatedTimeFrom)
+            if (this.CreatedTimeFrom > DateTime.MinValue)
             {
                 conditions.Add(TableQuery.GenerateFilterConditionForDate("CreatedTime", QueryComparisons.GreaterThanOrEqual, new DateTimeOffset(this.CreatedTimeFrom)));
             }
 
-            if (default(DateTime) != this.CreatedTimeTo)
+            if (this.CreatedTimeTo != default(DateTime) && this.CreatedTimeTo < DateTime.MaxValue)
             {
                 conditions.Add(TableQuery.GenerateFilterConditionForDate("CreatedTime", QueryComparisons.LessThanOrEqual, new DateTimeOffset(this.CreatedTimeTo)));
             }
 
             if (this.RuntimeStatus != null && this.RuntimeStatus.Any())
             {
-                string runtimeCondition = this.RuntimeStatus.Select(x => TableQuery.GenerateFilterCondition("RuntimeStatus", QueryComparisons.Equal, x.ToString()))
-                                    .Aggregate((a, b) => TableQuery.CombineFilters(a, TableOperators.Or, b));
-                if (runtimeCondition.Count() != 0)
+                string runtimeCondition = this.RuntimeStatus
+                    .Select(x => TableQuery.GenerateFilterCondition("RuntimeStatus", QueryComparisons.Equal, x.ToString()))
+                    .Aggregate((a, b) => TableQuery.CombineFilters(a, TableOperators.Or, b));
+                if (runtimeCondition.Length > 0)
                 {
                     conditions.Add(runtimeCondition);
                 }
@@ -96,7 +112,8 @@ namespace DurableTask.AzureStorage.Tracking
 
             if (this.TaskHubNames != null)
             {
-                string taskHubCondition = this.TaskHubNames.Select(x => TableQuery.GenerateFilterCondition("TaskHubName", QueryComparisons.Equal, x.ToString()))
+                string taskHubCondition = this.TaskHubNames
+                    .Select(x => TableQuery.GenerateFilterCondition("TaskHubName", QueryComparisons.Equal, x.ToString()))
                     .Aggregate((a, b) => TableQuery.CombineFilters(a, TableOperators.Or, b));
                 if (taskHubCondition.Count() != 0)
                 {
