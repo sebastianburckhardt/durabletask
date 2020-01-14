@@ -16,6 +16,7 @@
     <DebugSymbols>true</DebugSymbols> 
     <DebugType>embedded</DebugType> 
     <IncludeSymbols>false</IncludeSymbols> 
+    <NoWarn>NU5125</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
