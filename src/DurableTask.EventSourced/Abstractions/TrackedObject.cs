@@ -72,46 +72,26 @@ namespace DurableTask.EventSourced
             // subclasses override this if there is work they need to do here
         }
 
-        public void Apply(PartitionEvent e)
-        {
-            // the default apply for an object does not update any state.
-        }
-
         public virtual void Process(PartitionEventFragment e, EffectTracker effect)
         {
-            // the default scope for a reassembled event applies that event
+            // processing a reassembled event just applies the original event
             dynamic dynamicThis = this;
             dynamic dynamicPartitionEvent = e.ReassembledEvent;
             dynamicThis.Process(dynamicPartitionEvent, effect);
         }
 
-        public virtual void Apply(PartitionEventFragment e)
-        {
-            // the default apply for a reassembled event applies that event
-            dynamic dynamicThis = this;
-            dynamic dynamicPartitionEvent = e.ReassembledEvent;
-            dynamicThis.Apply(dynamicPartitionEvent);
-        }
-
         public class EffectTracker
         {
-            public List<TrackedObjectKey> ObjectsToProcessOn = new List<TrackedObjectKey>();
-            public List<TrackedObjectKey> ObjectsToApplyTo = new List<TrackedObjectKey>();
+            public List<TrackedObjectKey> ObjectsToProcess = new List<TrackedObjectKey>();
 
             public void ProcessOn(TrackedObjectKey o)
             {
-                ObjectsToProcessOn.Add(o);
-            }
-
-            public void ApplyTo(TrackedObjectKey o)
-            {
-                ObjectsToApplyTo.Add(o);
+                ObjectsToProcess.Add(o);
             }
 
             public void Clear()
             {
-                ObjectsToProcessOn.Clear();
-                ObjectsToApplyTo.Clear();
+                ObjectsToProcess.Clear();
             }
         }
      

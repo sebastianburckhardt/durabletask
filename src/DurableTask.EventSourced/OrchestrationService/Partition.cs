@@ -23,7 +23,7 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class Partition : Backend.IPartition
+    internal class Partition : BackendAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
 
@@ -32,8 +32,8 @@ namespace DurableTask.EventSourced
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
 
-        public Storage.IPartitionState State { get; private set; }
-        public Backend.ISender BatchSender { get; private set; }
+        public StorageAbstraction.IPartitionState State { get; private set; }
+        public BackendAbstraction.ISender BatchSender { get; private set; }
         public WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
@@ -52,8 +52,8 @@ namespace DurableTask.EventSourced
             EventSourcedOrchestrationService host,
             uint partitionId,
             Func<string, uint> partitionFunction,
-            Storage.IPartitionState state,
-            Backend.ISender batchSender,
+            StorageAbstraction.IPartitionState state,
+            BackendAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
             WorkQueue<TaskActivityWorkItem> activityWorkItemQueue,
             WorkQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
@@ -291,7 +291,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            public async Task ReadFromStateAsync(Storage.IPartitionState state)
+            public async Task ReadFromStateAsync(StorageAbstraction.IPartitionState state)
             {
                 var orchestrationState = await state.ReadAsync<InstanceState,OrchestrationState>(
                     TrackedObjectKey.Instance(this.Key),

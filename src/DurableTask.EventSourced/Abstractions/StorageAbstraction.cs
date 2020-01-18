@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
@@ -22,7 +23,7 @@ namespace DurableTask.EventSourced
     /// <summary>
     /// Abstractions for the storage, that allow different providers to be used.
     /// </summary>
-    internal static class Storage
+    internal static class StorageAbstraction
     {
         /// <summary>
         /// Storage abstraction for the event-sourced state of a partition
@@ -39,6 +40,8 @@ namespace DurableTask.EventSourced
 
             Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
                 where TObject: TrackedObject;
+
+            void StartIterator(long StartPosition, Func<CancellationToken, IList<PartitionEvent>, Task> body);
         }
     }
 }

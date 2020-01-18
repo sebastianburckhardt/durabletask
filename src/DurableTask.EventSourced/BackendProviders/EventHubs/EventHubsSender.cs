@@ -25,9 +25,9 @@ namespace DurableTask.EventSourced.EventHubs
     internal class EventHubsSender<T> : BatchWorker<Event> where T: Event
     {
         private readonly PartitionSender sender;
-        private readonly Backend.IHost host;
+        private readonly BackendAbstraction.IHost host;
 
-        public EventHubsSender(Backend.IHost host, PartitionSender sender)
+        public EventHubsSender(BackendAbstraction.IHost host, PartitionSender sender)
         {
             this.host = host;
             this.sender = sender;
@@ -119,7 +119,7 @@ namespace DurableTask.EventSourced.EventHubs
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
                         (requeue ?? (requeue = new List<Event>())).Add(evt);
                     }
-                    else if (evt.AckListener is Backend.IAckOrExceptionListener listener)
+                    else if (evt.AckListener is BackendAbstraction.IAckOrExceptionListener listener)
                     {
                         // the event may have been sent or maybe not, report problem to listener
                         // this is used by clients who can give the exception back to the caller

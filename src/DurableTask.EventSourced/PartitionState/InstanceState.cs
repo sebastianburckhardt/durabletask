@@ -31,7 +31,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
-
         public static OrchestrationState GetOrchestrationState(InstanceState state)
         {
             return state.OrchestrationState;
@@ -40,8 +39,9 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
 
-
         // CreationRequestReceived
+        // can create or replace an instance and return a success response, or 
+        // return an error response
 
         public void Process(CreationRequestReceived evt, EffectTracker effect)
         {
@@ -59,8 +59,25 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                effect.ApplyTo(TrackedObjectKey.Sessions);
-                effect.ApplyTo(this.Key);
+                var ee = evt.ExecutionStartedEvent;
+
+                // set the orchestration state now (before processing the creation in the history)
+                // so that this instance is "on record" immediately
+                this.OrchestrationState = new OrchestrationState
+                {
+                    Name = ee.Name,
+                    Version = ee.Version,
+                    OrchestrationInstance = ee.OrchestrationInstance,
+                    OrchestrationStatus = OrchestrationStatus.Pending,
+                    Input = ee.Input,
+                    Tags = ee.Tags,
+                    CreatedTime = ee.Timestamp,
+                    LastUpdatedTime = evt.Timestamp,
+                    CompletedTime = Core.Common.DateTimeUtils.MinDateTime
+                };
+
+                // add the creation message to the session queue
+                effect.ProcessOn(TrackedObjectKey.Sessions);
 
                 this.Partition.Send(new CreationResponseReceived()
                 {
@@ -71,32 +88,14 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Apply(CreationRequestReceived evt)
-        {
-            var ee = evt.ExecutionStartedEvent;
-
-            // set the orchestration state now (before processing the creation in the history)
-            // so that this instance is "on record" immediately
-            this.OrchestrationState = new OrchestrationState
-            {
-                Name = ee.Name,
-                Version = ee.Version,
-                OrchestrationInstance = ee.OrchestrationInstance,
-                OrchestrationStatus = OrchestrationStatus.Pending,
-                Input = ee.Input,
-                Tags = ee.Tags,
-                CreatedTime = ee.Timestamp,
-                LastUpdatedTime = evt.Timestamp,
-                CompletedTime = Core.Common.DateTimeUtils.MinDateTime
-            };
-        }
-
         // BatchProcessed
-    
-        public void Apply(BatchProcessed evt)
+        // updates the state of an orchestration and notifies observers
+
+        public void Process(BatchProcessed evt, EffectTracker effect)
         {
             this.OrchestrationState = evt.State;
 
+            // notify observers that this orchestration state has changed
             this.Partition.InstanceStatePubSub.Notify(InstanceId, OrchestrationState);
         }
     }

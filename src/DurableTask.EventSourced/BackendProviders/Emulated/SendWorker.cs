@@ -20,7 +20,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class SendWorker : BatchWorker<Event>, Backend.ISender
+    internal class SendWorker : BatchWorker<Event>, BackendAbstraction.ISender
     {
         private Action<IEnumerable<Event>> sendHandler;
 
@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced.Emulated
             this.sendHandler = sendHandler ?? throw new ArgumentNullException(nameof(sendHandler));
         }
 
-        void Backend.ISender.Submit(Event element)
+        void BackendAbstraction.ISender.Submit(Event element)
         {
             this.Submit(element);
         }

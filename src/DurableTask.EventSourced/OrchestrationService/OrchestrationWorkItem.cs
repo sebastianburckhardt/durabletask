@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
 
             if (!this.IsExecutableInstance(out var warningMessage))
             {
-                // discard the messages, by marking the batch as processed, without updating the state
+                // discard the messages, by marking the batch as processed without updating the state
                 this.Partition.Submit(new BatchProcessed()
                 {
                     PartitionId = this.Partition.PartitionId,
@@ -80,7 +80,8 @@ namespace DurableTask.EventSourced
                     State = null,
                     InMemoryRuntimeState = null,
                     ActivityMessages = null,
-                    OrchestratorMessages = null,
+                    LocalMessages = null,
+                    RemoteMessages = null,
                     TimerMessages = null,
                     Timestamp = DateTime.UtcNow,
                 });

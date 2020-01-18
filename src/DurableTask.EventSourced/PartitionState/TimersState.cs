@@ -32,7 +32,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Timers);
 
-
         protected override void Restore()
         {
             // restore the pending timers
@@ -49,21 +48,20 @@ namespace DurableTask.EventSourced
             }
         }
 
+        // TimerFired
+        // removes the entry for the pending timer, and then adds it to the sessions queue
+
         public void Process(TimerFired evt, EffectTracker effect)
         {
-            if (PendingTimers.ContainsKey(evt.TimerId))
-            {
-                effect.ApplyTo(TrackedObjectKey.Sessions);
-                effect.ApplyTo(this.Key);
-            }
-        }
-
-        public void Apply(TimerFired evt)
-        {
             PendingTimers.Remove(evt.TimerId);
+
+            effect.ProcessOn(TrackedObjectKey.Sessions);
         }
 
-        public void Apply(BatchProcessed evt)
+        // BatchProcessed
+        // starts new timers as specified by the batch
+
+        public void Process(BatchProcessed evt, EffectTracker effect)
         {
             foreach(var t in evt.TimerMessages)
             {

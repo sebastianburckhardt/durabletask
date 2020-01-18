@@ -13,8 +13,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
@@ -102,8 +104,9 @@ namespace DurableTask.EventSourced
         }
 
         // TaskMessageReceived
+        // queues task message (from another partition) in a new or existing session
 
-        public void Apply(TaskMessageReceived taskMessageReceived)
+        public void Process(TaskMessageReceived taskMessageReceived, EffectTracker effect)
         {
             foreach (var group in taskMessageReceived.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
@@ -113,92 +116,92 @@ namespace DurableTask.EventSourced
         }
 
         // ClientTaskMessagesReceived
+        // queues task message (from a client) in a new or existing session
 
-        public void Apply(ClientTaskMessagesReceived evt)
+        public void Process(ClientTaskMessagesReceived evt, EffectTracker effect)
         {
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
             this.AddMessagesToSession(instanceId, evt.TaskMessages);
         }
 
         // CreationMessageReceived
+        // queues a creation task message in a new or existing session
 
-        public void Apply(CreationRequestReceived creationRequestReceived)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effect)
         {
             this.AddMessageToSession(creationRequestReceived.TaskMessage, true);
         }
 
         // TimerFired
+        // queues a timer fired message in a session
 
-        public void Apply(TimerFired timerFired)
+        public void Process(TimerFired timerFired, EffectTracker effect)
         {
             this.AddMessageToSession(timerFired.TimerFiredMessage, false);
         }
 
         // ActivityCompleted
+        // queues an activity-completed message in a session
 
-        public void Apply(ActivityCompleted activityCompleted)
+        public void Process(ActivityCompleted activityCompleted, EffectTracker effect)
         {
             this.AddMessageToSession(activityCompleted.Response, false);
         }
 
         // BatchProcessed
+        // updates the session and other state
 
         public void Process(BatchProcessed evt, EffectTracker effect)
         {
-            if (evt.State != null
-                && this.Sessions.TryGetValue(evt.InstanceId, out var session)
-                && session.SessionId == evt.SessionId
-                && session.BatchStartPosition == evt.BatchStartPosition)
+            if (evt.State != null)
             {
-                effect.ApplyTo(TrackedObjectKey.Instance(evt.InstanceId));
-
-                effect.ApplyTo(TrackedObjectKey.History(evt.InstanceId));
-
-                if (evt.OrchestratorMessages?.Count > 0)
-                {
-                    effect.ApplyTo(TrackedObjectKey.Outbox);
-                }
-
-                if (evt.ActivityMessages?.Count > 0)
-                {
-                    effect.ApplyTo(TrackedObjectKey.Activities);
-                }
-
-                if (evt.TimerMessages?.Count > 0)
-                {
-                    effect.ApplyTo(TrackedObjectKey.Timers);
-                }
-
-                effect.ApplyTo(this.Key);
+                effect.ProcessOn(TrackedObjectKey.Instance(evt.InstanceId));
+                effect.ProcessOn(TrackedObjectKey.History(evt.InstanceId));
             }
-        }
 
-        public void Apply(BatchProcessed evt)
-        {
-            var session = this.Sessions[evt.InstanceId];
-            
-            // remove processed messages from this batch
-            session.Batch.RemoveRange(0, evt.BatchLength);
-            session.BatchStartPosition += evt.BatchLength;
-
-            // deliver all messages to this partition directly
-            foreach (var group in evt.OrchestratorMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
+            if (evt.LocalMessages?.Count > 0)
             {
-                if (this.Partition.PartitionFunction(group.Key) == this.Partition.PartitionId)
+                // deliver all messages to this partition directly
+                foreach (var group in evt.LocalMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
                 {
                     this.AddMessagesToSession(group.Key, group);
                 }
             }
-            
+
+            if (evt.ActivityMessages?.Count > 0)
+            {
+                effect.ProcessOn(TrackedObjectKey.Activities);
+            }
+
+            if (evt.TimerMessages?.Count > 0)
+            {
+                effect.ProcessOn(TrackedObjectKey.Timers);
+            }
+
+            var session = this.Sessions[evt.InstanceId];
+
+            // remove processed messages from this batch
+            Debug.Assert(session != null);
+            Debug.Assert(session.SessionId == evt.SessionId);
+            Debug.Assert(session.BatchStartPosition == evt.BatchStartPosition);
+            session.Batch.RemoveRange(0, evt.BatchLength);
+            session.BatchStartPosition += evt.BatchLength;
+
+            this.StartNewBatchIfNeeded(session, evt.InstanceId);
+        }
+
+        private void StartNewBatchIfNeeded(Session session, string instanceId)
+        { 
             if (session.Batch.Count == 0)
             {
                 // no more pending messages for this instance, so we delete the session.
-                this.Sessions.Remove(evt.InstanceId);
+                // we may revisit this policy when implementing support for extended sessions
+                this.Sessions.Remove(instanceId);
             }
             else
             {
                 // there are more messages. Prepare another work item.
-                OrchestrationWorkItem.EnqueueWorkItem(Partition, evt.InstanceId, session);
+                OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
             }
         }
     }

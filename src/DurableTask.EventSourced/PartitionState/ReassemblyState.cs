@@ -31,7 +31,8 @@ namespace DurableTask.EventSourced
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Reassembly);
 
 
-        // PartitionEventFragment is stored locally, OR processed if it is the last
+        // PartitionEventFragment 
+        // stores fragments until the last one is received
 
         public override void Process(PartitionEventFragment evt, EffectTracker effect)
         {
@@ -43,16 +44,12 @@ namespace DurableTask.EventSourced
                     this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
                 }
 
+                this.Fragments.Remove(evt.CohortId);
+
                 var target = evt.ReassembledEvent.StartProcessingOnObject;
                 effect.ProcessOn(target);
             }
-
-            effect.ApplyTo(this.Key);
-        }
-
-        public override void Apply(PartitionEventFragment evt)
-        {
-            if (!evt.IsLast)
+            else
             {
                 if (!this.Fragments.TryGetValue(evt.CohortId, out var list))
                 {
@@ -60,10 +57,6 @@ namespace DurableTask.EventSourced
                 }
                 list.Add(evt);
             }
-            else
-            {
-                this.Fragments.Remove(evt.CohortId);
-            }
-        }
+        } 
     }
 }

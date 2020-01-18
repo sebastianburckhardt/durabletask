@@ -21,48 +21,48 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class EmulatedBackend : Backend.ITaskHub
+    internal class EmulatedBackend : BackendAbstraction.ITaskHub
     {
-        private readonly Backend.IHost host;
+        private readonly BackendAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
         private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
         private IEmulatedQueue<PartitionEvent>[] partitionQueues;
-        private Backend.IClient client;
-        private Storage.IPartitionState[] partitionStates;
+        private BackendAbstraction.IClient client;
+        private StorageAbstraction.IPartitionState[] partitionStates;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public EmulatedBackend(Backend.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public EmulatedBackend(BackendAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.settings = settings;
         }
 
-        async Task Backend.ITaskHub.CreateAsync()
+        async Task BackendAbstraction.ITaskHub.CreateAsync()
         {
             var numberPartitions = settings.EmulatedPartitions;
             await Task.Delay(simulatedDelay);
             this.clientQueues = new Dictionary<Guid, IEmulatedQueue<ClientEvent>>();
             this.partitionQueues = new IEmulatedQueue<PartitionEvent>[numberPartitions];
-            this.partitionStates = new Storage.IPartitionState[numberPartitions];
+            this.partitionStates = new StorageAbstraction.IPartitionState[numberPartitions];
         }
 
-        async Task Backend.ITaskHub.DeleteAsync()
+        async Task BackendAbstraction.ITaskHub.DeleteAsync()
         {
             await Task.Delay(simulatedDelay);
             this.clientQueues = null;
             this.partitionQueues = null;
         }
 
-        async Task<bool> Backend.ITaskHub.ExistsAsync()
+        async Task<bool> BackendAbstraction.ITaskHub.ExistsAsync()
         {
             await Task.Delay(simulatedDelay);
             return this.partitionQueues != null;
         }
 
-        async Task Backend.ITaskHub.StartAsync()
+        async Task BackendAbstraction.ITaskHub.StartAsync()
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced.Emulated
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
                 var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
-                //var partitionState = partitionStates[i] = new EmulatedStorage();
+                // var partitionState = partitionStates[i] = new EmulatedStorage();
                 var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 var partitionQueue = this.settings.SerializeInEmulator
@@ -117,7 +117,7 @@ namespace DurableTask.EventSourced.Emulated
             clientQueue.Resume();
         }
 
-        async Task Backend.ITaskHub.StopAsync()
+        async Task BackendAbstraction.ITaskHub.StopAsync()
         {
             if (this.shutdownTokenSource != null)
             {
@@ -129,7 +129,7 @@ namespace DurableTask.EventSourced.Emulated
             }
         }
 
-        private void SendEvents(Backend.IClient client, IEnumerable<Event> events)
+        private void SendEvents(BackendAbstraction.IClient client, IEnumerable<Event> events)
         {
             try
             {
@@ -145,7 +145,7 @@ namespace DurableTask.EventSourced.Emulated
             }
         }
 
-        private void SendEvents(Backend.IPartition partition, IEnumerable<Event> events)
+        private void SendEvents(BackendAbstraction.IPartition partition, IEnumerable<Event> events)
         {
             try
             {

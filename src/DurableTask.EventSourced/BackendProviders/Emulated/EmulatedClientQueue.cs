@@ -24,32 +24,31 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedSerializingPartitionQueue : EmulatedQueue<PartitionEvent,byte[]>, IEmulatedQueue<PartitionEvent>
+    internal class EmulatedClientQueue : EmulatedQueue<ClientEvent, ClientEvent>, IEmulatedQueue<ClientEvent>
     {
-        private readonly Backend.IPartition partition;
+        private readonly BackendAbstraction.IClient client;
 
-        public EmulatedSerializingPartitionQueue(Backend.IPartition partition, CancellationToken cancellationToken)
+        public EmulatedClientQueue(BackendAbstraction.IClient client, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
-            this.partition = partition;
+            this.client = client;
         }
 
-        protected override byte[] Serialize(PartitionEvent evt)
+        protected override ClientEvent Serialize(ClientEvent evt)
         {
-            evt.AckListener?.Acknowledge(evt);
-            return Serializer.SerializeEvent(evt);
+            return evt;
         }
 
-        protected override PartitionEvent Deserialize(byte[] bytes)
+        protected override ClientEvent Deserialize(ClientEvent evt)
         {
-            return (PartitionEvent) Serializer.DeserializeEvent(bytes);
+            return evt;
         }
 
-        protected override void Deliver(PartitionEvent evt)
+        protected override void Deliver(ClientEvent evt)
         {
             try
             {
-                partition.Submit(evt);
+                client.Process(evt);
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
@@ -57,7 +56,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(EmulatedPartitionQueue), e);
+                client.ReportError(nameof(EmulatedPartitionQueue), e);
             }
         }
     }

@@ -24,7 +24,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterStorage : Storage.IPartitionState
+    internal class FasterStorage : StorageAbstraction.IPartitionState
     {
         private readonly string connectionString;
 
@@ -104,6 +104,37 @@ namespace DurableTask.EventSourced.Faster
         {
             logWorker.AddToLog(evt);
             storeWorker.Process(evt);
+        }
+
+        public void StartIterator(long startPosition, Func<CancellationToken, IList<PartitionEvent>, Task> body)
+        {
+            Task.Run(async () =>
+            {
+                using (var iter = log.Scan(startPosition, long.MaxValue))
+                {
+                    var batch = new List<PartitionEvent>();
+
+                    while (!this.token.IsCancellationRequested)
+                    {
+                        while (iter.GetNext(out var result, out var entryLength, out var currentAddress))
+                        {
+                            var arraySegment = new ArraySegment<byte>(result, 0, entryLength);
+                            var partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(arraySegment);
+                            batch.Add(partitionEvent);
+                        }
+
+                        if (batch.Count == 0)
+                        {
+                            await iter.WaitAsync(token);
+                            continue;
+                        }
+
+                        await body(this.token, batch);
+
+                        batch.Clear();
+                    }
+                }
+            });
         }
     }
 }

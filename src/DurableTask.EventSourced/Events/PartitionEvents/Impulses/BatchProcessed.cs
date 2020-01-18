@@ -45,7 +45,10 @@ namespace DurableTask.EventSourced
         public List<TaskMessage> ActivityMessages { get; set; }
 
         [DataMember]
-        public List<TaskMessage> OrchestratorMessages { get; set; }
+        public List<TaskMessage> LocalMessages { get; set; }
+
+        [DataMember]
+        public List<TaskMessage> RemoteMessages { get; set; }
 
         [DataMember]
         public List<TaskMessage> TimerMessages { get; set; }

@@ -46,8 +46,9 @@ namespace DurableTask.EventSourced
         }
 
         // BatchProcessed
+        // can add events to the history, or replace it with a new history
 
-        public void Apply(BatchProcessed evt)
+        public void Process(BatchProcessed evt, EffectTracker tracker)
         {
             // update the stored history
 

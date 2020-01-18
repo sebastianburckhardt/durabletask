@@ -27,10 +27,10 @@ namespace DurableTask.EventSourced
     public class EventSourcedOrchestrationService : 
         IOrchestrationService, 
         IOrchestrationServiceClient, 
-        Backend.IHost,
+        BackendAbstraction.IHost,
         IDisposable
     {
-        private readonly Backend.ITaskHub taskHub;
+        private readonly BackendAbstraction.ITaskHub taskHub;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private CancellationTokenSource serviceShutdownSource;
         private static readonly Task completedTask = Task.FromResult<object>(null);
@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
         internal Client Client { get; private set; }
 
         internal uint NumberPartitions { get; private set; }
-        uint Backend.IHost.NumberPartitions { set => this.NumberPartitions = value; }
+        uint BackendAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
 
         internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
@@ -53,8 +53,8 @@ namespace DurableTask.EventSourced
 
             if (settings.UseEmulatedBackend)
             {
-                //this.taskHub = new Emulated.EmulatedBackend(this, settings);
-                this.taskHub = new AzureChannels.AzureChannelsBackend(this, settings);
+                this.taskHub = new Emulated.EmulatedBackend(this, settings);
+                //this.taskHub = new AzureChannels.AzureChannelsBackend(this, settings);
             }
             else
             {
@@ -164,7 +164,7 @@ namespace DurableTask.EventSourced
         // host methods
         /******************************/
 
-        Backend.IClient Backend.IHost.AddClient(Guid clientId, Backend.ISender batchSender)
+        BackendAbstraction.IClient BackendAbstraction.IHost.AddClient(Guid clientId, BackendAbstraction.ISender batchSender)
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
 
@@ -175,7 +175,7 @@ namespace DurableTask.EventSourced
             return this.Client;
         }
 
-        Backend.IPartition Backend.IHost.AddPartition(uint partitionId, Storage.IPartitionState state, Backend.ISender batchSender)
+        BackendAbstraction.IPartition BackendAbstraction.IHost.AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, BackendAbstraction.ISender batchSender)
         {
             var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
 
@@ -184,7 +184,7 @@ namespace DurableTask.EventSourced
             return partition;
         }
 
-        void Backend.IHost.ReportError(string msg, Exception e)
+        void BackendAbstraction.IHost.ReportError(string msg, Exception e)
             => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
 
         /******************************/
@@ -302,8 +302,27 @@ namespace DurableTask.EventSourced
             OrchestrationState state)
         {
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
-
             var partition = orchestrationWorkItem.Partition;
+
+            List<TaskMessage> localMessages = null;
+            List<TaskMessage> remoteMessages = null;
+
+            System.Diagnostics.Debug.Assert(continuedAsNewMessage == null); // current implementation is eager
+ 
+            if (orchestratorMessages != null)
+            {
+                foreach (var taskMessage in orchestratorMessages)
+                {
+                    if (partition.PartitionId == partition.PartitionFunction(taskMessage.OrchestrationInstance.InstanceId))
+                    {
+                        (localMessages ?? (localMessages = new List<TaskMessage>())).Add(taskMessage);
+                    }
+                    else
+                    {
+                        (remoteMessages ?? (remoteMessages = new List<TaskMessage>())).Add(taskMessage);
+                    }
+                }
+            }
 
             partition.Submit(new BatchProcessed()
             {
@@ -316,7 +335,8 @@ namespace DurableTask.EventSourced
                 InMemoryRuntimeState = newOrchestrationRuntimeState,
                 State = state,
                 ActivityMessages = (List<TaskMessage>)outboundMessages,
-                OrchestratorMessages = (List<TaskMessage>)orchestratorMessages,
+                LocalMessages = localMessages,
+                RemoteMessages = remoteMessages,
                 TimerMessages = (List<TaskMessage>)workItemTimerMessages,
                 Timestamp = DateTime.UtcNow,
             });

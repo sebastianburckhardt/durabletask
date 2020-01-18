@@ -37,36 +37,28 @@ namespace DurableTask.EventSourced
             // no op for now
         }
 
-        // TaskhubCreated is always the first event, we use it to initialize the deduplication logic
+        // TaskhubCreated 
+        // is always the first event, we use it to initialize the deduplication logic
 
         public void Process(TaskhubCreated evt, EffectTracker effect)
         {
-            effect.ApplyTo(this.Key);
-        }
-
-        public void Apply(TaskhubCreated evt)
-        {
-            for(uint i = 0; i < evt.StartPositions.Length; i++)
+            for (uint i = 0; i < evt.StartPositions.Length; i++)
             {
                 ProcessedOrigins[i] = 0;
             }
         }
 
-        // TaskMessageReceived filters any messages that originated on
-        // a partition, and whose origin is marked as processed
+        // TaskMessageReceived 
+        // filters any messages that originated on a partition, and whose origin is marked as processed
 
         public void Process(TaskMessageReceived evt, EffectTracker effect)
         {
             if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
             {
-                effect.ApplyTo(TrackedObjectKey.Sessions);
-                effect.ApplyTo(this.Key);
-            }
-        }
+                this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
 
-        public void Apply(TaskMessageReceived evt)
-        {
-            this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
+                effect.ProcessOn(TrackedObjectKey.Sessions);
+            }
         }
     }
 }

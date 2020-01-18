@@ -161,7 +161,7 @@ namespace DurableTask.EventSourced.Faster
             return target;
         }
 
-        public void Apply(TrackedObjectKey k, PartitionEvent evt)
+        public void MarkWritten(TrackedObjectKey k, PartitionEvent evt)
         {
             FasterKV.Key key = k;
             var status = this.RMW(ref key, ref evt, Empty.Default, 0);
@@ -171,7 +171,6 @@ namespace DurableTask.EventSourced.Faster
                 throw new NotImplementedException("TODO");
             }
         }
-
 
         public class Functions : IFunctions<Key, Value, PartitionEvent, TrackedObject, Empty>
         {
@@ -186,11 +185,9 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (EtwSource.EmitDiagnosticsTrace)
                 {
-                    this.partition.DiagnosticsTrace($"Apply to [{t.Key}]");
+                    this.partition.DiagnosticsTrace($"Updated [{t.Key}]");
                 }
-                dynamic targetObject = t;
-                dynamic evt = e;
-                targetObject.Apply(evt);
+                // effects were already applied during process.
             }
 
             public void InitialUpdater(ref Key key, ref PartitionEvent input, ref Value value)

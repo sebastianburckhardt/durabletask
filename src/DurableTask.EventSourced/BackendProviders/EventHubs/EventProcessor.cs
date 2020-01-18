@@ -16,6 +16,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using DurableTask.EventSourced.Emulated;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
 
@@ -23,16 +24,16 @@ namespace DurableTask.EventSourced.EventHubs
 {
     internal class EventProcessor : IEventProcessor
     {
-        private readonly Backend.IHost host;
-        private readonly Backend.ISender sender;
+        private readonly BackendAbstraction.IHost host;
+        private readonly BackendAbstraction.ISender sender;
         private readonly Guid processorId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private Backend.IPartition partition;
+        private BackendAbstraction.IPartition partition;
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
-        public EventProcessor(Backend.IHost host, Backend.ISender sender, EventSourcedOrchestrationServiceSettings settings)
+        public EventProcessor(BackendAbstraction.IHost host, BackendAbstraction.ISender sender, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.sender = sender;
@@ -43,8 +44,8 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(settings.StorageConnectionString), this.sender);
-            //this.partition = host.AddPartition(partitionId, new EmulatedsStorage(settings.StorageConnectionString), this.sender);
+            //this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(settings.StorageConnectionString), this.sender);
+            this.partition = host.AddPartition(partitionId, new EmulatedStorage(), this.sender);
             return this.partition.StartAsync();
         }
 
@@ -70,20 +71,29 @@ namespace DurableTask.EventSourced.EventHubs
                 batch.Add(evt);
             }
 
+            // attach the ack listener to the last event in the batch
             batch[batch.Count - 1].AckListener = batch;
 
-            this.partition.SubmitRange(batch);
-
-            return batch.Tcs.Task;
+            return batch.SubmitAndWait(partition);
         }
 
-        private class Batch : List<PartitionEvent>, Backend.IAckListener
+        private class Batch : List<PartitionEvent>, BackendAbstraction.IAckListener
         {
-            public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
+            private TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
             public void Acknowledge(Event evt)
             {
                 Tcs.TrySetResult(null);
+            }
+
+            public Task SubmitAndWait(BackendAbstraction.IPartition partition)
+            {
+                // attach the ack listener to the last event in the batch
+                this[this.Count - 1].AckListener = this;
+
+                partition.SubmitRange(this);
+
+                return this.Tcs.Task;
             }
         }
     }

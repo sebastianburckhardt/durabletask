@@ -13,20 +13,20 @@ namespace DurableTask.EventSourced.AzureChannels
         private readonly string taskHubId;
         private readonly uint partitionId;
         private readonly Guid clientId;
-        private readonly Storage.IPartitionState partitionState;
+        private readonly StorageAbstraction.IPartitionState partitionState;
 
-        private Backend.IPartition partition;
-        private Backend.IClient client;
+        private BackendAbstraction.IPartition partition;
+        private BackendAbstraction.IClient client;
 
-        public Backend.ISender PartitionSender { get; private set; }
-        public Backend.ISender ClientSender { get; private set; }
+        public BackendAbstraction.ISender PartitionSender { get; private set; }
+        public BackendAbstraction.ISender ClientSender { get; private set; }
 
         public Transport(
             EventSourcedOrchestrationServiceSettings settings, 
             CancellationToken token, 
             string taskHubId, 
             uint partitionId, 
-            Storage.IPartitionState partitionState,
+            StorageAbstraction.IPartitionState partitionState,
             Guid clientId,
             CloudTableClient tableClient) 
             : base(token, taskHubId, $"Host{partitionId:D2}", tableClient)
@@ -49,7 +49,7 @@ namespace DurableTask.EventSourced.AzureChannels
             this.LastReceived[client.ToString("N")] = lastReceived;
         }
 
-        public async Task ReceiveLoopAsync(Backend.IPartition partition, Backend.IClient client)
+        public async Task ReceiveLoopAsync(BackendAbstraction.IPartition partition, BackendAbstraction.IClient client)
         {
             PartitionBatch partitionBatch = new PartitionBatch();
             List<ClientEvent> clientBatch = new List<ClientEvent>();
@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced.AzureChannels
             {
                 return true;
             }
-            else if(evt.AckListener is Backend.IAckOrExceptionListener listener)
+            else if(evt.AckListener is BackendAbstraction.IAckOrExceptionListener listener)
             {
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced.AzureChannels
             return false;
         }
 
-        private class PartitionBatch : List<PartitionEvent>, Backend.IAckListener
+        private class PartitionBatch : List<PartitionEvent>, BackendAbstraction.IAckListener
         {
             public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced.AzureChannels
             }
         }
 
-        private class ClientSenderWrap : Backend.ISender
+        private class ClientSenderWrap : BackendAbstraction.ISender
         {
             private readonly Transport transport;
             private long position = 0;
@@ -166,7 +166,7 @@ namespace DurableTask.EventSourced.AzureChannels
             }
         }
 
-        private class PartitionSenderWrap : Backend.ISender
+        private class PartitionSenderWrap : BackendAbstraction.ISender
         {
             private readonly Transport transport;
             private long position = 0;

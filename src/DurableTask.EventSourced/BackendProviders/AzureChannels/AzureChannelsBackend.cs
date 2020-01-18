@@ -22,49 +22,48 @@ using Microsoft.WindowsAzure.Storage;
 
 namespace DurableTask.EventSourced.AzureChannels
 {
-    internal class AzureChannelsBackend : Backend.ITaskHub
+    internal class AzureChannelsBackend : BackendAbstraction.ITaskHub
     {
-        private readonly Backend.IHost host;
+        private readonly BackendAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private Backend.IClient client;
+        private BackendAbstraction.IClient client;
         private Transport[] partitionTransports;
-        private Storage.IPartitionState[] partitionStates;
-        private Backend.IPartition[] partitions;
+        private StorageAbstraction.IPartitionState[] partitionStates;
+        private BackendAbstraction.IPartition[] partitions;
         private CancellationTokenSource shutdownTokenSource;
         private CloudStorageAccount account;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public AzureChannelsBackend(Backend.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public AzureChannelsBackend(BackendAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.settings = settings;
             this.account = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
         }
 
-
-        async Task Backend.ITaskHub.CreateAsync()
+        async Task BackendAbstraction.ITaskHub.CreateAsync()
         {
             await Task.Delay(simulatedDelay);
             this.partitionTransports = new Transport[this.settings.EmulatedPartitions]; // TODO use number hosts instead
-            this.partitionStates = new Storage.IPartitionState[this.settings.EmulatedPartitions];
-            this.partitions = new Backend.IPartition[this.settings.EmulatedPartitions];
+            this.partitionStates = new StorageAbstraction.IPartitionState[this.settings.EmulatedPartitions];
+            this.partitions = new BackendAbstraction.IPartition[this.settings.EmulatedPartitions];
         }
 
-        async Task Backend.ITaskHub.DeleteAsync()
+        async Task BackendAbstraction.ITaskHub.DeleteAsync()
         {
             await Task.Delay(simulatedDelay);
             this.partitionTransports = null;
         }
 
-        async Task<bool> Backend.ITaskHub.ExistsAsync()
+        async Task<bool> BackendAbstraction.ITaskHub.ExistsAsync()
         {
             await Task.Delay(simulatedDelay);
             return this.partitionTransports != null;
         }
 
-        async Task Backend.ITaskHub.StartAsync()
+        async Task BackendAbstraction.ITaskHub.StartAsync()
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
@@ -80,8 +79,8 @@ namespace DurableTask.EventSourced.AzureChannels
             // create all partitions
             for (uint i = 0; i < this.settings.EmulatedPartitions; i++)
             {
-                var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
-                //var partitionState = partitionStates[i] = new DurableTask.EventSourced.Emulated.EmulatedStorage();
+                //var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
+                var partitionState = partitionStates[i] = new DurableTask.EventSourced.Emulated.EmulatedStorage();
 
                 var partitionTransport = this.partitionTransports[i] = new Transport(
                     this.settings, 
@@ -124,7 +123,7 @@ namespace DurableTask.EventSourced.AzureChannels
             }
         }
 
-        async Task Backend.ITaskHub.StopAsync()
+        async Task BackendAbstraction.ITaskHub.StopAsync()
         {
             if (this.shutdownTokenSource != null)
             {

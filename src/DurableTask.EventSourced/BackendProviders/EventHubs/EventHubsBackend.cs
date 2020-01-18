@@ -27,17 +27,17 @@ using Newtonsoft.Json.Linq;
 namespace DurableTask.EventSourced.EventHubs
 {
     internal class EventHubsBackend :
-        Backend.ITaskHub,
+        BackendAbstraction.ITaskHub,
         IEventProcessorFactory,
-        Backend.ISender
+        BackendAbstraction.ISender
     {
-        private readonly Backend.IHost host;
+        private readonly BackendAbstraction.IHost host;
         private readonly string HostId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsConnections connections;
 
         private EventProcessorHost eventProcessorHost;
-        private Backend.IClient client;
+        private BackendAbstraction.IClient client;
 
         private CancellationTokenSource shutdownSource;
 
@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public Guid ClientId { get; private set; }
 
-        public EventHubsBackend(Backend.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public EventHubsBackend(BackendAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.settings = settings;
@@ -62,12 +62,12 @@ namespace DurableTask.EventSourced.EventHubs
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
         }
 
-        Task<bool> Backend.ITaskHub.ExistsAsync()
+        Task<bool> BackendAbstraction.ITaskHub.ExistsAsync()
         {
             return this.taskhubParameters.ExistsAsync();
         }
 
-        async Task Backend.ITaskHub.CreateAsync()
+        async Task BackendAbstraction.ITaskHub.CreateAsync()
         {
             await this.cloudBlobContainer.CreateIfNotExistsAsync();
 
@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced.EventHubs
             public long[] StartPositions { get; set; }
         }
 
-        private class AckCounter : Backend.IAckListener
+        private class AckCounter : BackendAbstraction.IAckListener
         {
             private readonly TaskCompletionSource<object> tcs = new TaskCompletionSource<object>();
             private int count;
@@ -153,12 +153,12 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        Task Backend.ITaskHub.DeleteAsync()
+        Task BackendAbstraction.ITaskHub.DeleteAsync()
         {
             return this.taskhubParameters.DeleteIfExistsAsync();
         }
 
-        async Task Backend.ITaskHub.StartAsync()
+        async Task BackendAbstraction.ITaskHub.StartAsync()
         {
             this.shutdownSource = new CancellationTokenSource();
 
@@ -188,7 +188,7 @@ namespace DurableTask.EventSourced.EventHubs
             await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions);
         }
 
-        async Task Backend.ITaskHub.StopAsync()
+        async Task BackendAbstraction.ITaskHub.StopAsync()
         {
             System.Diagnostics.Trace.TraceInformation("Shutting down EventHubsBackend");
             await client.StopAsync();
@@ -203,7 +203,7 @@ namespace DurableTask.EventSourced.EventHubs
             return processor;
         }
 
-        void Backend.ISender.Submit(Event evt)
+        void BackendAbstraction.ISender.Submit(Event evt)
         {
             if (evt is ClientEvent clientEvent)
             {

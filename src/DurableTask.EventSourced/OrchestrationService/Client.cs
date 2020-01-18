@@ -23,14 +23,14 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class Client : Backend.IClient
+    internal class Client : BackendAbstraction.IClient
     {
         private readonly EventSourcedOrchestrationService host;
         private readonly CancellationToken shutdownToken; 
         private static TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
         public Guid ClientId { get; private set; }
-        private Backend.ISender BatchSender { get; set; }
+        private BackendAbstraction.ISender BatchSender { get; set; }
 
 
         private long SequenceNumber; // for numbering requests that enter on this client
@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced
 
         public string AbbreviatedClientId; // used for tracing
         
-        public Client(EventSourcedOrchestrationService host, Guid clientId, Backend.ISender batchSender, CancellationToken shutdownToken)
+        public Client(EventSourcedOrchestrationService host, Guid clientId, BackendAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {
             this.host = host;
             this.ClientId = clientId;
@@ -162,7 +162,7 @@ namespace DurableTask.EventSourced
             return waiter.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, Backend.IAckOrExceptionListener
+        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, BackendAbstraction.IAckOrExceptionListener
         {
             private long id;
             private Client client;

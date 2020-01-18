@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
 
         public void Process(ClientTaskMessagesReceived evt, EffectTracker effect)
         {
-            effect.ApplyTo(TrackedObjectKey.Sessions);
+            effect.ProcessOn(TrackedObjectKey.Sessions);
         }
 
         public void Process(CreationRequestReceived evt, EffectTracker effect)

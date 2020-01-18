@@ -45,23 +45,19 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // *************  event processing *****************
+        // ActivityCompleted
+        // records the result of a finished activity
 
         public void Process(ActivityCompleted evt, EffectTracker effect)
         {
-            if (PendingActivities.ContainsKey(evt.ActivityId))
-            {
-                effect.ApplyTo(TrackedObjectKey.Sessions);
-                effect.ApplyTo(this.Key);
-            }
-        }
-
-        public void Apply(ActivityCompleted evt)
-        {
             PendingActivities.Remove(evt.ActivityId);
+            effect.ProcessOn(TrackedObjectKey.Sessions);
         }
 
-        public void Apply(BatchProcessed evt)
+        // BatchProcessed
+        // may launch new activities
+
+        public void Process(BatchProcessed evt, EffectTracker effect)
         {
             foreach (var msg in evt.ActivityMessages)
             {

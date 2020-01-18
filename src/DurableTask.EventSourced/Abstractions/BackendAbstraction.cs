@@ -20,7 +20,7 @@ namespace DurableTask.EventSourced
     /// <summary>
     /// Abstractions for the back-end, including transport and partition management.
     /// </summary>
-    internal static class Backend
+    internal static class BackendAbstraction
     {
         /// <summary>
         /// Back-end, as seen by the host.
@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced
 
             IClient AddClient(Guid clientId, ISender batchSender);
 
-            IPartition AddPartition(uint partitionId, Storage.IPartitionState state, ISender batchSender);
+            IPartition AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, ISender batchSender);
 
             void ReportError(string msg, Exception e);
         }
