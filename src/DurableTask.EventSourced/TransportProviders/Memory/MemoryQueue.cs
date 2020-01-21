@@ -23,11 +23,11 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal abstract class EmulatedQueue<T,B> : BatchWorker<B> where T:Event
+    internal abstract class MemoryQueue<T,B> : BatchWorker<B> where T:Event
     {
         private long position = 0;
 
-        public EmulatedQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
+        public MemoryQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
         {
         }
 

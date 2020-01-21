@@ -20,9 +20,9 @@ using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced.Emulated
+namespace DurableTask.EventSourced
 {
-    internal class EmulatedStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
+    internal class MemoryStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
     {
         private Partition partition;
         private long nextCommitPosition = 0;
@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced.Emulated
         private List<Func<CancellationToken, IList<PartitionEvent>, Task>> activeIterators 
             = new List<Func<CancellationToken, IList<PartitionEvent>, Task>>();
 
-        public EmulatedStorage()
+        public MemoryStorage()
         {
             this.GetOrAdd(TrackedObjectKey.Activities);
             this.GetOrAdd(TrackedObjectKey.Clients);
@@ -118,9 +118,11 @@ namespace DurableTask.EventSourced.Emulated
                 var partitionEvent = batch[i];
                 partitionEvent.CommitPosition = nextCommitPosition + i;
                 partition.TraceProcess(partitionEvent);
-                tracker.ObjectsToProcess.Add(partitionEvent.StartProcessingOnObject);
-                this.ProcessRecursively(partitionEvent, tracker);
-                tracker.Clear();
+                partitionEvent.DetermineEffects(effectList);
+                while(effectList.Count > 0)
+                {
+                    this.ProcessRecursively(partitionEvent, effectList);
+                }
             }
         }
 
@@ -136,12 +138,13 @@ namespace DurableTask.EventSourced.Emulated
 
         // reuse these collection objects between updates 
         // (note that updates are never concurrent by design)
-        TrackedObject.EffectTracker tracker = new TrackedObject.EffectTracker();
+        TrackedObject.EffectList effectList = new TrackedObject.EffectList();
 
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectTracker effect)
+        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effectList)
         {
-            var startPos = effect.ObjectsToProcess.Count - 1;
-            var thisKey = effect.ObjectsToProcess[startPos];
+            // process the last effect in the list, and recursively any effects it adds
+            var startPos = effectList.Count - 1;
+            var thisKey = effectList[startPos];
             var thisObject = this.GetOrAdd(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
@@ -155,16 +158,16 @@ namespace DurableTask.EventSourced.Emulated
             {
                 dynamic dynamicThis = thisObject;
                 dynamic dynamicPartitionEvent = evt;
-                dynamicThis.Process(dynamicPartitionEvent, effect);
+                dynamicThis.Process(dynamicPartitionEvent, effectList);
             }
 
             // recursively process all additional objects to process
-            while (effect.ObjectsToProcess.Count - 1 > startPos)
+            while (effectList.Count - 1 > startPos)
             {
-                this.ProcessRecursively(evt, effect);
+                this.ProcessRecursively(evt, effectList);
             }
 
-            effect.ObjectsToProcess.RemoveAt(startPos);
+            effectList.RemoveAt(startPos);
         }
     }
 }

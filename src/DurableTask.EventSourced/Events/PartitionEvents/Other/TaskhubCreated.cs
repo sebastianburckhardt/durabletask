@@ -34,7 +34,10 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long[] StartPositions { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Dedup);
+        }
     }
 
 }

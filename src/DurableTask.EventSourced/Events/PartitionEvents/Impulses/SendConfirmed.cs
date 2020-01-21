@@ -25,6 +25,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long? SentPosition { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Outbox;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Outbox);
+        }
     }
 }

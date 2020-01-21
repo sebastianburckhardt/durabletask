@@ -111,7 +111,7 @@ namespace DurableTask.EventSourced.Faster
                     store.GetOrCreate(k);
                 }
 
-                var tracker = new TrackedObject.EffectTracker();
+                var effectsList = new TrackedObject.EffectList();
                 var readBatch = new List<Task>();
                 var commitBatch = new List<PartitionEvent>();
 
@@ -156,9 +156,11 @@ namespace DurableTask.EventSourced.Faster
                         {
                             var partitionEvent = commitBatch[i];
                             partition.TraceProcess(partitionEvent);
-                            tracker.ObjectsToProcess.Add(partitionEvent.StartProcessingOnObject);
-                            this.ProcessRecursively(partitionEvent, tracker);
-                            tracker.Clear();
+                            partitionEvent.DetermineEffects(effectsList);
+                            while (effectsList.Count > 0)
+                            {
+                                this.ProcessRecursively(partitionEvent, effectsList);
+                            }
                         }
 
                         commitBatch.Clear();
@@ -176,10 +178,10 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectTracker effect)
+        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
-            var startPos = effect.ObjectsToProcess.Count - 1;
-            var thisKey = effect.ObjectsToProcess[startPos];
+            var startPos = effects.Count - 1;
+            var thisKey = effects[startPos];
             var thisObject = store.GetOrCreate(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
@@ -191,18 +193,18 @@ namespace DurableTask.EventSourced.Faster
             // updates its state and can flag more objects to process on
             dynamic dynamicThis = thisObject;
             dynamic dynamicPartitionEvent = evt;
-            dynamicThis.Process(dynamicPartitionEvent, effect);
+            dynamicThis.Process(dynamicPartitionEvent, effects);
 
             // tell Faster that this object was modified
             store.MarkWritten(thisKey, evt);
 
             // recursively process all additional objects to process
-            while (effect.ObjectsToProcess.Count - 1 > startPos)
+            while (effects.Count - 1 > startPos)
             {
-                this.ProcessRecursively(evt, effect);
+                this.ProcessRecursively(evt, effects);
             }
 
-            effect.ObjectsToProcess.RemoveAt(startPos);
+            effects.RemoveAt(startPos);
         }
     }
 }

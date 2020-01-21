@@ -32,7 +32,11 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Timers;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Sessions);
+            effects.Add(TrackedObjectKey.Timers);
+        }
 
         [IgnoreDataMember]
         public override string WorkItem => $"T{TimerId:D6}";

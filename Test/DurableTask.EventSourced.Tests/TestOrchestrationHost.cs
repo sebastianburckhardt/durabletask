@@ -23,6 +23,7 @@ namespace DurableTask.EventSourced.Tests
     internal sealed class TestOrchestrationHost : IDisposable
     {
         readonly EventSourcedOrchestrationServiceSettings settings;
+        readonly EventSourcedOrchestrationService orchestrationService;
         readonly TaskHubWorker worker;
         readonly TaskHubClient client;
         readonly HashSet<Type> addedOrchestrationTypes;
@@ -30,7 +31,6 @@ namespace DurableTask.EventSourced.Tests
 
         public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings)
         {
-            //var service = new AzureStorageOrchestrationService(settings);
             var service = new EventSourced.EventSourcedOrchestrationService(settings);
             ((IOrchestrationService)service).CreateAsync().GetAwaiter().GetResult();
 
@@ -49,6 +49,8 @@ namespace DurableTask.EventSourced.Tests
 
         public async Task StartAsync()
         {
+            Trace.TraceInformation($"Started {orchestrationService}");
+
             await this.worker.StartAsync();
         }
 

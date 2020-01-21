@@ -32,47 +32,88 @@ namespace DurableTask.EventSourced
         /// </summary>
         public string StorageConnectionString { get; set; }
 
-        //public StorageChoices StorageComponent { get; set; }
+        /// <summary>
+        /// Determines the component to use for message delivery and partition load balancing.
+        /// </summary>
+        public TransportChoices TransportComponent
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(this.EventHubsConnectionString))
+                {
+                    if (this.UseMemoryTransport)
+                    {
+                        return TransportChoices.Memory;
+                    }
+                    else
+                    {
+                        return TransportChoices.EventHubs;
+                    }
+                }
+                else
+                {
+                    return TransportChoices.AzureChannels;
+                }
+            }
+        }
 
-        //public TransportChoices TransportComponent { get; set; }
+        /// <summary>
+        /// Determines the component to use for storing the partition states.
+        /// </summary>
+        public StorageChoices StorageComponent
+        {
+            get
+            {
+                if (this.UseFasterWithMemoryTransport || !this.UseMemoryTransport)
+                {
+                    return StorageChoices.Faster;
+                }
+                else 
+                {
+                    return StorageChoices.Memory;
+                }
+            }
+        }
 
-        ///// <summary>
-        ///// Configuration options for the storage component
-        ///// </summary>
-        //public enum StorageChoices
-        //{
-        //    /// <summary>
-        //    /// Does not store any state to durable storage, just keeps it in memory
-        //    /// </summary>
-        //    Memory = 0,
+        /// <summary>
+        /// Configuration options for the storage component
+        /// </summary>
+        public enum StorageChoices
+        {
+            /// <summary>
+            /// Does not store any state to durable storage, just keeps it in memory. 
+            /// Intended for testing scenarios.
+            /// </summary>
+            Memory = 0,
 
-        //    /// <summary>
-        //    /// Uses the Faster key-value store 
-        //    /// </summary>
-        //    Faster = 1,
-        //}
+            /// <summary>
+            /// Uses the Faster key-value store.
+            /// </summary>
+            Faster = 1,
+        }
 
-        ///// <summary>
-        ///// Configuration options for the transport component
-        ///// </summary>
-        //public enum TransportChoices
-        //{
-        //    /// <summary>
-        //    /// Passes messages through memory; only works on a single host machine
-        //    /// </summary>
-        //    Memory = 0,
+        /// <summary>
+        /// Configuration options for the transport component
+        /// </summary>
+        public enum TransportChoices
+        {
+            /// <summary>
+            /// Passes messages through memory and puts all partitions on a single host
+            /// Intended for testing scenarios.
+            /// </summary>
+            Memory = 0,
 
-        //    /// <summary>
-        //    /// Passes messages through eventhubs; can distribute over multiple machines via
-        //    /// the eventhubs partition manager.
-        //    /// </summary>
-        //    EventHubs = 1,
+            /// <summary>
+            /// Passes messages through eventhubs; can distribute over multiple machines via
+            /// the eventhubs EventProcessor.
+            /// </summary>
+            EventHubs = 1,
 
-        //    /// <summary>
-        //    /// Passes messages through azure tables; currently only works on a single host machine
-        //    /// </summary>
-        //    AzureTable = 2,
-        //}
+            /// <summary>
+            /// Passes messages through azure tables; currently puts all partitions on a single host.
+            /// </summary>
+            AzureChannels = 2,
+        }
 
         /// <summary>
         /// Gets or sets the maximum number of work items that can be processed concurrently on a single node.
@@ -91,7 +132,6 @@ namespace DurableTask.EventSourced
         ///  This is useful in a testing scenario, due to the inordinate time spent when shutting down EventProcessorHost.
         /// </summary>
         public bool KeepServiceRunning { get; set; } = false;
-
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
@@ -140,9 +180,9 @@ namespace DurableTask.EventSourced
                 throw new ArgumentNullException(nameof(settings.EventHubsConnectionString));
             }
 
-            if (settings.UseEmulatedBackend)
+            if (settings.UseMemoryTransport)
             {
-                var numberPartitions = settings.EmulatedPartitions;
+                var numberPartitions = settings.MemoryPartitions;
                 if (numberPartitions < 1 || numberPartitions > 32)
                 {
                     throw new ArgumentOutOfRangeException(nameof(settings.EventHubsConnectionString));
@@ -175,19 +215,25 @@ namespace DurableTask.EventSourced
         }
 
         /// <summary>
-        /// Bypasses event hubs and uses in-memory emulation instead.
+        /// Uses in-memory simulation for transport and storage.
         /// </summary>
-        public bool UseEmulatedBackend => (this.EventHubsConnectionString.StartsWith("Emulator"));
+        public bool UseMemoryTransport => (this.EventHubsConnectionString.StartsWith("Memory"));
 
         /// <summary>
-        /// Serialize all messages being sent in emulator
+        /// Uses in-memory simulation with all messages being sent in emulator
         /// </summary>
-        public bool SerializeInEmulator => (this.EventHubsConnectionString.StartsWith("EmulatorS"));
+        public bool SimulateSerialization => 
+            this.EventHubsConnectionString.StartsWith("MemoryS") || this.EventHubsConnectionString.StartsWith("MemoryF");
 
         /// <summary>
-        /// Gets the number of partitions when using the emulator
+        /// Uses in-memory simulation with all messages being sent in emulator
         /// </summary>
-        public uint EmulatedPartitions => uint.Parse(this.EventHubsConnectionString.Substring(this.SerializeInEmulator ? 10 : 9));
+        public bool UseFasterWithMemoryTransport => (this.EventHubsConnectionString.StartsWith("MemoryF"));
+
+        /// <summary>
+        /// Gets the number of partitions when using the memory emulation
+        /// </summary>
+        public uint MemoryPartitions => uint.Parse(this.EventHubsConnectionString.Substring((this.SimulateSerialization ? 7 : 6) + 1));
 
         /// <summary>
         /// Returns the name of the eventhubs namespace

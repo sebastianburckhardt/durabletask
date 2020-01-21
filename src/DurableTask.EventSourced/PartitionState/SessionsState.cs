@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced
         // TaskMessageReceived
         // queues task message (from another partition) in a new or existing session
 
-        public void Process(TaskMessageReceived taskMessageReceived, EffectTracker effect)
+        public void Process(TaskMessageReceived taskMessageReceived, EffectList effect)
         {
             foreach (var group in taskMessageReceived.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
@@ -118,7 +118,7 @@ namespace DurableTask.EventSourced
         // ClientTaskMessagesReceived
         // queues task message (from a client) in a new or existing session
 
-        public void Process(ClientTaskMessagesReceived evt, EffectTracker effect)
+        public void Process(ClientTaskMessagesReceived evt, EffectList effect)
         {
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
             this.AddMessagesToSession(instanceId, evt.TaskMessages);
@@ -127,7 +127,7 @@ namespace DurableTask.EventSourced
         // CreationMessageReceived
         // queues a creation task message in a new or existing session
 
-        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effect)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectList effect)
         {
             this.AddMessageToSession(creationRequestReceived.TaskMessage, true);
         }
@@ -135,7 +135,7 @@ namespace DurableTask.EventSourced
         // TimerFired
         // queues a timer fired message in a session
 
-        public void Process(TimerFired timerFired, EffectTracker effect)
+        public void Process(TimerFired timerFired, EffectList effect)
         {
             this.AddMessageToSession(timerFired.TimerFiredMessage, false);
         }
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced
         // ActivityCompleted
         // queues an activity-completed message in a session
 
-        public void Process(ActivityCompleted activityCompleted, EffectTracker effect)
+        public void Process(ActivityCompleted activityCompleted, EffectList effect)
         {
             this.AddMessageToSession(activityCompleted.Response, false);
         }
@@ -151,31 +151,15 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // updates the session and other state
 
-        public void Process(BatchProcessed evt, EffectTracker effect)
+        public void Process(BatchProcessed evt, EffectList effect)
         {
-            if (evt.State != null)
-            {
-                effect.ProcessOn(TrackedObjectKey.Instance(evt.InstanceId));
-                effect.ProcessOn(TrackedObjectKey.History(evt.InstanceId));
-            }
-
+            // deliver orchestrator messages destined for this partition directly to the relevant session(s)
             if (evt.LocalMessages?.Count > 0)
             {
-                // deliver all messages to this partition directly
                 foreach (var group in evt.LocalMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
                 {
                     this.AddMessagesToSession(group.Key, group);
                 }
-            }
-
-            if (evt.ActivityMessages?.Count > 0)
-            {
-                effect.ProcessOn(TrackedObjectKey.Activities);
-            }
-
-            if (evt.TimerMessages?.Count > 0)
-            {
-                effect.ProcessOn(TrackedObjectKey.Timers);
             }
 
             var session = this.Sessions[evt.InstanceId];

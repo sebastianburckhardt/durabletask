@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced.EventHubs
 {
     internal class EventHubsConnections
     {
-        private readonly BackendAbstraction.IHost host;
+        private readonly TransportAbstraction.IHost host;
         private readonly string connectionString;
 
         private object thisLock = new object();
@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public PartitionReceiver ClientReceiver { get; private set; }
 
-        public EventHubsConnections(BackendAbstraction.IHost host, string connectionString)
+        public EventHubsConnections(TransportAbstraction.IHost host, string connectionString)
         {
             this.host = host;
             this.connectionString = connectionString;

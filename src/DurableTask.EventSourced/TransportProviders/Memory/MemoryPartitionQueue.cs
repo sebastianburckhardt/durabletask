@@ -11,46 +11,53 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class SendWorker : BatchWorker<Event>, BackendAbstraction.ISender
+    /// <summary>
+    /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
+    /// </summary>
+    internal class MemoryPartitionQueue : MemoryQueue<PartitionEvent, PartitionEvent>, IMemoryQueue<PartitionEvent>
     {
-        private Action<IEnumerable<Event>> sendHandler;
+        private readonly TransportAbstraction.IPartition partition;
 
-        public SendWorker(CancellationToken token)
-            : base(token)
+        public MemoryPartitionQueue(TransportAbstraction.IPartition partition, CancellationToken cancellationToken)
+            : base(cancellationToken)
         {
+            this.partition = partition;
         }
 
-        public void SetHandler(Action<IEnumerable<Event>> sendHandler)
+        protected override PartitionEvent Serialize(PartitionEvent evt)
         {
-            this.sendHandler = sendHandler ?? throw new ArgumentNullException(nameof(sendHandler));
+            return evt;
         }
 
-        void BackendAbstraction.ISender.Submit(Event element)
+        protected override PartitionEvent Deserialize(PartitionEvent evt)
         {
-            this.Submit(element);
+            return evt;
         }
 
-        protected override Task Process(IList<Event> batch)
+        protected override void Deliver(PartitionEvent evt)
         {
             try
             {
-                sendHandler(batch);
+                partition.Submit(evt);
+            }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                // this is normal during shutdown
             }
             catch (Exception e)
             {
-                System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
+                partition.ReportError(nameof(MemoryPartitionQueue), e);
             }
-
-            return Task.CompletedTask;
         }
     }
 }

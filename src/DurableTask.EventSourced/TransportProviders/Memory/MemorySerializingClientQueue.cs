@@ -24,32 +24,31 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class EmulatedSerializingPartitionQueue : EmulatedQueue<PartitionEvent,byte[]>, IEmulatedQueue<PartitionEvent>
+    internal class MemorySerializingClientQueue : MemoryQueue<ClientEvent, byte[]>, IMemoryQueue<ClientEvent>
     {
-        private readonly BackendAbstraction.IPartition partition;
+        private readonly TransportAbstraction.IClient client;
 
-        public EmulatedSerializingPartitionQueue(BackendAbstraction.IPartition partition, CancellationToken cancellationToken)
+        public MemorySerializingClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
-            this.partition = partition;
+            this.client = client;
         }
 
-        protected override byte[] Serialize(PartitionEvent evt)
+        protected override byte[] Serialize(ClientEvent evt)
         {
-            evt.AckListener?.Acknowledge(evt);
             return Serializer.SerializeEvent(evt);
         }
 
-        protected override PartitionEvent Deserialize(byte[] bytes)
+        protected override ClientEvent Deserialize(byte[] bytes)
         {
-            return (PartitionEvent) Serializer.DeserializeEvent(bytes);
+            return (ClientEvent)Serializer.DeserializeEvent(bytes);
         }
 
-        protected override void Deliver(PartitionEvent evt)
+        protected override void Deliver(ClientEvent evt)
         {
             try
             {
-                partition.Submit(evt);
+                client.Process(evt);
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
@@ -57,7 +56,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(EmulatedPartitionQueue), e);
+                client.ReportError(nameof(MemoryClientQueue), e);
             }
         }
     }

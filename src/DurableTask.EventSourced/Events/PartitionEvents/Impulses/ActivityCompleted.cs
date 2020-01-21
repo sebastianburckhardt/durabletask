@@ -28,7 +28,11 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Activities;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Sessions);
+            effects.Add(TrackedObjectKey.Activities);
+        }
 
         [IgnoreDataMember]
         public override string WorkItem => $"A{ActivityId:D6}";

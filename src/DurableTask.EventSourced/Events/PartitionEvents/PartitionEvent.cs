@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public ArraySegment<byte> Serialized;
 
-        // returns set of affected objects
-        public abstract TrackedObjectKey StartProcessingOnObject { get; }
+        // determines the set of tracked objects on which to process this event
+        public abstract void DetermineEffects(TrackedObject.EffectList effects);
     }
 }

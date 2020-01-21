@@ -21,7 +21,7 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal interface IEmulatedQueue<T>
+    internal interface IMemoryQueue<T>
     {
         void Send(T evt);
 

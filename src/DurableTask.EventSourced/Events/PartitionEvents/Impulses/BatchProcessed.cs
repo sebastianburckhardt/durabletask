@@ -59,7 +59,30 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public OrchestrationRuntimeState InMemoryRuntimeState { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Sessions;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            // lists all the objects on which this event is processed.
+            // Effects are applied in reverse order listed, i.e. the
+            // history state is updated first, and the sessions state last.
+
+            effects.Add(TrackedObjectKey.Sessions);
+
+            if (this.ActivityMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Activities);
+            }
+
+            if (this.TimerMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Timers);
+            }
+
+            if (this.State != null)
+            {      
+                effects.Add(TrackedObjectKey.Instance(this.InstanceId));
+                effects.Add(TrackedObjectKey.History(this.InstanceId));
+            }
+        }
 
         protected override void TraceInformation(StringBuilder s)
         {

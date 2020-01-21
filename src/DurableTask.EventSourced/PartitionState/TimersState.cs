@@ -51,17 +51,15 @@ namespace DurableTask.EventSourced
         // TimerFired
         // removes the entry for the pending timer, and then adds it to the sessions queue
 
-        public void Process(TimerFired evt, EffectTracker effect)
+        public void Process(TimerFired evt, EffectList effects)
         {
             PendingTimers.Remove(evt.TimerId);
-
-            effect.ProcessOn(TrackedObjectKey.Sessions);
         }
 
         // BatchProcessed
         // starts new timers as specified by the batch
 
-        public void Process(BatchProcessed evt, EffectTracker effect)
+        public void Process(BatchProcessed evt, EffectList effect)
         {
             foreach(var t in evt.TimerMessages)
             {

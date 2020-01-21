@@ -18,12 +18,15 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     /// <summary>
-    /// Abstractions for the back-end, including transport and partition management.
+    /// Abstractions for defining a transport back-end functionality, including the 
+    /// sending/receiving of messages, and the load balancing of partitions.
+    /// The backend creates one client per connected host, and load-balances partitions over the 
+    /// connected hosts.
     /// </summary>
-    internal static class BackendAbstraction
+    internal static class TransportAbstraction
     {
         /// <summary>
-        /// Back-end, as seen by the host.
+        /// The transport back-end taskhub functionality.
         /// </summary>
         public interface ITaskHub
         {
@@ -39,11 +42,13 @@ namespace DurableTask.EventSourced
         }
 
         /// <summary>
-        /// The host, as seen by the back-end.
+        /// The host functionality, as seen by the transport back-end.
         /// </summary>
         public interface IHost
         {
             uint NumberPartitions { set; }
+
+            StorageAbstraction.IPartitionState CreatePartitionState();
 
             IClient AddClient(Guid clientId, ISender batchSender);
 
@@ -53,39 +58,7 @@ namespace DurableTask.EventSourced
         }
 
         /// <summary>
-        /// A sender abstraction, passed to clients and partitions, for sending messages
-        /// </summary>
-        public interface ISender
-        {
-            void Submit(Event element);
-        }
-
-        public interface IAckListener
-        {
-            void Acknowledge(Event evt);
-        }
-
-        public interface IAckOrExceptionListener : IAckListener
-        {
-            void ReportException(Event evt, Exception e);
-        }
-
-        /// <summary>
-        /// A client, as seen by the back-end.
-        /// </summary>
-        public interface IClient
-        {
-            Guid ClientId { get; }
-
-            void Process(ClientEvent clientEvent);
-
-            void ReportError(string msg, Exception e);
-
-            Task StopAsync();
-        }
-
-        /// <summary>
-        /// A partition, as seen by the back-end.
+        /// The partition functionality, as seen by the transport back-end.
         /// </summary>
         public interface IPartition
         {
@@ -100,6 +73,44 @@ namespace DurableTask.EventSourced
             void ReportError(string msg, Exception e);
 
             Task StopAsync();
+        }
+
+        /// <summary>
+        /// The client functionality, as seen by the transport back-end.
+        /// </summary>
+        public interface IClient
+        {
+            Guid ClientId { get; }
+
+            void Process(ClientEvent clientEvent);
+
+            void ReportError(string msg, Exception e);
+
+            Task StopAsync();
+        }
+
+        /// <summary>
+        /// A sender abstraction, passed to clients and partitions, for sending messages
+        /// </summary>
+        public interface ISender
+        {
+            void Submit(Event element);
+        }
+
+        /// <summary>
+        /// A listener abstraction, used by clients and partitions, to receive acks after events have been processed
+        /// </summary>
+        public interface IAckListener
+        {
+            void Acknowledge(Event evt);
+        }
+
+        /// <summary>
+        /// An <see cref="IAckListener"/> that is also listening for exceptions.
+        /// </summary>
+        public interface IAckOrExceptionListener : IAckListener
+        {
+            void ReportException(Event evt, Exception e);
         }
     }
 }

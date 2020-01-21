@@ -27,10 +27,10 @@ namespace DurableTask.EventSourced
     public class EventSourcedOrchestrationService : 
         IOrchestrationService, 
         IOrchestrationServiceClient, 
-        BackendAbstraction.IHost,
+        TransportAbstraction.IHost,
         IDisposable
     {
-        private readonly BackendAbstraction.ITaskHub taskHub;
+        private readonly TransportAbstraction.ITaskHub taskHub;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private CancellationTokenSource serviceShutdownSource;
         private static readonly Task completedTask = Task.FromResult<object>(null);
@@ -39,10 +39,18 @@ namespace DurableTask.EventSourced
         internal Client Client { get; private set; }
 
         internal uint NumberPartitions { get; private set; }
-        uint BackendAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
+        uint TransportAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
 
         internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+
+        internal Guid HostId { get; } = Guid.NewGuid();
+
+        /// <inheritdoc/>
+        public override string ToString()
+        {
+            return $"EventSourcedOrchestrationService on {settings.TransportComponent}Transport and {settings.StorageComponent}Storage";
+        }
 
         /// <summary>
         /// Creates a new instance of the OrchestrationService with default settings
@@ -51,23 +59,38 @@ namespace DurableTask.EventSourced
         {
             this.settings = settings;
 
-            if (settings.UseEmulatedBackend)
+            switch (this.settings.TransportComponent)
             {
-                this.taskHub = new Emulated.EmulatedBackend(this, settings);
-                //this.taskHub = new AzureChannels.AzureChannelsBackend(this, settings);
-            }
-            else
-            {
-                this.taskHub = new EventHubs.EventHubsBackend(this, settings);
+                case EventSourcedOrchestrationServiceSettings.TransportChoices.Memory:
+                    this.taskHub = new Emulated.MemoryTransport(this, settings);
+                    break;
+
+                case EventSourcedOrchestrationServiceSettings.TransportChoices.EventHubs:
+                    this.taskHub = new EventHubs.EventHubsTransport(this, settings);
+                    break;
+
+                case EventSourcedOrchestrationServiceSettings.TransportChoices.AzureChannels:
+                    this.taskHub = new AzureChannels.AzureChannelsTransport(this, settings);
+                    break;
+
+                default:
+                    throw new NotImplementedException("no such transport choice");
             }
         }
 
-        internal Guid HostId { get; } = Guid.NewGuid();
-
-        /// <inheritdoc/>
-        public override string ToString()
+        StorageAbstraction.IPartitionState TransportAbstraction.IHost.CreatePartitionState()
         {
-            return $"EventSourcedOrchestrationService on {(settings.UseEmulatedBackend ? "Emulator" : "EventHubs")}";
+            switch (this.settings.StorageComponent)
+            {
+                case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
+                    return new MemoryStorage();
+
+                case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
+                    return new Faster.FasterStorage(settings.StorageConnectionString);
+
+                default:
+                    throw new NotImplementedException("no such storage choice");
+            }
         }
 
         /******************************/
@@ -164,7 +187,7 @@ namespace DurableTask.EventSourced
         // host methods
         /******************************/
 
-        BackendAbstraction.IClient BackendAbstraction.IHost.AddClient(Guid clientId, BackendAbstraction.ISender batchSender)
+        TransportAbstraction.IClient TransportAbstraction.IHost.AddClient(Guid clientId, TransportAbstraction.ISender batchSender)
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
 
@@ -175,7 +198,7 @@ namespace DurableTask.EventSourced
             return this.Client;
         }
 
-        BackendAbstraction.IPartition BackendAbstraction.IHost.AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, BackendAbstraction.ISender batchSender)
+        TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, TransportAbstraction.ISender batchSender)
         {
             var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
 
@@ -184,7 +207,7 @@ namespace DurableTask.EventSourced
             return partition;
         }
 
-        void BackendAbstraction.IHost.ReportError(string msg, Exception e)
+        void TransportAbstraction.IHost.ReportError(string msg, Exception e)
             => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
 
         /******************************/

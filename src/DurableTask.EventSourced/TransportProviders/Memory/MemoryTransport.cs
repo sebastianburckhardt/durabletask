@@ -21,52 +21,52 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class EmulatedBackend : BackendAbstraction.ITaskHub
+    internal class MemoryTransport : TransportAbstraction.ITaskHub
     {
-        private readonly BackendAbstraction.IHost host;
+        private readonly TransportAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private Dictionary<Guid, IEmulatedQueue<ClientEvent>> clientQueues;
-        private IEmulatedQueue<PartitionEvent>[] partitionQueues;
-        private BackendAbstraction.IClient client;
+        private Dictionary<Guid, IMemoryQueue<ClientEvent>> clientQueues;
+        private IMemoryQueue<PartitionEvent>[] partitionQueues;
+        private TransportAbstraction.IClient client;
         private StorageAbstraction.IPartitionState[] partitionStates;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public EmulatedBackend(BackendAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public MemoryTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.settings = settings;
         }
 
-        async Task BackendAbstraction.ITaskHub.CreateAsync()
+        async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
-            var numberPartitions = settings.EmulatedPartitions;
+            var numberPartitions = settings.MemoryPartitions;
             await Task.Delay(simulatedDelay);
-            this.clientQueues = new Dictionary<Guid, IEmulatedQueue<ClientEvent>>();
-            this.partitionQueues = new IEmulatedQueue<PartitionEvent>[numberPartitions];
+            this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
+            this.partitionQueues = new IMemoryQueue<PartitionEvent>[numberPartitions];
             this.partitionStates = new StorageAbstraction.IPartitionState[numberPartitions];
         }
 
-        async Task BackendAbstraction.ITaskHub.DeleteAsync()
+        async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
             await Task.Delay(simulatedDelay);
             this.clientQueues = null;
             this.partitionQueues = null;
         }
 
-        async Task<bool> BackendAbstraction.ITaskHub.ExistsAsync()
+        async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {
             await Task.Delay(simulatedDelay);
             return this.partitionQueues != null;
         }
 
-        async Task BackendAbstraction.ITaskHub.StartAsync()
+        async Task TransportAbstraction.ITaskHub.StartAsync()
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
-            var numberPartitions = this.settings.EmulatedPartitions;
+            var numberPartitions = this.settings.MemoryPartitions;
             this.host.NumberPartitions = numberPartitions;
             var creationTimestamp = DateTime.UtcNow;
             var startPositions = new long[numberPartitions];
@@ -75,24 +75,23 @@ namespace DurableTask.EventSourced.Emulated
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
             this.client = this.host.AddClient(clientId, clientSender);
-            var clientQueue = this.settings.SerializeInEmulator
-                ? (IEmulatedQueue<ClientEvent>)new EmulatedSerializingClientQueue(this.client, this.shutdownTokenSource.Token)
-                : (IEmulatedQueue<ClientEvent>)new EmulatedClientQueue(this.client, this.shutdownTokenSource.Token);
+            var clientQueue = this.settings.SimulateSerialization
+                ? (IMemoryQueue<ClientEvent>)new MemorySerializingClientQueue(this.client, this.shutdownTokenSource.Token)
+                : (IMemoryQueue<ClientEvent>)new MemoryClientQueue(this.client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
-            for (uint i = 0; i < this.settings.EmulatedPartitions; i++)
+            for (uint i = 0; i < this.settings.MemoryPartitions; i++)
             {
                 uint partitionId = i;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partitionState = partitionStates[i] = new FasterStorage(settings.StorageConnectionString);
-                // var partitionState = partitionStates[i] = new EmulatedStorage();
-                var partition = this.host.AddPartition(i, partitionStates[i], partitionSender);
+                var partitionState = partitionStates[i] = this.host.CreatePartitionState();
+                var partition = this.host.AddPartition(i, partitionState, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                var partitionQueue = this.settings.SerializeInEmulator
-                    ? (IEmulatedQueue<PartitionEvent>)new EmulatedSerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
-                    : (IEmulatedQueue<PartitionEvent>)new EmulatedPartitionQueue(partition, this.shutdownTokenSource.Token);
+                var partitionQueue = this.settings.SimulateSerialization
+                    ? (IMemoryQueue<PartitionEvent>)new MemorySerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
+                    : (IMemoryQueue<PartitionEvent>)new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
                 this.partitionQueues[i] = partitionQueue;
                 await partition.StartAsync();
             }
@@ -117,7 +116,7 @@ namespace DurableTask.EventSourced.Emulated
             clientQueue.Resume();
         }
 
-        async Task BackendAbstraction.ITaskHub.StopAsync()
+        async Task TransportAbstraction.ITaskHub.StopAsync()
         {
             if (this.shutdownTokenSource != null)
             {
@@ -129,7 +128,7 @@ namespace DurableTask.EventSourced.Emulated
             }
         }
 
-        private void SendEvents(BackendAbstraction.IClient client, IEnumerable<Event> events)
+        private void SendEvents(TransportAbstraction.IClient client, IEnumerable<Event> events)
         {
             try
             {
@@ -145,7 +144,7 @@ namespace DurableTask.EventSourced.Emulated
             }
         }
 
-        private void SendEvents(BackendAbstraction.IPartition partition, IEnumerable<Event> events)
+        private void SendEvents(TransportAbstraction.IPartition partition, IEnumerable<Event> events)
         {
             try
             {

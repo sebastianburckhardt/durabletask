@@ -30,7 +30,10 @@ namespace DurableTask.EventSourced
         [DataMember]
         public DateTime StartTime { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Dedup);
+        }
     }
 
 }

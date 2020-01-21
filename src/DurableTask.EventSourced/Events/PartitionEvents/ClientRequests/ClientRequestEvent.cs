@@ -27,6 +27,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TimeSpan Timeout { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Clients;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Clients);
+        }
     }
 }

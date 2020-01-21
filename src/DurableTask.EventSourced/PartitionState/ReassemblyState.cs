@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         // PartitionEventFragment 
         // stores fragments until the last one is received
 
-        public override void Process(PartitionEventFragment evt, EffectTracker effect)
+        public override void Process(PartitionEventFragment evt, EffectList effect)
         {
             if (evt.IsLast)
             {
@@ -46,8 +46,7 @@ namespace DurableTask.EventSourced
 
                 this.Fragments.Remove(evt.CohortId);
 
-                var target = evt.ReassembledEvent.StartProcessingOnObject;
-                effect.ProcessOn(target);
+                evt.ReassembledEvent.DetermineEffects(effect);
             }
             else
             {

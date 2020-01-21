@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             });
         }
 
-        private class Batch : List<TaskMessageReceived>, BackendAbstraction.IAckListener
+        private class Batch : List<TaskMessageReceived>, TransportAbstraction.IAckListener
         {
             private int numAcks = 0;
             private TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
@@ -94,7 +94,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            public Task SubmitAndWait(BackendAbstraction.IPartition partition)
+            public Task SubmitAndWait(TransportAbstraction.IPartition partition)
             {
                 foreach(var evt in this)
                 {
@@ -110,7 +110,7 @@ namespace DurableTask.EventSourced
         // SendConfirmed
         // indicates that the event was reliably sent, so we can advance the send cursor
 
-        public void Process(SendConfirmed evt, EffectTracker effect)
+        public void Process(SendConfirmed evt, EffectList effect)
         {
             this.SendCursor = evt.CommitPosition;
         }

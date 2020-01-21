@@ -33,7 +33,10 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long OriginPosition { get; set; }
 
-        public override TrackedObjectKey StartProcessingOnObject => TrackedObjectKey.Dedup;
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Dedup);
+        }
 
         protected override void TraceInformation(StringBuilder s)
         {

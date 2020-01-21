@@ -24,16 +24,16 @@ namespace DurableTask.EventSourced.EventHubs
 {
     internal class EventProcessor : IEventProcessor
     {
-        private readonly BackendAbstraction.IHost host;
-        private readonly BackendAbstraction.ISender sender;
+        private readonly TransportAbstraction.IHost host;
+        private readonly TransportAbstraction.ISender sender;
         private readonly Guid processorId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
-        private BackendAbstraction.IPartition partition;
+        private TransportAbstraction.IPartition partition;
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
-        public EventProcessor(BackendAbstraction.IHost host, BackendAbstraction.ISender sender, EventSourcedOrchestrationServiceSettings settings)
+        public EventProcessor(TransportAbstraction.IHost host, TransportAbstraction.ISender sender, EventSourcedOrchestrationServiceSettings settings)
         {
             this.host = host;
             this.sender = sender;
@@ -44,8 +44,8 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            //this.partition = host.AddPartition(partitionId, new Faster.FasterStorage(settings.StorageConnectionString), this.sender);
-            this.partition = host.AddPartition(partitionId, new EmulatedStorage(), this.sender);
+            var partitionState = this.host.CreatePartitionState();
+            this.partition = host.AddPartition(partitionId, partitionState, this.sender);
             return this.partition.StartAsync();
         }
 
@@ -77,7 +77,7 @@ namespace DurableTask.EventSourced.EventHubs
             return batch.SubmitAndWait(partition);
         }
 
-        private class Batch : List<PartitionEvent>, BackendAbstraction.IAckListener
+        private class Batch : List<PartitionEvent>, TransportAbstraction.IAckListener
         {
             private TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
@@ -86,7 +86,7 @@ namespace DurableTask.EventSourced.EventHubs
                 Tcs.TrySetResult(null);
             }
 
-            public Task SubmitAndWait(BackendAbstraction.IPartition partition)
+            public Task SubmitAndWait(TransportAbstraction.IPartition partition)
             {
                 // attach the ack listener to the last event in the batch
                 this[this.Count - 1].AckListener = this;

@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
 
         // HostStarted marks the beginning of a host processing events
 
-        public void Process(HostStarted evt, EffectTracker effect)
+        public void Process(HostStarted evt, EffectList effect)
         {
             // no op for now
         }
@@ -40,7 +40,7 @@ namespace DurableTask.EventSourced
         // TaskhubCreated 
         // is always the first event, we use it to initialize the deduplication logic
 
-        public void Process(TaskhubCreated evt, EffectTracker effect)
+        public void Process(TaskhubCreated evt, EffectList effect)
         {
             for (uint i = 0; i < evt.StartPositions.Length; i++)
             {
@@ -51,13 +51,13 @@ namespace DurableTask.EventSourced
         // TaskMessageReceived 
         // filters any messages that originated on a partition, and whose origin is marked as processed
 
-        public void Process(TaskMessageReceived evt, EffectTracker effect)
+        public void Process(TaskMessageReceived evt, EffectList effects)
         {
             if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
             {
                 this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
 
-                effect.ProcessOn(TrackedObjectKey.Sessions);
+                effects.Add(TrackedObjectKey.Sessions);
             }
         }
     }

@@ -72,7 +72,7 @@ namespace DurableTask.EventSourced
             // subclasses override this if there is work they need to do here
         }
 
-        public virtual void Process(PartitionEventFragment e, EffectTracker effect)
+        public virtual void Process(PartitionEventFragment e, EffectList effect)
         {
             // processing a reassembled event just applies the original event
             dynamic dynamicThis = this;
@@ -80,20 +80,8 @@ namespace DurableTask.EventSourced
             dynamicThis.Process(dynamicPartitionEvent, effect);
         }
 
-        public class EffectTracker
+        public class EffectList : List<TrackedObjectKey>
         {
-            public List<TrackedObjectKey> ObjectsToProcess = new List<TrackedObjectKey>();
-
-            public void ProcessOn(TrackedObjectKey o)
-            {
-                ObjectsToProcess.Add(o);
-            }
-
-            public void Clear()
-            {
-                ObjectsToProcess.Clear();
-            }
-        }
-     
+        } 
     }
 }

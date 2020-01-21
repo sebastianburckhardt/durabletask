@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
         public abstract bool AtLeastOnceDelivery { get; }
 
         [IgnoreDataMember]
-        public BackendAbstraction.IAckListener AckListener { get; set; }
+        public TransportAbstraction.IAckListener AckListener { get; set; }
 
         public override string ToString()
         {

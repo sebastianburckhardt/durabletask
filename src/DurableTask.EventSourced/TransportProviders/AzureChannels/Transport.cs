@@ -15,11 +15,11 @@ namespace DurableTask.EventSourced.AzureChannels
         private readonly Guid clientId;
         private readonly StorageAbstraction.IPartitionState partitionState;
 
-        private BackendAbstraction.IPartition partition;
-        private BackendAbstraction.IClient client;
+        private TransportAbstraction.IPartition partition;
+        private TransportAbstraction.IClient client;
 
-        public BackendAbstraction.ISender PartitionSender { get; private set; }
-        public BackendAbstraction.ISender ClientSender { get; private set; }
+        public TransportAbstraction.ISender PartitionSender { get; private set; }
+        public TransportAbstraction.ISender ClientSender { get; private set; }
 
         public Transport(
             EventSourcedOrchestrationServiceSettings settings, 
@@ -49,7 +49,7 @@ namespace DurableTask.EventSourced.AzureChannels
             this.LastReceived[client.ToString("N")] = lastReceived;
         }
 
-        public async Task ReceiveLoopAsync(BackendAbstraction.IPartition partition, BackendAbstraction.IClient client)
+        public async Task ReceiveLoopAsync(TransportAbstraction.IPartition partition, TransportAbstraction.IClient client)
         {
             PartitionBatch partitionBatch = new PartitionBatch();
             List<ClientEvent> clientBatch = new List<ClientEvent>();
@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced.AzureChannels
             {
                 return true;
             }
-            else if(evt.AckListener is BackendAbstraction.IAckOrExceptionListener listener)
+            else if(evt.AckListener is TransportAbstraction.IAckOrExceptionListener listener)
             {
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced.AzureChannels
             return false;
         }
 
-        private class PartitionBatch : List<PartitionEvent>, BackendAbstraction.IAckListener
+        private class PartitionBatch : List<PartitionEvent>, TransportAbstraction.IAckListener
         {
             public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced.AzureChannels
             }
         }
 
-        private class ClientSenderWrap : BackendAbstraction.ISender
+        private class ClientSenderWrap : TransportAbstraction.ISender
         {
             private readonly Transport transport;
             private long position = 0;
@@ -166,7 +166,7 @@ namespace DurableTask.EventSourced.AzureChannels
             }
         }
 
-        private class PartitionSenderWrap : BackendAbstraction.ISender
+        private class PartitionSenderWrap : TransportAbstraction.ISender
         {
             private readonly Transport transport;
             private long position = 0;

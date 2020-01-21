@@ -23,7 +23,7 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class Partition : BackendAbstraction.IPartition
+    internal class Partition : TransportAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
 
@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
 
         public StorageAbstraction.IPartitionState State { get; private set; }
-        public BackendAbstraction.ISender BatchSender { get; private set; }
+        public TransportAbstraction.ISender BatchSender { get; private set; }
         public WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
             uint partitionId,
             Func<string, uint> partitionFunction,
             StorageAbstraction.IPartitionState state,
-            BackendAbstraction.ISender batchSender,
+            TransportAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
             WorkQueue<TaskActivityWorkItem> activityWorkItemQueue,
             WorkQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,

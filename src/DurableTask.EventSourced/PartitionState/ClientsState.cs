@@ -30,22 +30,22 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Clients);
 
-        public void Process(ClientTaskMessagesReceived evt, EffectTracker effect)
+        public void Process(ClientTaskMessagesReceived evt, EffectList effects)
         {
-            effect.ProcessOn(TrackedObjectKey.Sessions);
+            effects.Add(TrackedObjectKey.Sessions);
         }
 
-        public void Process(CreationRequestReceived evt, EffectTracker effect)
+        public void Process(CreationRequestReceived evt, EffectList effects)
         {
-            effect.ProcessOn(TrackedObjectKey.Instance(evt.InstanceId));
+            effects.Add(TrackedObjectKey.Instance(evt.InstanceId));
         }
 
-        public void Process(StateRequestReceived evt, EffectTracker effect)
+        public void Process(StateRequestReceived evt, EffectList effect)
         {
             var task = Partition.HandleAsync(evt);
         }
 
-        public void Process(WaitRequestReceived evt, EffectTracker effect)
+        public void Process(WaitRequestReceived evt, EffectList effect)
         {
             var task = Partition.HandleAsync(evt);
         }
