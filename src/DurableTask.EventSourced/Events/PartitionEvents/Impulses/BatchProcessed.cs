@@ -77,6 +77,11 @@ namespace DurableTask.EventSourced
                 effects.Add(TrackedObjectKey.Timers);
             }
 
+            if (this.RemoteMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Outbox);
+            }
+
             if (this.State != null)
             {      
                 effects.Add(TrackedObjectKey.Instance(this.InstanceId));

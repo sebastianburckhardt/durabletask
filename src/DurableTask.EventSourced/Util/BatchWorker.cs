@@ -85,6 +85,8 @@ namespace DurableTask.EventSourced
 
         private async Task Work()
         {
+            Partition.TraceContext = null;
+
             lock (this.lockable)
             {
                 if (this.queue.Count == 0)

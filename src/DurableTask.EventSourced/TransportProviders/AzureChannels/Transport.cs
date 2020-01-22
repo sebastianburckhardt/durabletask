@@ -128,7 +128,6 @@ namespace DurableTask.EventSourced.AzureChannels
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
                 listener?.ReportException(evt, exception);
-
             }
 
             return false;

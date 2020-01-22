@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced
                 s.Append(TaskMessages.Count);
                 s.Append(']');
             }
-            s.Append($" from: Part{OriginPartition:D2}.{OriginPosition:D7}");
+            s.Append($" from: Part{OriginPartition:D2}.{OriginPosition:D10}");
         }
     }
 }

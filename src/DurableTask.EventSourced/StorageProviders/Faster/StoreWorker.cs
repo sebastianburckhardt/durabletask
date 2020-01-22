@@ -22,30 +22,33 @@ namespace DurableTask.EventSourced.Faster
     internal class StoreWorker
     {
         private readonly FasterKV store;
-        private readonly FasterLog log;
         private readonly Partition partition;
+        private readonly BlobManager blobManager;
         private readonly object thisLock = new object();
         private readonly CancellationToken cancellationToken;
         private List<PartitionEvent> commitQueue;
         private List<Task> readQueue;
         private Task commitLoopTask;
 
-        public StoreWorker(FasterKV store, FasterLog log, Partition partition, CancellationToken token)
+        public StoreWorker(Partition partition, BlobManager blobManager,  CancellationToken token)
         {
-            this.store = store;
-            this.log = log;
+            this.store = new FasterKV(partition, blobManager);
             this.partition = partition;
+            this.blobManager = blobManager;
             this.cancellationToken = token;
             this.commitQueue = new List<PartitionEvent>();
             this.readQueue = new List<Task>();
             this.thisLock = new object();
-            this.commitLoopTask = new Task(CommitLoop);
             cancellationToken.Register(Release);
 
-            var thread = new Thread(() => commitLoopTask.RunSynchronously());
-            thread.Name = $"CommitWorker{partition.PartitionId:D2}";
-            thread.Start();
+            //this.commitLoopTask = new Task(CommitLoop);
+            //var thread = new Thread(() => commitLoopTask.RunSynchronously());
+            //thread.Name = $"CommitWorker{partition.PartitionId:D2}";
+            //thread.Start();
+
+            this.commitLoopTask = Task.Run(this.CommitLoop);
         }
+
 
         private void Release()
         {
@@ -81,8 +84,24 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void Process(Task readtask)
+        public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
+            var readtask = new Task<TResult>(() =>
+            {
+                try
+                {
+                    var target = store.GetOrCreate(key);
+                    TResult result;
+                    result = read((TObject)target);
+                    return result;
+                }
+                catch (Exception e)
+                {
+                    // TODO
+                    throw e;
+                }
+            });
+
             lock (this.thisLock)
             {
                 if (this.commitQueue.Count == 0 && this.readQueue.Count == 0)
@@ -92,6 +111,8 @@ namespace DurableTask.EventSourced.Faster
 
                 this.readQueue.Add(readtask);
             }
+
+            return readtask;
         }
 
         public Task JoinAsync()
@@ -100,18 +121,16 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
-        private void CommitLoop()
+        private async Task CommitLoop()
         {
             try
             {
-                this.store.StartSession();
-
                 foreach (var k in TrackedObjectKey.GetSingletons())
                 {
                     store.GetOrCreate(k);
                 }
 
-                var effectsList = new TrackedObject.EffectList();
+                var effectsList = new TrackedObject.EffectList(this.partition.PartitionId);
                 var readBatch = new List<Task>();
                 var commitBatch = new List<PartitionEvent>();
 
@@ -161,14 +180,14 @@ namespace DurableTask.EventSourced.Faster
                             {
                                 this.ProcessRecursively(partitionEvent, effectsList);
                             }
+                            Partition.TraceContext = null;
                         }
 
                         commitBatch.Clear();
                     }
                 }
                 store.TakeFullCheckpoint(out _);
-                store.CompleteCheckpoint(true);
-                store.StopSession();
+                await store.CompleteCheckpointAsync(); // TODO optimization: overlap with reads
                 store.Dispose();
             }
             catch (Exception e)

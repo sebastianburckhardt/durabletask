@@ -347,6 +347,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
+
             partition.Submit(new BatchProcessed()
             {
                 PartitionId = orchestrationWorkItem.Partition.PartitionId,

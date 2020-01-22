@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         internal byte[] SerializedSnapshot { get; set; }
 
-        // used by the state storage backend to protect from conflicts
+        // used by some storage providers to protect from conflicts
         [IgnoreDataMember]
         internal object AccessLock => this;
 
@@ -82,6 +82,12 @@ namespace DurableTask.EventSourced
 
         public class EffectList : List<TrackedObjectKey>
         {
+            public EffectList(uint partitionId)
+            {
+                this.PartitionId = partitionId;
+            }
+
+            public uint PartitionId { get; }
         } 
     }
 }

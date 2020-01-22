@@ -13,21 +13,21 @@
 
 using System;
 using System.Collections.Generic;
-using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
+using FASTER.core;
 
-namespace DurableTask.EventSourced
+namespace DurableTask.EventSourced.Faster
 {
-    [DataContract]
-    internal class SendConfirmed : PartitionEvent
+    internal class FasterLog : FASTER.core.FasterLog
+        
     {
-        [DataMember]
-        public long Position { get; set; }
-
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public FasterLog(BlobManager blobManager)
+            : base(new FasterLogSettings 
+              { 
+                LogDevice = blobManager.EventLogDevice,
+                LogCommitManager = blobManager,
+              })
         {
-            effects.Add(TrackedObjectKey.Outbox);
         }
     }
 }

@@ -28,8 +28,6 @@ namespace DurableTask.EventSourced
         private long nextCommitPosition = 0;
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
-        private List<Func<CancellationToken, IList<PartitionEvent>, Task>> activeIterators 
-            = new List<Func<CancellationToken, IList<PartitionEvent>, Task>>();
 
         public MemoryStorage()
         {
@@ -103,48 +101,32 @@ namespace DurableTask.EventSourced
                 evt.AckListener?.Acknowledge(evt);
             }
 
-            foreach(var iterator in this.activeIterators)
-            {
-                iterator.Invoke(this.cancellationToken, batch);
-            }
-
             return Task.CompletedTask;
         }
 
         private void ProcessBatch(IList<PartitionEvent> batch, long nextCommitPosition)
         {
+            var effects = new TrackedObject.EffectList(partition.PartitionId);
+
             for (int i = 0; i < batch.Count; i++)
             {
                 var partitionEvent = batch[i];
                 partitionEvent.CommitPosition = nextCommitPosition + i;
                 partition.TraceProcess(partitionEvent);
-                partitionEvent.DetermineEffects(effectList);
-                while(effectList.Count > 0)
+                partitionEvent.DetermineEffects(effects);
+                while(effects.Count > 0)
                 {
-                    this.ProcessRecursively(partitionEvent, effectList);
+                    this.ProcessRecursively(partitionEvent, effects);
                 }
+                Partition.TraceContext = null;
             }
         }
 
-        public void StartIterator(long StartPosition, Func<CancellationToken, IList<PartitionEvent>, Task> body)
-        {
-            if (StartPosition != nextCommitPosition)
-            {
-                throw new InvalidOperationException("Emulator can start iterators only at present moment");
-            }
-
-            activeIterators.Add(body);
-        }
-
-        // reuse these collection objects between updates 
-        // (note that updates are never concurrent by design)
-        TrackedObject.EffectList effectList = new TrackedObject.EffectList();
-
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effectList)
+        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
             // process the last effect in the list, and recursively any effects it adds
-            var startPos = effectList.Count - 1;
-            var thisKey = effectList[startPos];
+            var startPos = effects.Count - 1;
+            var thisKey = effects[startPos];
             var thisObject = this.GetOrAdd(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
@@ -158,16 +140,16 @@ namespace DurableTask.EventSourced
             {
                 dynamic dynamicThis = thisObject;
                 dynamic dynamicPartitionEvent = evt;
-                dynamicThis.Process(dynamicPartitionEvent, effectList);
+                dynamicThis.Process(dynamicPartitionEvent, effects);
             }
 
             // recursively process all additional objects to process
-            while (effectList.Count - 1 > startPos)
+            while (effects.Count - 1 > startPos)
             {
-                this.ProcessRecursively(evt, effectList);
+                this.ProcessRecursively(evt, effects);
             }
 
-            effectList.RemoveAt(startPos);
+            effects.RemoveAt(startPos);
         }
     }
 }

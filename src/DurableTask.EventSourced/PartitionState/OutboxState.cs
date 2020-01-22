@@ -23,96 +23,93 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OutboxState : TrackedObject
+    internal class OutboxState : TrackedObject, TransportAbstraction.IAckListener
     {
         [DataMember]
-        long SendCursor { get; set; } = 0;
+        public SortedDictionary<long, List<TaskMessage>> Outbox { get; private set; } = new SortedDictionary<long, List<TaskMessage>>();
+
+        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
         protected override void Restore()
         {
-            this.Partition.State.StartIterator(SendCursor, this.SendBatch);
+            // resend all pending
+            foreach (var kvp in Outbox)
+            {
+                Send(kvp.Key, kvp.Value);
+            }
         }
 
-        [IgnoreDataMember]
-        public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
-
-        private async Task SendBatch(CancellationToken token, IList<PartitionEvent> partitionEvents)
+        private void Send(long position, List<TaskMessage> messages)
         {
-            var batch = new Batch();
-
-            foreach(var partitionEvent in partitionEvents)
+            var batch = new Batch() { Position = position, Partition = this.Partition } ;
+            
+            foreach (var message in messages)
             {
-                var toSend = new Dictionary<uint, TaskMessageReceived>();
-             
-                if (partitionEvent is BatchProcessed evt && evt.RemoteMessages != null)
+                var instanceId = message.OrchestrationInstance.InstanceId;
+                var partitionId = this.Partition.PartitionFunction(instanceId);
+
+                if (!batch.TryGetValue(partitionId, out var outmessage))
                 {
-                    foreach (var message in evt.RemoteMessages)
+                    batch[partitionId] = outmessage = new TaskMessageReceived()
                     {
-                        var instanceId = message.OrchestrationInstance.InstanceId;
-                        var partitionId = this.Partition.PartitionFunction(instanceId);
-
-                        if (!toSend.TryGetValue(partitionId, out var outmessage))
-                        {
-                            toSend[partitionId] = outmessage = new TaskMessageReceived()
-                            {
-                                PartitionId = partitionId,
-                                OriginPartition = this.Partition.PartitionId,
-                                OriginPosition = evt.CommitPosition,
-                                TaskMessages = new List<TaskMessage>(),
-                            };
-                        }
-                        outmessage.TaskMessages.Add(message);
-                    }
-
-                    batch.AddRange(toSend.Values);
-
-                    batch.Position = evt.CommitPosition;
+                        PartitionId = partitionId,
+                        OriginPartition = this.Partition.PartitionId,
+                        OriginPosition = position,
+                        TaskMessages = new List<TaskMessage>(),
+                        AckListener = batch,
+                    };
                 }
+                outmessage.TaskMessages.Add(message);
             }
 
-            await batch.SubmitAndWait(this.Partition);
-
-            this.Partition.Submit(new SendConfirmed()
+            foreach (var outmessage in batch.Values)
             {
-                PartitionId = this.Partition.PartitionId,
-                CommitPosition = batch.Position,
-            });
+                Partition.Send(outmessage);
+            }
         }
 
-        private class Batch : List<TaskMessageReceived>, TransportAbstraction.IAckListener
+        private class Batch : Dictionary<uint, TaskMessageReceived>, TransportAbstraction.IAckListener
         {
-            private int numAcks = 0;
-            private TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
-
             public long Position { get; set; }
+            public Partition Partition { get; set; }
+
+            private int numAcks = 0;
 
             public void Acknowledge(Event evt)
             {
-                if (--numAcks == 0)
+                if (++numAcks == this.Count)
                 {
-                    Tcs.TrySetResult(null);
+                    Partition.Submit(new SendConfirmed()
+                    {
+                        PartitionId = this.Partition.PartitionId,
+                        Position = Position,
+                    });
                 }
-            }
-
-            public Task SubmitAndWait(TransportAbstraction.IPartition partition)
-            {
-                foreach(var evt in this)
-                {
-                    evt.AckListener = this;
-                }
-                
-                partition.SubmitRange(this);
-
-                return this.Tcs.Task;
             }
         }
 
-        // SendConfirmed
-        // indicates that the event was reliably sent, so we can advance the send cursor
 
-        public void Process(SendConfirmed evt, EffectList effect)
+        // BatchProcessed
+
+        public void Process(BatchProcessed evt, EffectList effects)
         {
-            this.SendCursor = evt.CommitPosition;
+            this.Outbox[evt.CommitPosition] = evt.RemoteMessages;
+            evt.AckListener = this; // we need to notified when this event is durable
+        }
+
+        public void Acknowledge(Event evt)
+        {
+            // now that the event is durable we can send the messages
+            var batchProcessedEvent = (BatchProcessed)evt;
+            this.Send(batchProcessedEvent.CommitPosition, batchProcessedEvent.RemoteMessages);
+        }
+
+        // SendConfirmed
+
+        public void Process(SendConfirmed evt, EffectList effects)
+        {
+            // we no longer need to keep these events around
+            this.Outbox.Remove(evt.Position);
         }
     }
 }

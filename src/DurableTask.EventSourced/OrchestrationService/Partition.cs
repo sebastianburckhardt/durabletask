@@ -148,7 +148,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"create activity work item {item.WorkItemId}");
+                this.DiagnosticsTrace($"Creating ActivityWorkItem {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -162,7 +162,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"create orchestration work item {item.WorkItemId}");
+                this.DiagnosticsTrace($"Creating OrchestrationWorkItem {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -186,11 +186,11 @@ namespace DurableTask.EventSourced
 
         public void TraceProcess(PartitionEvent evt)
         {
-            Partition.TraceContext = $"{evt.CommitPosition:D7}   ";
+            Partition.TraceContext = $"{evt.CommitPosition:D10}   ";
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D7} Processing {evt} {evt.WorkItem}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D10} Processing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {

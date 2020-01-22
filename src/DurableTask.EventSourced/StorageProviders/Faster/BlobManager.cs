@@ -61,8 +61,10 @@ namespace DurableTask.EventSourced.Faster
             this.partitionId = partitionId;
         }
 
+        private bool useLocalFilesForDebugging = false;
+
         public async Task StartAsync()
-        { 
+        {
             CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
             CloudBlobClient serviceClient = account.CreateCloudBlobClient();
             this.blobContainer = serviceClient.GetContainerReference(containerName);
@@ -76,9 +78,18 @@ namespace DurableTask.EventSourced.Faster
 
             this.eventLogPageBlob = this.blobContainer.GetPageBlobReference(eventLogBlobName + "0");
 
-            this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, eventLogBlobName);
-            this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, hybridLogBlobName);
-            this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, objectLogBlobName);
+            if (useLocalFilesForDebugging)
+            {
+                this.EventLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{eventLogBlobName}");
+                this.HybridLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{hybridLogBlobName}");
+                this.ObjectLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{objectLogBlobName}");
+            }
+            else
+            {
+                this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, eventLogBlobName);
+                this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, hybridLogBlobName);
+                this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, objectLogBlobName);
+            }
         }
 
 

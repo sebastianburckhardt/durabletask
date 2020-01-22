@@ -98,7 +98,8 @@ namespace DurableTask.EventSourced
         }
 
         /// <summary>
-        /// A listener abstraction, used by clients and partitions, to receive acks after events have been processed
+        /// A listener abstraction, used by clients and partitions, to receive acks after events have been
+        /// durably processed.
         /// </summary>
         public interface IAckListener
         {

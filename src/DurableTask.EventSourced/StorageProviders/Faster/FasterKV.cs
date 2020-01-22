@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using DurableTask.Core.Tracking;
 using FASTER.core;
+using Microsoft.Win32.SafeHandles;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -10,7 +11,8 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
- 
+        private ClientSession<FasterKV.Key, FasterKV.Value, PartitionEvent, TrackedObject, Empty, FasterKV.Functions> session;
+
         public FasterKV(Partition partition, BlobManager blobManager) 
             : base(
                 1L << 17, 
@@ -34,10 +36,12 @@ namespace DurableTask.EventSourced.Faster
         {
             this.partition = partition;
             this.blobManager = blobManager;
+            this.session = this.NewSession();
         }
 
         public new void Dispose()
         {
+            this.session.Dispose();
             base.Dispose();
             this.blobManager.HybridLogDevice.Close();
             this.blobManager.ObjectLogDevice.Close();
@@ -139,12 +143,12 @@ namespace DurableTask.EventSourced.Faster
         {
             FasterKV.Key key = k;
             TrackedObject target = null;
-            var status = this.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
+            var status = this.session.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
 
             if (status == Status.NOTFOUND)
             {
                 FasterKV.Value newObject = TrackedObjectKey.Factory(k);
-                var status2 = this.Upsert(ref key, ref newObject, Empty.Default, 0);
+                var status2 = this.session.Upsert(ref key, ref newObject, Empty.Default, 0);
                 if (status2 != Status.OK)
                 {
                     throw new NotImplementedException("TODO");
@@ -164,7 +168,7 @@ namespace DurableTask.EventSourced.Faster
         public void MarkWritten(TrackedObjectKey k, PartitionEvent evt)
         {
             FasterKV.Key key = k;
-            var status = this.RMW(ref key, ref evt, Empty.Default, 0);
+            var status = this.session.RMW(ref key, ref evt, Empty.Default, 0);
             
             if (status != Status.OK)
             {
@@ -231,7 +235,7 @@ namespace DurableTask.EventSourced.Faster
             }
 
 
-            public void CheckpointCompletionCallback(Guid sessionId, long serialNum) { }
+            public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
             public void ReadCompletionCallback(ref Key key, ref PartitionEvent input, ref TrackedObject output, Empty ctx, Status status) { }
             public void RMWCompletionCallback(ref Key key, ref PartitionEvent input, Empty ctx, Status status) { }
             public void UpsertCompletionCallback(ref Key key, ref Value value, Empty ctx) { }

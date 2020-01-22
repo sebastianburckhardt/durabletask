@@ -40,8 +40,6 @@ namespace DurableTask.EventSourced
 
             Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
                 where TObject: TrackedObject;
-
-            void StartIterator(long StartPosition, Func<CancellationToken, IList<PartitionEvent>, Task> body);
         }
     }
 }

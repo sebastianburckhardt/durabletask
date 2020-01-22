@@ -14,6 +14,8 @@
 using FASTER.core;
 using System;
 using System.Collections.Generic;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,12 +25,14 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterLog log;
         private readonly Partition partition;
+        private readonly CancellationToken token;
 
-        public LogWorker(FasterLog log, Partition partition, CancellationToken token) 
+        public LogWorker(Partition partition, BlobManager blobManager, CancellationToken token)
             : base(token, false)
         {
-            this.log = log;
+            this.log = new FasterLog(blobManager);
             this.partition = partition;
+            this.token = token;
         }
 
         private void EnqueueEvent(PartitionEvent evt)
@@ -42,6 +46,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 evt.CommitPosition = this.log.Enqueue(evt.Serialized.AsSpan<byte>());
             }
+
+            this.partition.DiagnosticsTrace($"Log-Enqueued {evt.CommitPosition}");
 
             this.partition.TraceSubmit(evt);
         }
@@ -67,10 +73,15 @@ namespace DurableTask.EventSourced.Faster
         {
             await log.CommitAsync(this.cancellationToken);
 
-            foreach(var evt in batch)
+            foreach (var evt in batch)
             {
                 evt.AckListener?.Acknowledge(evt);
             }
+        }
+
+        public async Task JoinAsync()
+        {
+            await log.CommitAsync(); //TODO
         }
     }
 }
