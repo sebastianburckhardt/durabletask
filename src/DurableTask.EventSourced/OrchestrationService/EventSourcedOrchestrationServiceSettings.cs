@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
                 {
                     return StorageChoices.Faster;
                 }
-                else 
+                else
                 {
                     return StorageChoices.Memory;
                 }

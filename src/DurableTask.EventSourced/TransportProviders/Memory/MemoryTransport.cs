@@ -96,18 +96,6 @@ namespace DurableTask.EventSourced.Emulated
                 await partition.StartAsync();
             }
 
-            for (uint i = 0; i < numberPartitions; i++)
-            {
-                var evt = new TaskhubCreated()
-                {
-                    PartitionId = i,
-                    CreationTimestamp = creationTimestamp,
-                    StartPositions = startPositions,
-                };
-
-                this.partitionQueues[i].Send(evt);
-            }
-
             // start all the emulated queues
             foreach (var partitionQueue in this.partitionQueues)
             {

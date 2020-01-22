@@ -101,24 +101,6 @@ namespace DurableTask.EventSourced.EventHubs
                 Formatting.Indented,
                 new JsonSerializerSettings() { TypeNameHandling = TypeNameHandling.None });
             await this.taskhubParameters.UploadTextAsync(jsonText);
-
-            // add a start up event to all partitions
-            var ackCounter = new AckCounter(numberPartitions);
-            for (uint i = 0; i < numberPartitions; i++)
-            {
-                var evt = new TaskhubCreated()
-                {
-                    PartitionId = i,
-                    CreationTimestamp = taskHubParameters.CreationTimestamp,
-                    StartPositions = taskHubParameters.StartPositions,
-                };
-
-                var partitionSender = this.connections.GetPartitionSender(i);
-                evt.AckListener = ackCounter;
-                partitionSender.Submit(evt);
-            }
-
-            await ackCounter.WaitAsync();
         }
 
         [DataContract]
@@ -129,28 +111,6 @@ namespace DurableTask.EventSourced.EventHubs
 
             [DataMember]
             public long[] StartPositions { get; set; }
-        }
-
-        private class AckCounter : TransportAbstraction.IAckListener
-        {
-            private readonly TaskCompletionSource<object> tcs = new TaskCompletionSource<object>();
-            private int count;
-            public AckCounter(int numberAcks)
-            {
-                count = numberAcks;
-            }
-            public void Acknowledge(Event evt)
-            {
-                var val = Interlocked.Decrement(ref count);
-                if (val == 0)
-                {
-                    tcs.TrySetResult(null);
-                }
-            }
-            public Task WaitAsync()
-            {
-                return tcs.Task;
-            }
         }
 
         Task TransportAbstraction.ITaskHub.DeleteAsync()
@@ -164,9 +124,9 @@ namespace DurableTask.EventSourced.EventHubs
 
             // load the taskhub parameters
             var jsonText = await this.taskhubParameters.DownloadTextAsync();
-            var evt = JsonConvert.DeserializeObject<TaskhubCreated>(jsonText);
+            var parameters = JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
 
-            this.host.NumberPartitions = (uint) evt.StartPositions.Length;
+            this.host.NumberPartitions = (uint) parameters.StartPositions.Length;
 
             this.client = host.AddClient(this.ClientId, this);
 
@@ -181,7 +141,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             var processorOptions = new EventProcessorOptions()
             {
-                InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(evt.StartPositions[int.Parse(s)] - 1),
+                InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(parameters.StartPositions[int.Parse(s)] - 1),
                 MaxBatchSize = MaxReceiveBatchSize,
             };
 

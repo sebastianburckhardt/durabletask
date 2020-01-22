@@ -29,35 +29,18 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
-
-        // HostStarted marks the beginning of a host processing events
-
-        public void Process(HostStarted evt, EffectList effect)
-        {
-            // no op for now
-        }
-
-        // TaskhubCreated 
-        // is always the first event, we use it to initialize the deduplication logic
-
-        public void Process(TaskhubCreated evt, EffectList effect)
-        {
-            for (uint i = 0; i < evt.StartPositions.Length; i++)
-            {
-                ProcessedOrigins[i] = 0;
-            }
-        }
-
+        
         // TaskMessageReceived 
         // filters any messages that originated on a partition, and whose origin is marked as processed
 
         public void Process(TaskMessageReceived evt, EffectList effects)
         {
-            if (this.ProcessedOrigins[evt.OriginPartition] < evt.OriginPosition)
+            long alreadyProcessed = -1;
+            this.ProcessedOrigins.TryGetValue(evt.OriginPartition, out alreadyProcessed);
+            if (evt.OriginPosition > alreadyProcessed)
             {
-                this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
-
                 effects.Add(TrackedObjectKey.Sessions);
+                this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
             }
         }
     }

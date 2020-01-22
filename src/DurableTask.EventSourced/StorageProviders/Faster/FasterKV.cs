@@ -137,7 +137,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public PartitionEvent NoInput = new TaskhubCreated() { }; // just a dummy non-null object
+        public PartitionEvent NoInput = new TimerFired() { }; // just a dummy non-null object
 
         public TrackedObject GetOrCreate(TrackedObjectKey k)
         {

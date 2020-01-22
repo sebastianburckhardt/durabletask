@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -22,7 +23,7 @@ using Microsoft.Azure.EventHubs.Processor;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventProcessor : IEventProcessor
+    internal class EventProcessor : IEventProcessor, TransportAbstraction.IAckListener
     {
         private readonly TransportAbstraction.IHost host;
         private readonly TransportAbstraction.ISender sender;
@@ -31,6 +32,11 @@ namespace DurableTask.EventSourced.EventHubs
 
         private TransportAbstraction.IPartition partition;
 
+        private Stopwatch timeSinceLastCheckpoint = new Stopwatch();
+        private int eventsSinceLastCheckpoint;
+        private Checkpoint pendingCheckpoint;
+        private Checkpoint completedCheckpoint;
+        
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
         public EventProcessor(TransportAbstraction.IHost host, TransportAbstraction.ISender sender, EventSourcedOrchestrationServiceSettings settings)
@@ -41,17 +47,25 @@ namespace DurableTask.EventSourced.EventHubs
             this.settings = settings;
         }
 
-        Task IEventProcessor.OpenAsync(PartitionContext context)
+        async Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
             var partitionState = this.host.CreatePartitionState();
             this.partition = host.AddPartition(partitionId, partitionState, this.sender);
-            return this.partition.StartAsync();
+            await this.partition.StartAsync();
+            timeSinceLastCheckpoint.Start();
+            eventsSinceLastCheckpoint = 0;
         }
 
         async Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
-        {
+        {         
             await this.partition.StopAsync();
+
+            if (this.completedCheckpoint != null)
+            {
+                await context.CheckpointAsync(this.completedCheckpoint);
+                completedCheckpoint = null;
+            }
         }
 
         Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception error)
@@ -62,39 +76,44 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> messages)
         {
-            var batch = new Batch();
+            var batch = new List<PartitionEvent>();
+            EventData last = null;
 
             foreach(var eventData in messages)
             {
                 var evt = (PartitionEvent) Serializer.DeserializeEvent(eventData.Body);
                 evt.Serialized = eventData.Body; // we'll reuse this for writing to the event log
                 batch.Add(evt);
+                last = eventData;
             }
 
-            // attach the ack listener to the last event in the batch
-            batch[batch.Count - 1].AckListener = batch;
+            this.eventsSinceLastCheckpoint += batch.Count;
 
-            return batch.SubmitAndWait(partition);
+            if (this.pendingCheckpoint == null && this.completedCheckpoint == null
+                && (this.timeSinceLastCheckpoint.ElapsedMilliseconds > 30000 || this.eventsSinceLastCheckpoint > 3000))
+            {
+                this.eventsSinceLastCheckpoint = 0;
+                this.timeSinceLastCheckpoint.Restart();
+                this.pendingCheckpoint = new Checkpoint(context.PartitionId, last.SystemProperties.Offset, last.SystemProperties.SequenceNumber);
+                batch[batch.Count - 1].AckListener = this; 
+            }
+
+            partition.SubmitRange(batch);
+
+            if (this.completedCheckpoint != null)
+            {
+                var checkpoint = this.completedCheckpoint;
+                this.completedCheckpoint = null;
+                return context.CheckpointAsync(checkpoint);
+            }
+
+            return Task.CompletedTask;
         }
 
-        private class Batch : List<PartitionEvent>, TransportAbstraction.IAckListener
+        public void Acknowledge(Event evt)
         {
-            private TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
-
-            public void Acknowledge(Event evt)
-            {
-                Tcs.TrySetResult(null);
-            }
-
-            public Task SubmitAndWait(TransportAbstraction.IPartition partition)
-            {
-                // attach the ack listener to the last event in the batch
-                this[this.Count - 1].AckListener = this;
-
-                partition.SubmitRange(this);
-
-                return this.Tcs.Task;
-            }
+            this.completedCheckpoint = this.pendingCheckpoint;
+            this.pendingCheckpoint = null;
         }
     }
 }

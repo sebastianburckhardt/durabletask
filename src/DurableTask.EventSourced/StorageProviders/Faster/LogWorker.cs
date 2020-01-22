@@ -47,8 +47,6 @@ namespace DurableTask.EventSourced.Faster
                 evt.CommitPosition = this.log.Enqueue(evt.Serialized.AsSpan<byte>());
             }
 
-            this.partition.DiagnosticsTrace($"Log-Enqueued {evt.CommitPosition}");
-
             this.partition.TraceSubmit(evt);
         }
 

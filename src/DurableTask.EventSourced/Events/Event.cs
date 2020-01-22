@@ -64,8 +64,6 @@ namespace DurableTask.EventSourced
             yield return typeof(BatchProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
-            yield return typeof(HostStarted);
-            yield return typeof(TaskhubCreated);
             yield return typeof(TaskMessageReceived);
             yield return typeof(PartitionEventFragment);
         }

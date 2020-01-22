@@ -98,14 +98,6 @@ namespace DurableTask.EventSourced.AzureChannels
                 var partition = partitions[i] = this.host.AddPartition(i, partitionStates[i], partitionTransport.PartitionSender);
                 
                 await partition.StartAsync();
-
-                // TODO this only makes sense in test
-                partition.Submit(new TaskhubCreated()
-                {
-                    PartitionId = i,
-                    CreationTimestamp = creationTimestamp,
-                    StartPositions = startPositions,
-                });
             }
 
             // create a client
