@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using FASTER.core;
+using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -38,12 +39,18 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager = blobManager;
 
             this.effects = new TrackedObject.EffectList(this.partition);
+        }
 
+        public async Task StartAsync()
+        {
+            var tasks = new List<Task>();
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
-                store.GetOrCreate(k);
+                tasks.Add(store.GetOrCreateAsync(k));
             }
+            await Task.WhenAll(tasks);
         }
+
 
         public async Task PersistAndShutdownAsync()
         {
@@ -73,13 +80,13 @@ namespace DurableTask.EventSourced.Faster
             this.SubmitRange(evts);
         }
 
-        public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
+        public async Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
-            var readtask = new Task<TResult>(() =>
+            var readtask = new Task<Task<TResult>>(async () =>
             {
                 try
                 {
-                    var target = store.GetOrCreate(key);
+                    var target = await store.GetOrCreateAsync(key);
                     TResult result;
                     result = read((TObject)target);
                     return result;
@@ -89,13 +96,13 @@ namespace DurableTask.EventSourced.Faster
                     // TODO
                     throw e;
                 }
-            });
+            });  
 
             this.Submit(readtask);
-            return readtask;
+            return await await readtask;
         }
 
-        protected override Task Process(IList<object> batch)
+        protected override async ValueTask ProcessAsync(IList<object> batch)
         {
             try
             {
@@ -120,7 +127,7 @@ namespace DurableTask.EventSourced.Faster
                                 partitionEvent.DetermineEffects(this.effects);
                                 while (this.effects.Count > 0)
                                 {
-                                    this.ProcessRecursively(partitionEvent, this.effects);
+                                    await this.ProcessRecursively(partitionEvent, this.effects);
                                 }
                                 Partition.TraceContext = null;
                                 break;
@@ -139,16 +146,14 @@ namespace DurableTask.EventSourced.Faster
                 // at this point we know we will not process any more reads or updates
                 this.shutdownWaiter.TrySetResult(true);
             }
-
-            return Task.CompletedTask;
         }
 
     
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
+        public async ValueTask ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
             var startPos = effects.Count - 1;
             var thisKey = effects[startPos];
-            var thisObject = store.GetOrCreate(thisKey);
+            var thisObject = await store.GetOrCreateAsync(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
@@ -167,7 +172,7 @@ namespace DurableTask.EventSourced.Faster
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)
             {
-                this.ProcessRecursively(evt, effects);
+                await this.ProcessRecursively(evt, effects);
             }
 
             effects.RemoveAt(startPos);

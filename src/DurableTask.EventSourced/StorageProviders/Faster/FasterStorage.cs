@@ -52,6 +52,9 @@ namespace DurableTask.EventSourced.Faster
 
             this.logWorker = new LogWorker(this.partition, this.blobManager);
             this.storeWorker = new StoreWorker(this.partition, this.blobManager);
+
+            await this.logWorker.StartAsync();
+            await this.storeWorker.StartAsync();
         }
 
         public async Task PersistAndShutdownAsync()

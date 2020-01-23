@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using DurableTask.Core.Tracking;
 using FASTER.core;
 using Microsoft.Win32.SafeHandles;
@@ -11,6 +13,7 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
+        private readonly CancellationTokenSource shutdownSource;
         private ClientSession<FasterKV.Key, FasterKV.Value, PartitionEvent, TrackedObject, Empty, FasterKV.Functions> session;
 
         public FasterKV(Partition partition, BlobManager blobManager) 
@@ -36,6 +39,7 @@ namespace DurableTask.EventSourced.Faster
         {
             this.partition = partition;
             this.blobManager = blobManager;
+            this.shutdownSource = new CancellationTokenSource();
             this.session = this.NewSession();
         }
 
@@ -139,22 +143,16 @@ namespace DurableTask.EventSourced.Faster
 
         public PartitionEvent NoInput = new TimerFired() { }; // just a dummy non-null object
 
-        public TrackedObject GetOrCreate(TrackedObjectKey k)
+        public async Task<TrackedObject> GetOrCreateAsync(TrackedObjectKey k)
         {
-            FasterKV.Key key = k;
-            TrackedObject target = null;
-            var status = this.session.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
+            var (status, target) = await this.session.ReadAsync(k, null, false, this.shutdownSource.Token);
 
             if (status == Status.NOTFOUND)
             {
-                FasterKV.Value newObject = TrackedObjectKey.Factory(k);
-                var status2 = this.session.Upsert(ref key, ref newObject, Empty.Default, 0);
-                if (status2 != Status.OK)
-                {
-                    throw new NotImplementedException("TODO");
-                }
-                newObject.Val.Restore(this.partition);
-                return newObject.Val;
+                var newObject = TrackedObjectKey.Factory(k);
+                await this.session.UpsertAsync(k, newObject, false, this.shutdownSource.Token);
+                newObject.Restore(this.partition);
+                return newObject;
             }
             
             if (status != Status.OK)

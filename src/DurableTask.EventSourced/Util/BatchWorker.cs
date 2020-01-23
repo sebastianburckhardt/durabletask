@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced
         private bool suspended;
 
         /// <summary>Implement this member in derived classes to process a batch</summary>
-        protected abstract Task Process(IList<T> batch);
+        protected abstract ValueTask ProcessAsync(IList<T> batch);
 
         public virtual void Submit(T entry)
         {
@@ -83,7 +83,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private async Task Work()
+        private async ValueTask Work()
         {
             Partition.TraceContext = null;
 
@@ -96,7 +96,7 @@ namespace DurableTask.EventSourced
 
             if (!cancellationToken.IsCancellationRequested)
             {
-                await this.Process(batch);
+                await this.ProcessAsync(batch);
             }
 
             this.batch.Clear();

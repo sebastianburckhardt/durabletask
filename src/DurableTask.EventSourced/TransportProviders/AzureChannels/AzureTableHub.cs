@@ -167,7 +167,7 @@ namespace DurableTask.EventSourced.AzureChannels
             SubmitRange(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
         }
 
-        protected override async Task Process(IList<(TMessage,TableOperation)> batch)
+        protected override async ValueTask ProcessAsync(IList<(TMessage,TableOperation)> batch)
         {
             TableBatchOperation tableBatch = new TableBatchOperation();
             List<TMessage> messages = new List<TMessage>();
