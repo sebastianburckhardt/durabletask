@@ -19,69 +19,58 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class StoreWorker
+    internal class StoreWorker : BatchWorker<object>
     {
         private readonly FasterKV store;
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private readonly object thisLock = new object();
-        private readonly CancellationToken cancellationToken;
-        private List<PartitionEvent> commitQueue;
-        private List<Task> readQueue;
-        private Task commitLoopTask;
 
-        public StoreWorker(Partition partition, BlobManager blobManager,  CancellationToken token)
+        private readonly TrackedObject.EffectList effects;
+
+        private volatile TaskCompletionSource<bool> shutdownWaiter;
+
+        private bool IsShuttingDown => this.shutdownWaiter != null;
+
+        public StoreWorker(Partition partition, BlobManager blobManager)
         {
             this.store = new FasterKV(partition, blobManager);
             this.partition = partition;
             this.blobManager = blobManager;
-            this.cancellationToken = token;
-            this.commitQueue = new List<PartitionEvent>();
-            this.readQueue = new List<Task>();
-            this.thisLock = new object();
-            cancellationToken.Register(Release);
 
-            //this.commitLoopTask = new Task(CommitLoop);
-            //var thread = new Thread(() => commitLoopTask.RunSynchronously());
-            //thread.Name = $"CommitWorker{partition.PartitionId:D2}";
-            //thread.Start();
+            this.effects = new TrackedObject.EffectList(this.partition.PartitionId);
 
-            this.commitLoopTask = Task.Run(this.CommitLoop);
+            foreach (var k in TrackedObjectKey.GetSingletons())
+            {
+                store.GetOrCreate(k);
+            }
         }
 
-
-        private void Release()
+        public async Task PersistAndShutdownAsync()
         {
-            lock (this.thisLock)
+            lock (this.lockable)
             {
-                Monitor.Pulse(this.thisLock);
+                this.shutdownWaiter = new TaskCompletionSource<bool>();
+                this.Notify();
             }
+
+            await this.shutdownWaiter.Task; // waits for processor to stop processing reads and updates
+
+            // take a full checkpoint
+            store.TakeFullCheckpoint(out _);
+            await store.CompleteCheckpointAsync();
+
+            // we are done with the store
+            store.Dispose();
         }
 
         public void Process(PartitionEvent evt)
         {
-            lock (this.thisLock)
-            {
-                if (this.commitQueue.Count == 0 && this.readQueue.Count == 0)
-                {
-                    Monitor.Pulse(this.thisLock);
-                }
-
-                this.commitQueue.Add(evt);
-            }
+            this.Submit(evt);
         }
 
         public void Process(IEnumerable<PartitionEvent> evts)
         {
-            lock (this.thisLock)
-            {
-                if (this.commitQueue.Count == 0 && this.readQueue.Count == 0)
-                {
-                    Monitor.Pulse(this.thisLock);
-                }
-
-                this.commitQueue.AddRange(evts);
-            }
+            this.SubmitRange(evts);
         }
 
         public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
@@ -102,101 +91,59 @@ namespace DurableTask.EventSourced.Faster
                 }
             });
 
-            lock (this.thisLock)
-            {
-                if (this.commitQueue.Count == 0 && this.readQueue.Count == 0)
-                {
-                    Monitor.Pulse(this.thisLock);
-                }
-
-                this.readQueue.Add(readtask);
-            }
-
+            this.Submit(readtask);
             return readtask;
         }
 
-        public Task JoinAsync()
-        {
-            return this.commitLoopTask;
-        }
-
-
-        private async Task CommitLoop()
+        protected override Task Process(IList<object> batch)
         {
             try
             {
-                foreach (var k in TrackedObjectKey.GetSingletons())
+                foreach (object o in batch)
                 {
-                    store.GetOrCreate(k);
-                }
-
-                var effectsList = new TrackedObject.EffectList(this.partition.PartitionId);
-                var readBatch = new List<Task>();
-                var commitBatch = new List<PartitionEvent>();
-
-                while (!this.cancellationToken.IsCancellationRequested)
-                {
-                    lock (this.thisLock)
+                    if (this.IsShuttingDown)
                     {
-                        while (this.commitQueue.Count == 0
-                            && this.readQueue.Count == 0
-                            && !this.cancellationToken.IsCancellationRequested)
-                        {
-                            Monitor.Wait(this.thisLock);
-                        }
-
-                        if (this.readQueue.Count > 0)
-                        {
-                            var tmp = readBatch;
-                            readBatch = this.readQueue;
-                            this.readQueue = tmp;
-                        }
-                        if (this.commitQueue.Count > 0)
-                        {
-                            var tmp = commitBatch;
-                            commitBatch = this.commitQueue;
-                            this.commitQueue = tmp;
-                        }
+                        break; // stop processing sooner rather than later
                     }
 
-                    if (readBatch.Count > 0)
+                    switch (o)
                     {
-                        foreach (Task t in readBatch)
-                        {
-                            t.RunSynchronously();
-                        }
-
-                        readBatch.Clear();
-                    }
-
-                    if (commitBatch.Count > 0)
-                    {
-                        for (int i = 0; i < commitBatch.Count; i++)
-                        {
-                            var partitionEvent = commitBatch[i];
-                            partition.TraceProcess(partitionEvent);
-                            partitionEvent.DetermineEffects(effectsList);
-                            while (effectsList.Count > 0)
+                        case Task task:
                             {
-                                this.ProcessRecursively(partitionEvent, effectsList);
+                                task.RunSynchronously(); // todo handle async reads
+                                break;
                             }
-                            Partition.TraceContext = null;
-                        }
 
-                        commitBatch.Clear();
+                        case PartitionEvent partitionEvent:
+                            {
+                                this.partition.TraceProcess(partitionEvent);
+                                partitionEvent.DetermineEffects(this.effects);
+                                while (this.effects.Count > 0)
+                                {
+                                    this.ProcessRecursively(partitionEvent, this.effects);
+                                }
+                                Partition.TraceContext = null;
+                                break;
+                            }
                     }
                 }
-                store.TakeFullCheckpoint(out _);
-                await store.CompleteCheckpointAsync(); // TODO optimization: overlap with reads
-                store.Dispose();
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(CommitLoop), e);
+                partition.ReportError(nameof(StoreWorker), e);
                 throw e;
             }
+
+            if (this.IsShuttingDown)
+            {
+                // at this point we know we will not process any more reads or updates
+                this.shutdownWaiter.TrySetResult(true);
+            }
+
+            return Task.CompletedTask;
         }
 
+    
         public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
             var startPos = effects.Count - 1;
@@ -225,5 +172,6 @@ namespace DurableTask.EventSourced.Faster
 
             effects.RemoveAt(startPos);
         }
+
     }
 }

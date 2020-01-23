@@ -91,8 +91,11 @@ namespace DurableTask.EventSourced
 
         public async Task StopAsync()
         {
+            // stop all in-progress activities (timers, work items etc.)
             this.partitionShutdown.Cancel();
-            await this.State.WaitForTerminationAsync();
+
+            // wait for current state (log and store) to be persisted
+            await this.State.PersistAndShutdownAsync();
 
             EtwSource.Log.PartitionStopped(this.PartitionId);
         }

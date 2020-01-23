@@ -32,8 +32,8 @@ namespace DurableTask.EventSourced.Faster
         private StoreWorker storeWorker;
         private FasterLog log;
         private FasterKV store;
-        
-        private CancellationToken token;
+
+        private bool shuttingDown;
 
         public FasterStorage(string connectionString)
         {
@@ -50,30 +50,49 @@ namespace DurableTask.EventSourced.Faster
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.token = partition.PartitionShutdownToken;
-
-            this.logWorker = new LogWorker(this.partition, this.blobManager, this.token);
-            this.storeWorker = new StoreWorker(this.partition, this.blobManager, this.token);
+            this.logWorker = new LogWorker(this.partition, this.blobManager);
+            this.storeWorker = new StoreWorker(this.partition, this.blobManager);
         }
 
-        public async Task WaitForTerminationAsync()
+        public async Task PersistAndShutdownAsync()
         {
-            await Task.WhenAll(this.storeWorker.JoinAsync(), this.logWorker.JoinAsync());
+            this.shuttingDown = true;
+
+            // persist the latest log
+            await this.logWorker.PersistAndShutdownAsync();
+
+            // at this point we know the log was persisted, so can we persist the snapshot also
+            await this.storeWorker.PersistAndShutdownAsync(); 
         }
 
         public Task<TResult> ReadAsync<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
+            if (this.shuttingDown)
+            {
+                return new Task<TResult>(null); // will never complete
+            }
+
             return storeWorker.ProcessRead(key, read);
         }
 
         public void SubmitRange(IEnumerable<PartitionEvent> evts)
         {
+            if (this.shuttingDown)
+            {
+                return; // ignore
+            }
+
             logWorker.AddToLog(evts);
             storeWorker.Process(evts);
         }
 
         public void Submit(PartitionEvent evt)
         {
+            if (this.shuttingDown)
+            {
+                return; // ignore
+            }
+
             logWorker.AddToLog(evt);
             storeWorker.Process(evt);
         }

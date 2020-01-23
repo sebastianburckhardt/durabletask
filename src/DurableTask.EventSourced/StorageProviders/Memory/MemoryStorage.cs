@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             return Task.CompletedTask;
         }
 
-        public Task WaitForTerminationAsync()
+        public Task PersistAndShutdownAsync()
         {
             return Task.Delay(10);
         }

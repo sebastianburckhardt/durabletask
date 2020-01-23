@@ -112,7 +112,7 @@ namespace DurableTask.EventSourced.Emulated
                 this.shutdownTokenSource = null;
 
                 await this.client.StopAsync();
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.WaitForTerminationAsync()));
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.PersistAndShutdownAsync()));
             }
         }
 

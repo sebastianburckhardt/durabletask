@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         {
             Task RestoreAsync(Partition localPartition);
 
-            Task WaitForTerminationAsync();
+            Task PersistAndShutdownAsync();
 
             void Submit(PartitionEvent evt);
 

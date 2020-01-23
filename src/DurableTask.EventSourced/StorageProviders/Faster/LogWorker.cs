@@ -25,14 +25,16 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterLog log;
         private readonly Partition partition;
-        private readonly CancellationToken token;
 
-        public LogWorker(Partition partition, BlobManager blobManager, CancellationToken token)
-            : base(token, false)
+        private volatile TaskCompletionSource<bool> shutdownWaiter;
+
+        private bool IsShuttingDown => this.shutdownWaiter != null;
+
+        public LogWorker(Partition partition, BlobManager blobManager)
+            : base()
         {
             this.log = new FasterLog(blobManager);
             this.partition = partition;
-            this.token = token;
         }
 
         private void EnqueueEvent(PartitionEvent evt)
@@ -69,17 +71,42 @@ namespace DurableTask.EventSourced.Faster
 
         protected override async Task Process(IList<PartitionEvent> batch)
         {
-            await log.CommitAsync(this.cancellationToken);
-
-            foreach (var evt in batch)
+            try
             {
-                evt.AckListener?.Acknowledge(evt);
+                await log.CommitAsync(this.cancellationToken);
+
+                if (this.IsShuttingDown)
+                {
+                    // at this point we know all the enqueued entries have been persisted
+                    this.shutdownWaiter.TrySetResult(true);
+                }
+                else
+                {
+                    foreach (var evt in batch)
+                    {
+                        evt.AckListener?.Acknowledge(evt);
+                    }
+                }
             }
+            catch (Exception e)
+            {
+                if (this.IsShuttingDown)
+                {
+                    // lets the caller know that shutdown did not successfully persist the latest log
+                    this.shutdownWaiter.TrySetException(e);
+                }
+            }      
         }
 
-        public async Task JoinAsync()
+        public async Task PersistAndShutdownAsync()
         {
-            await log.CommitAsync(); //TODO
+            lock (this.lockable)
+            {
+                this.shutdownWaiter = new TaskCompletionSource<bool>();
+                this.Notify();
+            }
+
+            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
         }
     }
 }

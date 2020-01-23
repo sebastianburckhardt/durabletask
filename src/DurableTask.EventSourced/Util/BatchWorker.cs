@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
         private volatile Task currentWorkCycle;
 
         // Flag is set to indicate that more work has arrived during execution of the task
-        private volatile bool moreWork;
+        private bool moreWork;
 
         private Action<Task> checkForMoreWorkAction;
 
@@ -147,15 +147,18 @@ namespace DurableTask.EventSourced
         {
             lock (this.lockable)
             {
-                if (this.currentWorkCycle != null || this.suspended)
+                if (!this.suspended) // while suspended, the worker is remains unaware of new work
                 {
-                    // lets the current work cycle know that there is more work
-                    this.moreWork = true;
-                }
-                else
-                {
-                    // start a work cycle
-                    this.Start();
+                    if (this.currentWorkCycle != null)
+                    {
+                        // lets the current work cycle know that there is more work
+                        this.moreWork = true;
+                    }
+                    else
+                    {
+                        // start a work cycle
+                        this.Start();
+                    }
                 }
             }
         }
@@ -181,7 +184,7 @@ namespace DurableTask.EventSourced
         {
             lock (this.lockable)
             {
-                if (this.moreWork && !this.suspended)
+                if (this.moreWork)
                 {
                     this.moreWork = false;
 
