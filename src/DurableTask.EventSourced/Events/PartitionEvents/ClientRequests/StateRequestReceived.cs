@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
@@ -29,5 +30,39 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public override bool AtLeastOnceDelivery => true;
+
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            if (!effects.InRecovery)
+            {
+                var task = ReadAsync(effects.Partition);
+            }
+        }
+
+        public async Task ReadAsync(Partition partition)
+        {
+            try
+            {
+                var orchestrationState = await partition.State.ReadAsync<InstanceState, OrchestrationState>(
+                     TrackedObjectKey.Instance(this.InstanceId),
+                     InstanceState.GetOrchestrationState);
+
+                var response = new StateResponseReceived()
+                {
+                    ClientId = this.ClientId,
+                    RequestId = this.RequestId,
+                    OrchestrationState = orchestrationState,
+                };
+
+                partition.Send(response);
+            }
+            catch (TaskCanceledException)
+            {
+            }
+            catch (Exception e)
+            {
+                partition.ReportError($"{nameof(StateRequestReceived)}.{nameof(ReadAsync)}({this.GetType().Name})", e);
+            }
+        }
     }
 }

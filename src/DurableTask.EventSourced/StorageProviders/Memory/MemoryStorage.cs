@@ -32,7 +32,6 @@ namespace DurableTask.EventSourced
         public MemoryStorage()
         {
             this.GetOrAdd(TrackedObjectKey.Activities);
-            this.GetOrAdd(TrackedObjectKey.Clients);
             this.GetOrAdd(TrackedObjectKey.Dedup);
             this.GetOrAdd(TrackedObjectKey.Outbox);
             this.GetOrAdd(TrackedObjectKey.Reassembly);
@@ -105,8 +104,8 @@ namespace DurableTask.EventSourced
         }
 
         private void ProcessBatch(IList<PartitionEvent> batch, long nextCommitPosition)
-        {
-            var effects = new TrackedObject.EffectList(partition.PartitionId);
+        { 
+            var effects = new TrackedObject.EffectList(this.partition);
 
             for (int i = 0; i < batch.Count; i++)
             {

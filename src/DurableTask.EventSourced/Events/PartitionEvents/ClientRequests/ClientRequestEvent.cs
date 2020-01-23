@@ -11,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using DurableTask.Core;
 
 namespace DurableTask.EventSourced
@@ -26,10 +27,5 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public TimeSpan Timeout { get; set; }
-
-        public override void DetermineEffects(TrackedObject.EffectList effects)
-        {
-            effects.Add(TrackedObjectKey.Clients);
-        }
     }
 }

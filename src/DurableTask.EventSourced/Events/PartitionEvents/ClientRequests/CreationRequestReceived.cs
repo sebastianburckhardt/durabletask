@@ -41,6 +41,11 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public override bool AtLeastOnceDelivery => false;
+
+        public override void DetermineEffects(TrackedObject.EffectList effects)
+        {
+            effects.Add(TrackedObjectKey.Instance(this.InstanceId));
+        }
     }
 
 }

@@ -18,7 +18,6 @@ namespace DurableTask.EventSourced
         public enum TrackedObjectType
         {
             Activities,
-            Clients,
             Dedup,
             History,
             Instance,
@@ -31,7 +30,6 @@ namespace DurableTask.EventSourced
         public static Dictionary<TrackedObjectType, Type> TypeMap = new Dictionary<TrackedObjectType, Type>()
         {
             { TrackedObjectType.Activities, typeof(ActivitiesState) },
-            { TrackedObjectType.Clients, typeof(ClientsState) },
             { TrackedObjectType.Dedup, typeof(DedupState) },
             { TrackedObjectType.History, typeof(HistoryState) },
             { TrackedObjectType.Instance, typeof(InstanceState) },
@@ -47,7 +45,6 @@ namespace DurableTask.EventSourced
         // convenient constructors for singletons
 
         public static TrackedObjectKey Activities = new TrackedObjectKey() { ObjectType = TrackedObjectType.Activities };
-        public static TrackedObjectKey Clients = new TrackedObjectKey() { ObjectType = TrackedObjectType.Clients };
         public static TrackedObjectKey Dedup = new TrackedObjectKey() { ObjectType = TrackedObjectType.Dedup };
         public static TrackedObjectKey Outbox = new TrackedObjectKey() { ObjectType = TrackedObjectType.Outbox };
         public static TrackedObjectKey Reassembly = new TrackedObjectKey() { ObjectType = TrackedObjectType.Reassembly };
@@ -73,8 +70,6 @@ namespace DurableTask.EventSourced
             {
                 case TrackedObjectKey.TrackedObjectType.Activities:
                     return new ActivitiesState();
-                case TrackedObjectKey.TrackedObjectType.Clients:
-                    return new ClientsState();
                 case TrackedObjectKey.TrackedObjectType.Dedup:
                     return new DedupState();
                 case TrackedObjectKey.TrackedObjectType.Outbox:

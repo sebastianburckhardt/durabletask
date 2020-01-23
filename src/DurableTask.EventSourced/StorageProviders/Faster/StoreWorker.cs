@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.blobManager = blobManager;
 
-            this.effects = new TrackedObject.EffectList(this.partition.PartitionId);
+            this.effects = new TrackedObject.EffectList(this.partition);
 
             foreach (var k in TrackedObjectKey.GetSingletons())
             {

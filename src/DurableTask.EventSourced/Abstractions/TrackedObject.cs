@@ -81,12 +81,12 @@ namespace DurableTask.EventSourced
 
         public class EffectList : List<TrackedObjectKey>
         {
-            public EffectList(uint partitionId)
+            public EffectList(Partition Partition)
             {
-                this.PartitionId = partitionId;
+                this.Partition = Partition;
             }
 
-            public uint PartitionId { get; }
+            public Partition Partition { get; }
 
             public bool InRecovery { get; set; }
         } 
