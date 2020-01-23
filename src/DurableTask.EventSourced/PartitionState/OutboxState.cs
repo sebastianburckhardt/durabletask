@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
-        protected override void Restore()
+        protected override void OnRecoveryCompleted()
         {
             // resend all pending
             foreach (var kvp in Outbox)
@@ -94,7 +94,11 @@ namespace DurableTask.EventSourced
         public void Process(BatchProcessed evt, EffectList effects)
         {
             this.Outbox[evt.CommitPosition] = evt.RemoteMessages;
-            evt.AckListener = this; // we need to notified when this event is durable
+
+            if (!effects.InRecovery)
+            {
+                evt.AckListener = this; // we need to notified when this event is durable
+            }
         }
 
         public void Acknowledge(Event evt)

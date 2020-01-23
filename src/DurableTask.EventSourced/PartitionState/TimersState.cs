@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Timers);
 
-        protected override void Restore()
+        protected override void OnRecoveryCompleted()
         {
             // restore the pending timers
             foreach (var kvp in PendingTimers)
@@ -59,21 +59,24 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // starts new timers as specified by the batch
 
-        public void Process(BatchProcessed evt, EffectList effect)
+        public void Process(BatchProcessed evt, EffectList effects)
         {
-            foreach(var t in evt.TimerMessages)
+            foreach (var t in evt.TimerMessages)
             {
                 var timerId = SequenceNumber++;
                 PendingTimers.Add(timerId, t);
 
-                var expirationEvent = new TimerFired()
+                if (!effects.InRecovery)
                 {
-                    PartitionId = this.Partition.PartitionId,
-                    TimerId = timerId,
-                    TimerFiredMessage = t,
-                };
+                    var expirationEvent = new TimerFired()
+                    {
+                        PartitionId = this.Partition.PartitionId,
+                        TimerId = timerId,
+                        TimerFiredMessage = t,
+                    };
 
-                Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
+                    Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
+                }
             }
         }
     }

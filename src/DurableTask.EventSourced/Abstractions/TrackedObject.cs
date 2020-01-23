@@ -47,7 +47,6 @@ namespace DurableTask.EventSourced
             if (this.Partition != Partition)
             {
                 this.Partition = Partition;
-                this.Restore();
             }
         }
 
@@ -67,7 +66,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        protected virtual void Restore()
+        protected virtual void OnRecoveryCompleted()
         {
             // subclasses override this if there is work they need to do here
         }
@@ -88,6 +87,8 @@ namespace DurableTask.EventSourced
             }
 
             public uint PartitionId { get; }
+
+            public bool InRecovery { get; set; }
         } 
     }
 }

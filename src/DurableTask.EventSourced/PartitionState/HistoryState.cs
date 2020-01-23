@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // can add events to the history, or replace it with a new history
 
-        public void Process(BatchProcessed evt, EffectList effect)
+        public void Process(BatchProcessed evt, EffectList effects)
         {
             // update the stored history
             if (this.History == null || evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)
@@ -64,9 +64,12 @@ namespace DurableTask.EventSourced
                 this.History.AddRange(evt.NewEvents);
             }
 
-            // update the in-memory runtime state
-            this.inMemoryRuntimeState = evt.InMemoryRuntimeState;
-            evt.InMemoryRuntimeState?.NewEvents.Clear();
+            if (!effects.InRecovery)
+            {
+                // update the in-memory runtime state
+                this.inMemoryRuntimeState = evt.InMemoryRuntimeState;
+                evt.InMemoryRuntimeState?.NewEvents.Clear();
+            }
         }
     }
 }

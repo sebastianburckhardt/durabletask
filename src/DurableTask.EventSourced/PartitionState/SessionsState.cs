@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
 
 
-        protected override void Restore()
+        protected override void OnRecoveryCompleted()
         {
             // create work items for all sessions
             foreach(var kvp in Sessions)
@@ -62,7 +62,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private void AddMessageToSession(TaskMessage message, bool createNewExecution)
+        private void AddMessageToSession(TaskMessage message, bool createNewExecution, bool inRecovery)
         {
             var instanceId = message.OrchestrationInstance.InstanceId;
 
@@ -80,11 +80,14 @@ namespace DurableTask.EventSourced
                     ForceNewExecution = createNewExecution,
                 };
 
-                OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                if (!inRecovery)
+                {
+                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                }
             }
         }
 
-        private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages)
+        private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool inRecovery)
         {
             if (this.Sessions.TryGetValue(instanceId, out var session))
             {
@@ -99,66 +102,69 @@ namespace DurableTask.EventSourced
                     BatchStartPosition = 0
                 };
 
-                OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                if (!inRecovery)
+                {
+                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                }
             }
         }
 
         // TaskMessageReceived
         // queues task message (from another partition) in a new or existing session
 
-        public void Process(TaskMessageReceived taskMessageReceived, EffectList effect)
+        public void Process(TaskMessageReceived taskMessageReceived, EffectList effects)
         {
             foreach (var group in taskMessageReceived.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
             {
-                this.AddMessagesToSession(group.Key, group);
+                this.AddMessagesToSession(group.Key, group, effects.InRecovery);
             }
         }
 
         // ClientTaskMessagesReceived
         // queues task message (from a client) in a new or existing session
 
-        public void Process(ClientTaskMessagesReceived evt, EffectList effect)
+        public void Process(ClientTaskMessagesReceived evt, EffectList effects)
         {
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
-            this.AddMessagesToSession(instanceId, evt.TaskMessages);
+            this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.InRecovery);
         }
 
         // CreationMessageReceived
         // queues a creation task message in a new or existing session
 
-        public void Process(CreationRequestReceived creationRequestReceived, EffectList effect)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectList effects)
         {
-            this.AddMessageToSession(creationRequestReceived.TaskMessage, true);
+            this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.InRecovery);
         }
 
         // TimerFired
         // queues a timer fired message in a session
 
-        public void Process(TimerFired timerFired, EffectList effect)
+        public void Process(TimerFired timerFired, EffectList effects)
         {
-            this.AddMessageToSession(timerFired.TimerFiredMessage, false);
+            this.AddMessageToSession(timerFired.TimerFiredMessage, false, effects.InRecovery);
         }
 
         // ActivityCompleted
         // queues an activity-completed message in a session
 
-        public void Process(ActivityCompleted activityCompleted, EffectList effect)
+        public void Process(ActivityCompleted activityCompleted, EffectList effects)
         {
-            this.AddMessageToSession(activityCompleted.Response, false);
+            this.AddMessageToSession(activityCompleted.Response, false, effects.InRecovery);
         }
 
         // BatchProcessed
         // updates the session and other state
 
-        public void Process(BatchProcessed evt, EffectList effect)
+        public void Process(BatchProcessed evt, EffectList effects)
         {
             // deliver orchestrator messages destined for this partition directly to the relevant session(s)
             if (evt.LocalMessages?.Count > 0)
             {
                 foreach (var group in evt.LocalMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
                 {
-                    this.AddMessagesToSession(group.Key, group);
+                    this.AddMessagesToSession(group.Key, group, effects.InRecovery);
                 }
             }
 
@@ -171,11 +177,11 @@ namespace DurableTask.EventSourced
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 
-            this.StartNewBatchIfNeeded(session, evt.InstanceId);
+            this.StartNewBatchIfNeeded(session, evt.InstanceId, effects.InRecovery);
         }
 
-        private void StartNewBatchIfNeeded(Session session, string instanceId)
-        { 
+        private void StartNewBatchIfNeeded(Session session, string instanceId, bool inRecovery)
+        {
             if (session.Batch.Count == 0)
             {
                 // no more pending messages for this instance, so we delete the session.
@@ -184,8 +190,11 @@ namespace DurableTask.EventSourced
             }
             else
             {
-                // there are more messages. Prepare another work item.
-                OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                if (!inRecovery)
+                {            
+                    // there are more messages. Prepare another work item.
+                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                }
             }
         }
     }

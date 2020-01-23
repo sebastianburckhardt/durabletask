@@ -42,12 +42,18 @@ namespace DurableTask.EventSourced
 
         public void Process(StateRequestReceived evt, EffectList effect)
         {
-            var task = Partition.HandleAsync(evt);
+            if (!effect.InRecovery)
+            {
+                var task = Partition.HandleAsync(evt);
+            }
         }
 
         public void Process(WaitRequestReceived evt, EffectList effect)
         {
-            var task = Partition.HandleAsync(evt);
+            if (!effect.InRecovery)
+            {
+                var task = Partition.HandleAsync(evt);
+            }
         }
     }
 }

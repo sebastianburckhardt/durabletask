@@ -34,11 +34,12 @@ namespace DurableTask.EventSourced
         // PartitionEventFragment 
         // stores fragments until the last one is received
 
-        public override void Process(PartitionEventFragment evt, EffectList effect)
+        public override void Process(PartitionEventFragment evt, EffectList effects)
         {
             if (evt.IsLast)
             {
                 evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble(this.Fragments[evt.CohortId], evt);
+                
                 if (EtwSource.EmitDiagnosticsTrace)
                 {
                     this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
@@ -46,7 +47,7 @@ namespace DurableTask.EventSourced
 
                 this.Fragments.Remove(evt.CohortId);
 
-                evt.ReassembledEvent.DetermineEffects(effect);
+                evt.ReassembledEvent.DetermineEffects(effects);
             }
             else
             {

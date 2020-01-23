@@ -50,12 +50,15 @@ namespace DurableTask.EventSourced
                 && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
             {
                 // An instance in this state already exists. do nothing but respond to client.
-                this.Partition.Send(new CreationResponseReceived()
+                if (!effects.InRecovery)
                 {
-                    ClientId = evt.ClientId,
-                    RequestId = evt.RequestId,
-                    Succeeded = false,
-                });
+                    this.Partition.Send(new CreationResponseReceived()
+                    {
+                        ClientId = evt.ClientId,
+                        RequestId = evt.RequestId,
+                        Succeeded = false,
+                    });
+                }
             }
             else
             {
@@ -79,24 +82,31 @@ namespace DurableTask.EventSourced
                 // add the creation message to the session queue
                 effects.Add(TrackedObjectKey.Sessions);
 
-                this.Partition.Send(new CreationResponseReceived()
+                if (!effects.InRecovery)
                 {
-                    ClientId = evt.ClientId,
-                    RequestId = evt.RequestId,
-                    Succeeded = true,
-                });
+                    this.Partition.Send(new CreationResponseReceived()
+                    {
+                        ClientId = evt.ClientId,
+                        RequestId = evt.RequestId,
+                        Succeeded = true,
+                    });
+
+                }
             }
         }
 
         // BatchProcessed
         // updates the state of an orchestration and notifies observers
 
-        public void Process(BatchProcessed evt, EffectList effect)
+        public void Process(BatchProcessed evt, EffectList effects)
         {
             this.OrchestrationState = evt.State;
 
             // notify observers that this orchestration state has changed
-            this.Partition.InstanceStatePubSub.Notify(InstanceId, OrchestrationState);
+            if (!effects.InRecovery)
+            {
+                this.Partition.InstanceStatePubSub.Notify(InstanceId, OrchestrationState);
+            }
         }
     }
 }

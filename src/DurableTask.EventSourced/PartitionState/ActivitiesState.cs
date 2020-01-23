@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Activities);
 
-        protected override void Restore()
+        protected override void OnRecoveryCompleted()
         {
             // reschedule work items
             foreach (var pending in PendingActivities)
@@ -63,7 +63,10 @@ namespace DurableTask.EventSourced
                 var activityId = SequenceNumber++;
                 PendingActivities.Add(activityId, msg);
 
-                Partition.EnqueueActivityWorkItem(new ActivityWorkItem(this.Partition, activityId, msg));
+                if (!effect.InRecovery)
+                {
+                    Partition.EnqueueActivityWorkItem(new ActivityWorkItem(this.Partition, activityId, msg));
+                }
             }
         }
     }
