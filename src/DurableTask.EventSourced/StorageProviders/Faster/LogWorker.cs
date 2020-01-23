@@ -56,17 +56,21 @@ namespace DurableTask.EventSourced.Faster
         {
             foreach (var evt in evts)
             {
-                EnqueueEvent(evt);
+                if (evt.PersistInLog)
+                {
+                    EnqueueEvent(evt);
+                    this.Submit(evt);
+                }
             }
-
-            this.SubmitRange(evts);
         }
 
         public void AddToLog(PartitionEvent evt)
         {
-            EnqueueEvent(evt);
-
-            this.Submit(evt);
+            if (evt.PersistInLog)
+            {
+                EnqueueEvent(evt);
+                this.Submit(evt);
+            }
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)

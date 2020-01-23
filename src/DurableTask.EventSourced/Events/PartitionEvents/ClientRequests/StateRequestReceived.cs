@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
@@ -31,12 +32,13 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override bool AtLeastOnceDelivery => true;
 
+        [IgnoreDataMember]
+        public override bool PersistInLog => false;
+
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
-            if (!effects.InRecovery)
-            {
-                var task = ReadAsync(effects.Partition);
-            }
+            Debug.Assert(!effects.InRecovery);
+            var task = ReadAsync(effects.Partition);
         }
 
         public async Task ReadAsync(Partition partition)

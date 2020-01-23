@@ -28,9 +28,13 @@ namespace DurableTask.EventSourced
         public override bool AtLeastOnceDelivery => true;
 
         [IgnoreDataMember]
+        public virtual bool PersistInLog => true;
+
+        [IgnoreDataMember]
         public ArraySegment<byte> Serialized;
 
         // determines the set of tracked objects on which to process this event
         public abstract void DetermineEffects(TrackedObject.EffectList effects);
+
     }
 }
