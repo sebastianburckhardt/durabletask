@@ -17,6 +17,7 @@
     <DebugSymbols>true</DebugSymbols>
     <DebugType>embedded</DebugType>
     <LangVersion>7.3</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!--NuGet licenseUrl and PackageIconUrl/iconUrl deprecation. -->
     <NoWarn>NU5125;NU5048</NoWarn>
   </PropertyGroup>
@@ -30,7 +31,6 @@
   
   <ItemGroup>
     <PackageReference Include="Microsoft.FASTER" Version="2020.1.18.1" />
-    <PackageReference Include="Microsoft.FASTER.devices.AzureStorageDevice" Version="2020.1.18.1" />
     <PackageReference Include="WindowsAzure.Storage" Version="9.3.3" />
   </ItemGroup>
 
