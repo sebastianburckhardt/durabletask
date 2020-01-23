@@ -40,6 +40,11 @@ namespace DurableTask.EventSourced.EventHubs
 
         protected override async Task Process(IList<Event> toSend)
         {
+            if (toSend.Count == 0)
+            {
+                return;
+            }
+
             // track progress in case of exception
             var sentSuccessfully = 0;
             var maybeSent = 0;

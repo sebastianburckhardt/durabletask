@@ -41,13 +41,16 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override Task Process(IList<Event> batch)
         {
-            try
+            if (batch.Count > 0)
             {
-                sendHandler(batch);
-            }
-            catch (Exception e)
-            {
-                System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
+                try
+                {
+                    this.sendHandler(batch);
+                }
+                catch (Exception e)
+                {
+                    System.Diagnostics.Trace.TraceError($"exception in send worker: {e}", e);
+                }
             }
 
             return Task.CompletedTask;

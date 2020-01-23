@@ -38,30 +38,33 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override Task Process(IList<B> batch)
         {
-            var eventbatch = new T[batch.Count];
-
-            for (int i = 0; i < batch.Count; i++)
+            if (batch.Count > 0)
             {
-                if (cancellationToken.IsCancellationRequested)
+                var eventbatch = new T[batch.Count];
+
+                for (int i = 0; i < batch.Count; i++)
                 {
-                    return Task.CompletedTask;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return Task.CompletedTask;
+                    }
+
+                    eventbatch[i] = this.Deserialize(batch[i]);
+                    eventbatch[i].CommitPosition = position + i;
                 }
 
-                eventbatch[i] = this.Deserialize(batch[i]);
-                eventbatch[i].CommitPosition = position + i;
-            }
-
-            foreach (var evt in eventbatch)
-            {
-                if (cancellationToken.IsCancellationRequested)
+                foreach (var evt in eventbatch)
                 {
-                    return Task.CompletedTask;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return Task.CompletedTask;
+                    }
+
+                    Deliver(evt);
                 }
 
-                Deliver(evt);          
+                position = position + batch.Count;
             }
-
-            position = position + batch.Count;
 
             return Task.CompletedTask;
         }

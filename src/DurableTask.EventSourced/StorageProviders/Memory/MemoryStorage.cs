@@ -91,13 +91,16 @@ namespace DurableTask.EventSourced
 
         protected override Task Process(IList<PartitionEvent> batch)
         {
-            this.ProcessBatch(batch, this.nextCommitPosition);
-
-            this.nextCommitPosition += batch.Count;
-
-            foreach (var evt in batch)
+            if (batch.Count != 0)
             {
-                evt.AckListener?.Acknowledge(evt);
+                this.ProcessBatch(batch, this.nextCommitPosition);
+
+                this.nextCommitPosition += batch.Count;
+
+                foreach (var evt in batch)
+                {
+                    evt.AckListener?.Acknowledge(evt);
+                }
             }
 
             return Task.CompletedTask;

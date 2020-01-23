@@ -89,9 +89,6 @@ namespace DurableTask.EventSourced
 
             lock (this.lockable)
             {
-                if (this.queue.Count == 0)
-                    return;
-
                 var temp = queue;
                 this.queue = batch;
                 this.batch = temp;
