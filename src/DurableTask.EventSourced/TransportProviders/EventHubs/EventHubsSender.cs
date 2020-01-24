@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
 
-        protected override async ValueTask ProcessAsync(IList<Event> toSend)
+        protected override async Task Process(IList<Event> toSend)
         {
             if (toSend.Count == 0)
             {

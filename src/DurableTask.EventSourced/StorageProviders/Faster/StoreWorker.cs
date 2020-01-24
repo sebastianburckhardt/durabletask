@@ -12,7 +12,6 @@
 //  ----------------------------------------------------------------------------------
 
 using FASTER.core;
-using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -39,18 +38,12 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager = blobManager;
 
             this.effects = new TrackedObject.EffectList(this.partition);
-        }
 
-        public async Task StartAsync()
-        {
-            var tasks = new List<Task>();
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
-                tasks.Add(store.GetOrCreateAsync(k));
+                store.GetOrCreate(k);
             }
-            await Task.WhenAll(tasks);
         }
-
 
         public async Task PersistAndShutdownAsync()
         {
@@ -82,27 +75,19 @@ namespace DurableTask.EventSourced.Faster
 
         public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
-            var tcs = new TaskCompletionSource<TResult>();
-            var readtask = new Task(async () =>               
+            var readtask = new Task<TResult>(() =>
             {
-                try
-                {
-                    var target = await store.GetOrCreateAsync(key);
-                    TResult result;
-                    result = read((TObject)target);
-                    tcs.TrySetResult(result);
-                }
-                catch (Exception e)
-                {
-                    tcs.TrySetException(e);
-                }
-            });  
+                var target = store.GetOrCreate(key);
+                TResult result;
+                result = read((TObject)target);
+                return result;
+            });
 
             this.Submit(readtask);
-            return tcs.Task;
+            return readtask;
         }
 
-        protected override async ValueTask ProcessAsync(IList<object> batch)
+        protected override Task Process(IList<object> batch)
         {
             try
             {
@@ -127,7 +112,7 @@ namespace DurableTask.EventSourced.Faster
                                 partitionEvent.DetermineEffects(this.effects);
                                 while (this.effects.Count > 0)
                                 {
-                                    await this.ProcessRecursively(partitionEvent, this.effects);
+                                    this.ProcessRecursively(partitionEvent, this.effects);
                                 }
                                 partition.DiagnosticsTrace("Processing complete");
                                 Partition.TraceContext = null;
@@ -147,14 +132,16 @@ namespace DurableTask.EventSourced.Faster
                 // at this point we know we will not process any more reads or updates
                 this.shutdownWaiter.TrySetResult(true);
             }
+
+            return Task.CompletedTask;
         }
 
     
-        public async ValueTask ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
+        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
             var startPos = effects.Count - 1;
             var thisKey = effects[startPos];
-            var thisObject = await store.GetOrCreateAsync(thisKey);
+            var thisObject = store.GetOrCreate(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
@@ -173,7 +160,7 @@ namespace DurableTask.EventSourced.Faster
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)
             {
-                await this.ProcessRecursively(evt, effects);
+                this.ProcessRecursively(evt, effects);
             }
 
             effects.RemoveAt(startPos);

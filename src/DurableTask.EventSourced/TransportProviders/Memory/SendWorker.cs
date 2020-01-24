@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Emulated
             this.Submit(element);
         }
 
-        protected override ValueTask ProcessAsync(IList<Event> batch)
+        protected override Task Process(IList<Event> batch)
         {
             if (batch.Count > 0)
             {
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced.Emulated
                 }
             }
 
-            return default;
+            return Task.CompletedTask;
         }
     }
 }

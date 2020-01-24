@@ -89,7 +89,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        protected override ValueTask ProcessAsync(IList<PartitionEvent> batch)
+        protected override Task Process(IList<PartitionEvent> batch)
         {
             if (batch.Count != 0)
             {
@@ -103,7 +103,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            return default;
+            return Task.CompletedTask;
         }
 
         private void ProcessBatch(IList<PartitionEvent> batch, long nextCommitPosition)

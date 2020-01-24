@@ -42,17 +42,6 @@ namespace DurableTask.EventSourced.Faster
             return Task.CompletedTask;
         }
 
-        public async Task PersistAndShutdownAsync()
-        {
-            lock (this.lockable)
-            {
-                this.shutdownWaiter = new TaskCompletionSource<bool>();
-                this.Notify();
-            }
-
-            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
-        }
-
         private void EnqueueEvent(PartitionEvent evt)
         {
             if (evt.Serialized.Count == 0)
@@ -89,7 +78,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        protected override async ValueTask ProcessAsync(IList<PartitionEvent> batch)
+        protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
             {
@@ -116,6 +105,17 @@ namespace DurableTask.EventSourced.Faster
                     this.shutdownWaiter.TrySetException(e);
                 }
             }      
+        }
+
+        public async Task PersistAndShutdownAsync()
+        {
+            lock (this.lockable)
+            {
+                this.shutdownWaiter = new TaskCompletionSource<bool>();
+                this.Notify();
+            }
+
+            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
         }
     }
 }
