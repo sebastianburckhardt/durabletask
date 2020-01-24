@@ -38,11 +38,15 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager = blobManager;
 
             this.effects = new TrackedObject.EffectList(this.partition);
+        }
 
+        public Task StartAsync()
+        {
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
                 store.GetOrCreate(k);
             }
+            return Task.CompletedTask;
         }
 
         public async Task PersistAndShutdownAsync()
