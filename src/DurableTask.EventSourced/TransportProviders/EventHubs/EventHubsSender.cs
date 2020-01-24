@@ -117,18 +117,18 @@ namespace DurableTask.EventSourced.EventHubs
                     if (i < sentSuccessfully)
                     {
                         // the event was definitely sent successfully
-                        evt.AckListener?.Acknowledge(evt);
+                        AckListeners.Acknowledge(evt);
                     }
-                    else if (i > maybeSent || evt.AtLeastOnceDelivery)
+                    else if (i > maybeSent || !evt.AtMostOnce)
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
                         (requeue ?? (requeue = new List<Event>())).Add(evt);
                     }
-                    else if (evt.AckListener is TransportAbstraction.IAckOrExceptionListener listener)
+                    else 
                     {
                         // the event may have been sent or maybe not, report problem to listener
                         // this is used by clients who can give the exception back to the caller
-                        listener?.ReportException(evt, senderException);
+                        AckListeners.ReportException(evt, senderException);
                     }
                 }
 

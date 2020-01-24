@@ -75,9 +75,7 @@ namespace DurableTask.EventSourced.Emulated
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
             this.client = this.host.AddClient(clientId, clientSender);
-            var clientQueue = this.settings.SimulateSerialization
-                ? (IMemoryQueue<ClientEvent>)new MemorySerializingClientQueue(this.client, this.shutdownTokenSource.Token)
-                : (IMemoryQueue<ClientEvent>)new MemoryClientQueue(this.client, this.shutdownTokenSource.Token);
+            var clientQueue = new MemorySerializingClientQueue(this.client, this.shutdownTokenSource.Token);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
@@ -89,9 +87,7 @@ namespace DurableTask.EventSourced.Emulated
                 var partitionState = partitionStates[i] = this.host.CreatePartitionState();
                 var partition = this.host.AddPartition(i, partitionState, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                var partitionQueue = this.settings.SimulateSerialization
-                    ? (IMemoryQueue<PartitionEvent>)new MemorySerializingPartitionQueue(partition, this.shutdownTokenSource.Token)
-                    : (IMemoryQueue<PartitionEvent>)new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
+                var partitionQueue = new MemorySerializingPartitionQueue(partition, this.shutdownTokenSource.Token);
                 this.partitionQueues[i] = partitionQueue;
                 await partition.StartAsync();
             }

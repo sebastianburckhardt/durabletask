@@ -104,7 +104,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     foreach (var evt in batch)
                     {
-                        evt.AckListener?.Acknowledge(evt);
+                        AckListeners.Acknowledge(evt);
                     }
                 }
             }

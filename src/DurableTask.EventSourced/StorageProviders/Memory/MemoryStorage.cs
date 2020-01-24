@@ -99,7 +99,7 @@ namespace DurableTask.EventSourced
 
                 foreach (var evt in batch)
                 {
-                    evt.AckListener?.Acknowledge(evt);
+                    AckListeners.Acknowledge(evt);
                 }
             }
 
@@ -120,6 +120,7 @@ namespace DurableTask.EventSourced
                 {
                     this.ProcessRecursively(partitionEvent, effects);
                 }
+                partition.DiagnosticsTrace("Processing complete");
                 Partition.TraceContext = null;
             }
         }

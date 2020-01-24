@@ -56,10 +56,10 @@ namespace DurableTask.EventSourced
                         OriginPartition = this.Partition.PartitionId,
                         OriginPosition = position,
                         TaskMessages = new List<TaskMessage>(),
-                        AckListener = batch,
                     };
                 }
                 outmessage.TaskMessages.Add(message);
+                AckListeners.Register(outmessage, batch);
             }
 
             foreach (var outmessage in batch.Values)
@@ -95,9 +95,9 @@ namespace DurableTask.EventSourced
         {
             this.Outbox[evt.CommitPosition] = evt.RemoteMessages;
 
-            if (!effects.InRecovery)
+            if (evt.RemoteMessages?.Count > 0 && !effects.InRecovery)
             {
-                evt.AckListener = this; // we need to notified when this event is durable
+                AckListeners.Register(evt, this); // we need to notified when this event is durable
             }
         }
 

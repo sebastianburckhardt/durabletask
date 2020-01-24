@@ -88,7 +88,9 @@ namespace DurableTask.EventSourced.AzureChannels
                     }
                     if (partitionBatch.Count > 0)
                     {
-                        partitionBatch[partitionBatch.Count - 1].AckListener = partitionBatch;
+                        var lastEventInBatch = partitionBatch[partitionBatch.Count - 1];
+
+                        AckListeners.Register(lastEventInBatch, partitionBatch);
 
                         partition.SubmitRange(partitionBatch);
 
@@ -112,22 +114,22 @@ namespace DurableTask.EventSourced.AzureChannels
 
         protected override void HandleSuccessfulSend(Event evt)
         {
-            evt.AckListener?.Acknowledge(evt);          
+            AckListeners.Acknowledge(evt);          
         }
 
         protected override bool HandleFailedSend(Event evt, Exception exception)
         {
             this.partition.ReportError($"could not send {evt}", exception);
 
-            if (evt.AtLeastOnceDelivery)
+            if (! evt.AtMostOnce)
             {
                 return true;
             }
-            else if(evt.AckListener is TransportAbstraction.IAckOrExceptionListener listener)
+            else
             {
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
-                listener?.ReportException(evt, exception);
+                AckListeners.ReportException(evt, exception);
             }
 
             return false;

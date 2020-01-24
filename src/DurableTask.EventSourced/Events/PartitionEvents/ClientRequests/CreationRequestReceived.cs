@@ -40,7 +40,7 @@ namespace DurableTask.EventSourced
         public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
         [IgnoreDataMember]
-        public override bool AtLeastOnceDelivery => false;
+        public override bool AtMostOnce => true;
 
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {

@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
         public TaskMessage[] TaskMessages { get; set; }
 
         [IgnoreDataMember]
-        public override bool AtLeastOnceDelivery => false;
+        public override bool AtMostOnce => true;
 
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {

@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         public uint PartitionId { get; set; }
 
         [IgnoreDataMember]
-        public override bool AtLeastOnceDelivery => true;
+        public override bool AtMostOnce => false;
 
         [IgnoreDataMember]
         public virtual bool PersistInLog => true;

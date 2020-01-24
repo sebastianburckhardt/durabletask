@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced
         public string ExecutionId { get; set; }
 
         [IgnoreDataMember]
-        public override bool AtLeastOnceDelivery => true;
+        public override bool AtMostOnce => false;
 
         [IgnoreDataMember]
         public override bool PersistInLog => false;

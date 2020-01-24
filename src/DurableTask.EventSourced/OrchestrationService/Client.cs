@@ -93,7 +93,7 @@ namespace DurableTask.EventSourced
             {
                 waiter.TrySetResult(clientEvent);
             }
-            clientEvent.AckListener?.Acknowledge(clientEvent);
+            AckListeners.Acknowledge(clientEvent);
         }
 
         public void Send(Event evt)
@@ -154,7 +154,7 @@ namespace DurableTask.EventSourced
 
             if (doneWhenSent)
             {
-                request.AckListener = waiter;
+                AckListeners.Register(request, waiter);
             }
 
             this.Send(request);

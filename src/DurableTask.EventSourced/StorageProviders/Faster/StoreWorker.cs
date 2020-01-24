@@ -80,26 +80,26 @@ namespace DurableTask.EventSourced.Faster
             this.SubmitRange(evts);
         }
 
-        public async Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
+        public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
         {
-            var readtask = new Task<Task<TResult>>(async () =>
+            var tcs = new TaskCompletionSource<TResult>();
+            var readtask = new Task(async () =>               
             {
                 try
                 {
                     var target = await store.GetOrCreateAsync(key);
                     TResult result;
                     result = read((TObject)target);
-                    return result;
+                    tcs.TrySetResult(result);
                 }
                 catch (Exception e)
                 {
-                    // TODO
-                    throw e;
+                    tcs.TrySetException(e);
                 }
             });  
 
             this.Submit(readtask);
-            return await await readtask;
+            return tcs.Task;
         }
 
         protected override async ValueTask ProcessAsync(IList<object> batch)
@@ -129,6 +129,7 @@ namespace DurableTask.EventSourced.Faster
                                 {
                                     await this.ProcessRecursively(partitionEvent, this.effects);
                                 }
+                                partition.DiagnosticsTrace("Processing complete");
                                 Partition.TraceContext = null;
                                 break;
                             }

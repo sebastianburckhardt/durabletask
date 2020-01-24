@@ -95,7 +95,8 @@ namespace DurableTask.EventSourced.EventHubs
                 this.eventsSinceLastCheckpoint = 0;
                 this.timeSinceLastCheckpoint.Restart();
                 this.pendingCheckpoint = new Checkpoint(context.PartitionId, last.SystemProperties.Offset, last.SystemProperties.SequenceNumber);
-                batch[batch.Count - 1].AckListener = this; 
+                var lastEventInBatch = batch[batch.Count - 1];
+                AckListeners.Register(lastEventInBatch, this); 
             }
 
             partition.SubmitRange(batch);

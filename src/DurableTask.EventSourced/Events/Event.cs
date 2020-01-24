@@ -33,10 +33,10 @@ namespace DurableTask.EventSourced
         /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous
         /// </summary>
         [IgnoreDataMember]
-        public abstract bool AtLeastOnceDelivery { get; }
+        public abstract bool AtMostOnce { get; }
 
         [IgnoreDataMember]
-        public TransportAbstraction.IAckListener AckListener { get; set; }
+        public AckListeners AckListeners;
 
         public override string ToString()
         {

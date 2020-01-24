@@ -222,18 +222,12 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Uses in-memory simulation with all messages being sent in emulator
         /// </summary>
-        public bool SimulateSerialization => 
-            this.EventHubsConnectionString.StartsWith("MemoryS") || this.EventHubsConnectionString.StartsWith("MemoryF");
-
-        /// <summary>
-        /// Uses in-memory simulation with all messages being sent in emulator
-        /// </summary>
         public bool UseFasterWithMemoryTransport => (this.EventHubsConnectionString.StartsWith("MemoryF"));
 
         /// <summary>
         /// Gets the number of partitions when using the memory emulation
         /// </summary>
-        public uint MemoryPartitions => uint.Parse(this.EventHubsConnectionString.Substring((this.SimulateSerialization ? 7 : 6) + 1));
+        public uint MemoryPartitions => uint.Parse(this.EventHubsConnectionString.Substring((this.UseFasterWithMemoryTransport ? 7 : 6) + 1));
 
         /// <summary>
         /// Returns the name of the eventhubs namespace

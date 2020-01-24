@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced.Faster
             // persist the latest log
             await this.logWorker.PersistAndShutdownAsync();
 
-            // at this point we know the log was persisted, so can we persist the snapshot also
+            // at this point we know the log was persisted, so can we persist the latest snapshot also
             await this.storeWorker.PersistAndShutdownAsync(); 
         }
 
@@ -72,7 +72,7 @@ namespace DurableTask.EventSourced.Faster
         {
             if (this.shuttingDown)
             {
-                return new Task<TResult>(null); // will never complete
+                return new Task<TResult>(null); // will never run or complete
             }
 
             return storeWorker.ProcessRead(key, read);

@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override byte[] Serialize(PartitionEvent evt)
         {
-            evt.AckListener?.Acknowledge(evt);
+            AckListeners.Acknowledge(evt);
             return Serializer.SerializeEvent(evt);
         }
 
@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(MemoryPartitionQueue), e);
+                partition.ReportError(nameof(MemorySerializingPartitionQueue), e);
             }
         }
     }
