@@ -40,9 +40,9 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.History, this.InstanceId);
 
-        public static OrchestrationRuntimeState GetRuntimeState(HistoryState state)
+        public OrchestrationRuntimeState GetRuntimeState()
         {
-            return state.inMemoryRuntimeState ?? (state.inMemoryRuntimeState = new OrchestrationRuntimeState(state.History));
+            return this.inMemoryRuntimeState ?? (this.inMemoryRuntimeState = new OrchestrationRuntimeState(this.History));
         }
 
         // BatchProcessed

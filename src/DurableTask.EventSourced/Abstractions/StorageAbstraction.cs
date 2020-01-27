@@ -38,8 +38,14 @@ namespace DurableTask.EventSourced
 
             void SubmitRange(IEnumerable<PartitionEvent> evt);
 
-            Task<TResult> ReadAsync<TObject,TResult>(TrackedObjectKey key, Func<TObject,TResult> read)
-                where TObject: TrackedObject;
+            void ScheduleRead(IReadContinuation readContinuation);
+        }
+
+        public interface IReadContinuation
+        {
+            TrackedObjectKey ReadTarget { get; }
+
+            void OnReadComplete(TrackedObject target);
         }
     }
 }

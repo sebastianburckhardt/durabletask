@@ -22,9 +22,10 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class MemoryStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
+    internal class MemoryStorage : BatchWorker<object>, StorageAbstraction.IPartitionState
     {
         private Partition partition;
+        private long nextSubmitPosition = 0;
         private long nextCommitPosition = 0;
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
@@ -39,27 +40,27 @@ namespace DurableTask.EventSourced
             this.GetOrAdd(TrackedObjectKey.Timers);
         }
 
-        public override void Submit(PartitionEvent entry)
+        public void Submit(PartitionEvent entry)
         {
+            entry.CommitPosition = nextSubmitPosition++;
             this.partition.TraceSubmit(entry);
             base.Submit(entry);
         }
 
-        public override void SubmitRange(IEnumerable<PartitionEvent> entries)
+        public void SubmitRange(IEnumerable<PartitionEvent> entries)
         {
-            foreach(var entry in entries)
+            foreach (var entry in entries)
             {
+                entry.CommitPosition = nextSubmitPosition++;
                 this.partition.TraceSubmit(entry);
             }
 
             base.SubmitRange(entries);
         }
 
-        public TrackedObject GetOrAdd(TrackedObjectKey key)
+        public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
         {
-            var result = trackedObjects.GetOrAdd(key, TrackedObjectKey.Factory);
-            result.Restore(this.partition);
-            return result;
+            this.Submit(readContinuation);
         }
 
         public Task RestoreAsync(Partition partition)
@@ -79,50 +80,48 @@ namespace DurableTask.EventSourced
             return Task.Delay(10);
         }
 
-        public Task<TResult> ReadAsync<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
+        private TrackedObject GetOrAdd(TrackedObjectKey key)
         {
-            var target = (TObject)this.GetOrAdd(key);
-
-            lock (target.AccessLock) // prevent conflict with writers
-            {
-                return Task.FromResult(read(target));
-            }
+            var result = trackedObjects.GetOrAdd(key, TrackedObjectKey.Factory);
+            result.Restore(this.partition);
+            return result;
         }
 
-        protected override Task Process(IList<PartitionEvent> batch)
+        protected override Task Process(IList<object> batch)
         {
+            var effects = new TrackedObject.EffectList(this.partition);
+
             if (batch.Count != 0)
             {
-                this.ProcessBatch(batch, this.nextCommitPosition);
-
-                this.nextCommitPosition += batch.Count;
-
-                foreach (var evt in batch)
+                foreach (var o in batch)
                 {
-                    AckListeners.Acknowledge(evt);
+                    if (o is PartitionEvent partitionEvent)
+                    {
+                        partitionEvent.CommitPosition = nextCommitPosition++;
+                        partition.TraceProcess(partitionEvent);
+
+                        // determine the effects and apply all the updates
+                        partitionEvent.DetermineEffects(effects);
+                        while (effects.Count > 0)
+                        {
+                            this.ProcessRecursively(partitionEvent, effects);
+                        }
+
+                        partition.DiagnosticsTrace("Processing complete");
+                        Partition.TraceContext = null;
+
+                        AckListeners.Acknowledge(partitionEvent);
+                    }
+                    else
+                    {
+                        var readContinuation = (StorageAbstraction.IReadContinuation)o;
+                        var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
+                        readContinuation.OnReadComplete(readTarget);
+                    }
                 }
             }
 
             return Task.CompletedTask;
-        }
-
-        private void ProcessBatch(IList<PartitionEvent> batch, long nextCommitPosition)
-        { 
-            var effects = new TrackedObject.EffectList(this.partition);
-
-            for (int i = 0; i < batch.Count; i++)
-            {
-                var partitionEvent = batch[i];
-                partitionEvent.CommitPosition = nextCommitPosition + i;
-                partition.TraceProcess(partitionEvent);
-                partitionEvent.DetermineEffects(effects);
-                while(effects.Count > 0)
-                {
-                    this.ProcessRecursively(partitionEvent, effects);
-                }
-                partition.DiagnosticsTrace("Processing complete");
-                Partition.TraceContext = null;
-            }
         }
 
         public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
@@ -139,12 +138,9 @@ namespace DurableTask.EventSourced
 
             // start with processing the event on this object, which
             // updates its state and can flag more objects to process on
-            lock (thisObject)
-            {
-                dynamic dynamicThis = thisObject;
-                dynamic dynamicPartitionEvent = evt;
-                dynamicThis.Process(dynamicPartitionEvent, effects);
-            }
+            dynamic dynamicThis = thisObject;
+            dynamic dynamicPartitionEvent = evt;
+            dynamicThis.Process(dynamicPartitionEvent, effects);
 
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)

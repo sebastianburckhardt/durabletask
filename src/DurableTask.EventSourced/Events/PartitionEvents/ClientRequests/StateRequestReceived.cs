@@ -38,32 +38,37 @@ namespace DurableTask.EventSourced
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
             Debug.Assert(!effects.InRecovery);
-            var task = ReadAsync(effects.Partition);
+            effects.Partition.State.ScheduleRead(new Waiter(effects.Partition, this.InstanceId, this.ClientId, this.RequestId));
         }
 
-        public async Task ReadAsync(Partition partition)
+        private class Waiter : StorageAbstraction.IReadContinuation
         {
-            try
+            private readonly Partition partition;
+            private readonly Guid clientId;
+            private readonly long requestId;
+
+            public Waiter(Partition partition, string instanceId, Guid clientId, long requestId)
             {
-                var orchestrationState = await partition.State.ReadAsync<InstanceState, OrchestrationState>(
-                     TrackedObjectKey.Instance(this.InstanceId),
-                     InstanceState.GetOrchestrationState);
+                this.partition = partition;
+                this.clientId = clientId;
+                this.requestId = requestId;
+                this.ReadTarget = TrackedObjectKey.Instance(instanceId);
+            }
+
+            public TrackedObjectKey ReadTarget { get; }
+
+            public void OnReadComplete(TrackedObject target)
+            {
+                var orchestrationState = ((InstanceState)target)?.OrchestrationState;
 
                 var response = new StateResponseReceived()
                 {
-                    ClientId = this.ClientId,
-                    RequestId = this.RequestId,
+                    ClientId = this.clientId,
+                    RequestId = this.requestId,
                     OrchestrationState = orchestrationState,
                 };
 
-                partition.Send(response);
-            }
-            catch (TaskCanceledException)
-            {
-            }
-            catch (Exception e)
-            {
-                partition.ReportError($"{nameof(StateRequestReceived)}.{nameof(ReadAsync)}({this.GetType().Name})", e);
+                this.partition.Send(response);
             }
         }
     }

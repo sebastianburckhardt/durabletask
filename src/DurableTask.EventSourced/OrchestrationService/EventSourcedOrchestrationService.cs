@@ -33,7 +33,6 @@ namespace DurableTask.EventSourced
         private readonly TransportAbstraction.ITaskHub taskHub;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private CancellationTokenSource serviceShutdownSource;
-        private static readonly Task completedTask = Task.FromResult<object>(null);
 
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
         internal Client Client { get; private set; }
@@ -237,7 +236,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc />
         public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
             => messages.Length == 0
-                ? completedTask
+                ? Task.CompletedTask
                 : Task.WhenAll(messages
                     .GroupBy(tm => this.GetPartitionId(tm.OrchestrationInstance.InstanceId))
                     .Select(group => Client.SendTaskOrchestrationMessageBatchAsync(group.Key, group)));
@@ -365,7 +364,7 @@ namespace DurableTask.EventSourced
                 Timestamp = DateTime.UtcNow,
             });
 
-            return completedTask;
+            return Task.CompletedTask;
         }
 
         Task IOrchestrationService.AbandonTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
@@ -373,12 +372,12 @@ namespace DurableTask.EventSourced
             // put it back into the work queue
             this.OrchestrationWorkItemQueue.Add(workItem);
 
-            return completedTask;
+            return Task.CompletedTask;
         }
 
         Task IOrchestrationService.ReleaseTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            return completedTask;
+            return Task.CompletedTask;
         }
 
         Task IOrchestrationService.RenewTaskOrchestrationWorkItemLockAsync(TaskOrchestrationWorkItem workItem)
@@ -422,7 +421,7 @@ namespace DurableTask.EventSourced
         {
             // put it back into the work queue
             this.ActivityWorkItemQueue.Add(workItem);
-            return completedTask;
+            return Task.CompletedTask;
         }
 
         Task IOrchestrationService.CompleteTaskActivityWorkItemAsync(TaskActivityWorkItem workItem, TaskMessage responseMessage)
@@ -435,7 +434,7 @@ namespace DurableTask.EventSourced
                 ActivityId = activityWorkItem.ActivityId,
                 Response = responseMessage,
             });
-            return completedTask;
+            return Task.CompletedTask;
         }
         
         Task<TaskActivityWorkItem> IOrchestrationService.RenewTaskActivityWorkItemLockAsync(TaskActivityWorkItem workItem)

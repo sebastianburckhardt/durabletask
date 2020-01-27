@@ -7,13 +7,12 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
-using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
@@ -41,17 +40,17 @@ namespace DurableTask.EventSourced
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
             Debug.Assert(!effects.InRecovery);
-            var task = WaitForCompletedStateAsync(effects.Partition);
+            _ = WaitForOrchestrationAsynchronously(effects.Partition);
         }
 
-        public async Task WaitForCompletedStateAsync(Partition partition)
+        public async Task WaitForOrchestrationAsynchronously(Partition partition)
         {
             try
             {
                 var waiter = new OrchestrationWaiter(this, partition);
 
                 // start an async read from state
-                var readTask = waiter.ReadFromStateAsync(partition.State);
+                partition.State.ScheduleRead(waiter);
 
                 var response = await waiter.Task;
 
@@ -65,11 +64,14 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                partition.ReportError($"{nameof(WaitRequestReceived)}.{nameof(WaitForCompletedStateAsync)}", e);
+                partition.ReportError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationAsynchronously)}", e);
             }
         }
 
-        private class OrchestrationWaiter : Partition.ResponseWaiter, PubSub<string, OrchestrationState>.IListener
+        private class OrchestrationWaiter : 
+            Partition.ResponseWaiter, 
+            PubSub<string, OrchestrationState>.IListener,
+            StorageAbstraction.IReadContinuation
         {
             public OrchestrationWaiter(WaitRequestReceived request, Partition partition)
                 : base(partition.PartitionShutdownToken, request, partition)
@@ -79,6 +81,8 @@ namespace DurableTask.EventSourced
             }
 
             public string Key { get; private set; }
+
+            public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.Key);
 
             public void Notify(OrchestrationState value)
             {
@@ -96,13 +100,9 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            public async Task ReadFromStateAsync(StorageAbstraction.IPartitionState state)
+            public void OnReadComplete(TrackedObject target)
             {
-                var orchestrationState = await state.ReadAsync<InstanceState, OrchestrationState>(
-                    TrackedObjectKey.Instance(this.Key),
-                    InstanceState.GetOrchestrationState);
-
-                this.Notify(orchestrationState);
+                this.Notify(((InstanceState)target)?.OrchestrationState);
             }
 
             protected override void Cleanup()

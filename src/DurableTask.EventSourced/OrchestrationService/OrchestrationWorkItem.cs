@@ -21,7 +21,7 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class OrchestrationWorkItem : TaskOrchestrationWorkItem
+    internal class OrchestrationWorkItem : TaskOrchestrationWorkItem, StorageAbstraction.IReadContinuation
     {
         public Partition Partition;
 
@@ -50,24 +50,32 @@ namespace DurableTask.EventSourced
                 NewMessages = session.Batch.ToList(), // make a copy
             };
 
-            Task.Run(workItem.LoadAsync);
+            partition.DiagnosticsTrace($"Prefetching {workItem.WorkItemId}");
+
+            // continue once we have the history state loaded
+            partition.State.ScheduleRead(workItem);
         }
 
-        public async Task LoadAsync()
+        public TrackedObjectKey ReadTarget => TrackedObjectKey.History(this.InstanceId);
+
+        public void OnReadComplete(TrackedObject historyState)
         {
             // load the previous runtime state if it exists, or create a new one
-            this.OrchestrationRuntimeState = await Partition.State.ReadAsync<HistoryState,OrchestrationRuntimeState>(
-                TrackedObjectKey.History(InstanceId),
-                HistoryState.GetRuntimeState);
-            
-            if (this.ForceNewExecution && this.OrchestrationRuntimeState.Events.Count > 0)
+            if (historyState == null || this.ForceNewExecution)
             {
-                // replace the previous execution with a fresh one
+                this.Partition.DiagnosticsTrace($"Starting fresh orchestration {this.WorkItemId}");
                 this.OrchestrationRuntimeState = new OrchestrationRuntimeState();
+            }
+            else
+            {
+                this.Partition.DiagnosticsTrace($"Continuing orchestration {this.WorkItemId}");
+                this.OrchestrationRuntimeState = ((HistoryState)historyState)?.GetRuntimeState();
             }
 
             if (!this.IsExecutableInstance(out var warningMessage))
             {
+                this.Partition.DiagnosticsTrace($"Discarding non-executable orchestration {this.WorkItemId}");
+
                 // discard the messages, by marking the batch as processed without updating the state
                 this.Partition.Submit(new BatchProcessed()
                 {

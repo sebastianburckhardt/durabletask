@@ -28,9 +28,11 @@ namespace DurableTask.EventSourced
 
         private bool unsubscribedSelf;
 
+        private object thisLock = new object();
+
         public void Notify(K key, V value)
         {
-            lock (registrations)
+            lock (thisLock)
             {
                 if (registrations.TryGetValue(key, out var list))
                 {
@@ -71,7 +73,7 @@ namespace DurableTask.EventSourced
                 throw new ArgumentNullException(nameof(listener));
             }
 
-            lock (registrations)
+            lock (thisLock)
             {
                 var key = listener.Key;
 
@@ -86,7 +88,7 @@ namespace DurableTask.EventSourced
 
         public void Unsubscribe(IListener listener)
         {
-            lock (registrations)
+            lock (thisLock)
             {
                 if (iterating != null)
                 {

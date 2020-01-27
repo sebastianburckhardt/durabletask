@@ -30,16 +30,11 @@ namespace DurableTask.EventSourced.Faster
 
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
-        public LogWorker(Partition partition, BlobManager blobManager)
+        public LogWorker(FasterLog log, Partition partition)
             : base()
         {
-            this.log = new FasterLog(blobManager);
+            this.log = log;
             this.partition = partition;
-        }
-
-        public Task StartAsync()
-        {
-            return Task.CompletedTask;
         }
 
         private void EnqueueEvent(PartitionEvent evt)
@@ -109,7 +104,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task PersistAndShutdownAsync()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.shutdownWaiter = new TaskCompletionSource<bool>();
                 this.Notify();

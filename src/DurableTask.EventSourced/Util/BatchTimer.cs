@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced
 
         public void Schedule(DateTime when, T what)
         {
-            lock (this.schedule)
+            lock (this.thisLock)
             {
                 this.schedule.Add(when, what);
 
@@ -83,7 +83,7 @@ namespace DurableTask.EventSourced
                     this.notify.Wait(delay); // blocks thread until delay is over, or until notified
                 }
 
-                lock (this.schedule)
+                lock (this.thisLock)
                 {
                     var next = this.schedule.FirstOrDefault();
 
@@ -116,7 +116,7 @@ namespace DurableTask.EventSourced
 
         private bool RequiresDelay(out TimeSpan delay)
         {
-            lock (this.schedule)
+            lock (this.thisLock)
             {
                 if (this.schedule.Count == 0)
                 {

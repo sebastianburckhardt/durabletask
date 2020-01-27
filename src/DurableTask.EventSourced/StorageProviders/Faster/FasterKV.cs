@@ -1,9 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using DurableTask.Core;
 using DurableTask.Core.Tracking;
 using FASTER.core;
 using Microsoft.Win32.SafeHandles;
+using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -11,37 +16,40 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private ClientSession<FasterKV.Key, FasterKV.Value, PartitionEvent, TrackedObject, Empty, FasterKV.Functions> session;
+        private readonly CancellationTokenSource shutdown;
+        private readonly ClientSession<Key, Value, PartitionEvent, TrackedObject, Empty, Functions> mainSession;
 
-        public FasterKV(Partition partition, BlobManager blobManager) 
+        public FasterKV(Partition partition, BlobManager blobManager)
             : base(
-                1L << 17, 
+                1L << 17,
                 new Functions(partition),
-                new LogSettings 
-                { 
-                    LogDevice = blobManager.HybridLogDevice, 
-                    ObjectLogDevice = blobManager.ObjectLogDevice, 
+                new LogSettings
+                {
+                    LogDevice = blobManager.HybridLogDevice,
+                    ObjectLogDevice = blobManager.ObjectLogDevice,
                     MemorySizeBits = 29,
                 },
-                new CheckpointSettings 
+                new CheckpointSettings
                 {
                     CheckpointManager = blobManager,
                     CheckPointType = CheckpointType.FoldOver,
                 },
-                new SerializerSettings<FasterKV.Key, FasterKV.Value> 
+                new SerializerSettings<FasterKV.Key, FasterKV.Value>
                 {
-                    keySerializer = () => new Key.Serializer(), 
-                    valueSerializer = () => new Value.Serializer(), 
+                    keySerializer = () => new Key.Serializer(),
+                    valueSerializer = () => new Value.Serializer(),
                 })
         {
             this.partition = partition;
             this.blobManager = blobManager;
-            this.session = this.NewSession();
+            this.shutdown = new CancellationTokenSource();
+            this.mainSession = this.NewSession();
         }
 
         public new void Dispose()
         {
-            this.session.Dispose();
+            shutdown.Cancel();
+            this.mainSession.Dispose();
             base.Dispose();
             this.blobManager.HybridLogDevice.Close();
             this.blobManager.ObjectLogDevice.Close();
@@ -139,41 +147,88 @@ namespace DurableTask.EventSourced.Faster
 
         public PartitionEvent NoInput = new TimerFired() { }; // just a dummy non-null object
 
-        public TrackedObject GetOrCreate(TrackedObjectKey k)
+        // fast path read, synchronous, on the main session
+        public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
         {
-            FasterKV.Key key = k;
+            FasterKV.Key key = readContinuation.ReadTarget;
             TrackedObject target = null;
-            var status = this.session.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
 
+            // try to read directly (fast path)
+            var status = this.mainSession.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
+
+            switch (status)
+            {
+                case Status.NOTFOUND:
+                    readContinuation.OnReadComplete(null);
+                    break;
+
+                case Status.OK:
+                    readContinuation.OnReadComplete(target);
+                    break;
+
+                case Status.PENDING:
+                    // we missed in memory. Go into the slow path, 
+                    // which handles the request asynchronosly in a fresh session.
+                    _ = this.ReadAsynchronously(key, readContinuation, partition);
+                    break;
+
+                case Status.ERROR:
+                    throw new Exception("Faster"); //TODO
+            }
+        }
+
+        // slow path read (taken on miss), one its own session. This is not awaited.
+        private async ValueTask ReadAsynchronously(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        {
+            try
+            {
+                using (var session = this.NewSession())
+                {
+                    var (status, target) = await session.ReadAsync(key, this.NoInput, false, this.shutdown.Token);
+
+                    switch (status)
+                    {
+                        case Status.NOTFOUND:
+                            readContinuation.OnReadComplete(null);
+                            break;
+
+                        case Status.OK:
+                            // now that we have loaded the object into memory, resubmit
+                            partition.State.ScheduleRead(readContinuation);
+                            break;
+
+                        default:
+                            throw new Exception("Faster"); //TODO
+                    }
+                }
+            } 
+            catch(Exception e)
+            {
+                partition.ReportError(nameof(ReadAsynchronously), e);
+            }
+        }
+
+        // retrieve or create the tracked object, asynchronously if necessary, on the one session
+        public async ValueTask<TrackedObject> GetOrCreate(Key key)
+        {
+            var (status, target) = await this.mainSession.ReadAsync(key, this.NoInput, false, this.shutdown.Token);
             if (status == Status.NOTFOUND)
             {
-                FasterKV.Value newObject = TrackedObjectKey.Factory(k);
-                var status2 = this.session.Upsert(ref key, ref newObject, Empty.Default, 0);
-                if (status2 != Status.OK)
-                {
-                    throw new NotImplementedException("TODO");
-                }
-                newObject.Val.Restore(this.partition);
-                return newObject.Val;
+                target = TrackedObjectKey.Factory(key);
+                await this.mainSession.UpsertAsync(key, target, false, this.shutdown.Token);
+                target.Restore(this.partition);
             }
-            
-            if (status != Status.OK)
+            else if (status != Status.OK)
             {
-                throw new NotImplementedException("TODO");
+                throw new Exception("Faster"); //TODO
             }
 
             return target;
         }
 
-        public void MarkWritten(TrackedObjectKey k, PartitionEvent evt)
+        public ValueTask MarkWritten(TrackedObjectKey k, PartitionEvent evt)
         {
-            FasterKV.Key key = k;
-            var status = this.session.RMW(ref key, ref evt, Empty.Default, 0);
-            
-            if (status != Status.OK)
-            {
-                throw new NotImplementedException("TODO");
-            }
+            return this.mainSession.RMWAsync(k, evt, false, this.shutdown.Token);
         }
 
         public class Functions : IFunctions<Key, Value, PartitionEvent, TrackedObject, Empty>

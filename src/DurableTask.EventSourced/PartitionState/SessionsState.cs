@@ -159,6 +159,32 @@ namespace DurableTask.EventSourced
 
         public void Process(BatchProcessed evt, EffectList effects)
         {
+            var session = this.Sessions[evt.InstanceId];
+
+            // the session may have been forcefully replaced by a new one
+            // (if the user replaced a running instance)
+            // we can recognize this situation because the session id will not match
+            // in that case, ignore the results of the processed batch
+            if (session.SessionId != evt.SessionId)
+            {
+                return;
+            }
+
+            if (evt.ActivityMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Activities);
+            }
+
+            if (evt.TimerMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Timers);
+            }
+
+            if (evt.RemoteMessages?.Count > 0)
+            {
+                effects.Add(TrackedObjectKey.Outbox);
+            }
+
             // deliver orchestrator messages destined for this partition directly to the relevant session(s)
             if (evt.LocalMessages?.Count > 0)
             {
@@ -168,7 +194,11 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            var session = this.Sessions[evt.InstanceId];
+            if (evt.State != null)
+            {
+                effects.Add(TrackedObjectKey.Instance(evt.InstanceId));
+                effects.Add(TrackedObjectKey.History(evt.InstanceId));
+            }
 
             // remove processed messages from this batch
             Debug.Assert(session != null);
@@ -177,10 +207,10 @@ namespace DurableTask.EventSourced
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 
-            this.StartNewBatchIfNeeded(session, evt.InstanceId, effects.InRecovery);
+            this.StartNewBatchIfNeeded(session, effects, evt.InstanceId, effects.InRecovery);
         }
 
-        private void StartNewBatchIfNeeded(Session session, string instanceId, bool inRecovery)
+        private void StartNewBatchIfNeeded(Session session, EffectList effects, string instanceId, bool inRecovery)
         {
             if (session.Batch.Count == 0)
             {

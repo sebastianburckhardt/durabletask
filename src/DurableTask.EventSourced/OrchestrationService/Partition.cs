@@ -217,7 +217,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"Submitting {evt} {evt.WorkItem}");
+                this.DiagnosticsTrace($"Submitting {evt} {evt.CommitPosition:D10} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {

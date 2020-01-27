@@ -61,32 +61,8 @@ namespace DurableTask.EventSourced
 
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
-            // lists all the objects on which this event is processed.
-            // Effects are applied in reverse order listed, i.e. the
-            // history state is updated first, and the sessions state last.
-
+            // start on the sessions object; further effects are determined from there
             effects.Add(TrackedObjectKey.Sessions);
-
-            if (this.ActivityMessages?.Count > 0)
-            {
-                effects.Add(TrackedObjectKey.Activities);
-            }
-
-            if (this.TimerMessages?.Count > 0)
-            {
-                effects.Add(TrackedObjectKey.Timers);
-            }
-
-            if (this.RemoteMessages?.Count > 0)
-            {
-                effects.Add(TrackedObjectKey.Outbox);
-            }
-
-            if (this.State != null)
-            {      
-                effects.Add(TrackedObjectKey.Instance(this.InstanceId));
-                effects.Add(TrackedObjectKey.History(this.InstanceId));
-            }
         }
 
         protected override void TraceInformation(StringBuilder s)

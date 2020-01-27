@@ -31,11 +31,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
-        public static OrchestrationState GetOrchestrationState(InstanceState state)
-        {
-            return state.OrchestrationState;
-        }
-
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
 

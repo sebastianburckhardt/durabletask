@@ -34,10 +34,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         internal byte[] SerializedSnapshot { get; set; }
 
-        // used by some storage providers to protect from conflicts
-        [IgnoreDataMember]
-        internal object AccessLock => this;
-
         [DataMember]
         public long CommitPosition { get; set; } = -1;
 

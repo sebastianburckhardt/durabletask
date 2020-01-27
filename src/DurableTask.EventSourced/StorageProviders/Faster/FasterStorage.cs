@@ -14,10 +14,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
-using System.Net.Http.Headers;
-using System.Runtime.Serialization;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
@@ -50,11 +46,13 @@ namespace DurableTask.EventSourced.Faster
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.logWorker = new LogWorker(this.partition, this.blobManager);
-            this.storeWorker = new StoreWorker(this.partition, this.blobManager);
+            this.logWorker = new LogWorker(log, this.partition);
+            this.storeWorker = new StoreWorker(store, this.partition);
 
-            await this.logWorker.StartAsync();
-            await this.storeWorker.StartAsync();
+            // initialize all singleton objects
+            await storeWorker.Initialize();
+        
+            // TODO recovery
         }
 
         public async Task PersistAndShutdownAsync()
@@ -64,40 +62,48 @@ namespace DurableTask.EventSourced.Faster
             // persist the latest log
             await this.logWorker.PersistAndShutdownAsync();
 
-            // at this point we know the log was persisted, so can we persist the latest snapshot also
-            await this.storeWorker.PersistAndShutdownAsync(); 
+            // cancel all pending events and reads in the store queue
+            // (for faster shutdown)
+            await this.storeWorker.ShutdownAsync();
+
+            // at this point we know the log was persisted, so can we persist a store checkpoint
+            this.store.TakeFullCheckpoint(out _);
+            await this.store.CompleteCheckpointAsync();
+
+            // we are done with the store
+            this.store.Dispose();
         }
 
-        public Task<TResult> ReadAsync<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
+        public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
         {
             if (this.shuttingDown)
             {
-                return new Task<TResult>(null); // will never run or complete
+                return; // as we are already shutting down, we will never run this action
             }
 
-            return storeWorker.ProcessRead(key, read);
+            this.storeWorker.Submit(readContinuation);
         }
 
         public void SubmitRange(IEnumerable<PartitionEvent> evts)
         {
             if (this.shuttingDown)
             {
-                return; // ignore
+                return; // as we are already shutting down, ignore the event
             }
 
-            logWorker.AddToLog(evts);
-            storeWorker.Process(evts);
+            this.logWorker.AddToLog(evts);
+            this.storeWorker.SubmitRange(evts);
         }
 
         public void Submit(PartitionEvent evt)
         {
             if (this.shuttingDown)
             {
-                return; // ignore
+                return; // as we are already shutting down, ignore the event
             }
 
-            logWorker.AddToLog(evt);
-            storeWorker.Process(evt);
+            this.logWorker.AddToLog(evt);
+            this.storeWorker.Submit(evt);
         }
     }
 }

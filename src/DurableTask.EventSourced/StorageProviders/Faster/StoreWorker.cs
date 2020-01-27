@@ -23,7 +23,6 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterKV store;
         private readonly Partition partition;
-        private readonly BlobManager blobManager;
 
         private readonly TrackedObject.EffectList effects;
 
@@ -31,104 +30,72 @@ namespace DurableTask.EventSourced.Faster
 
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
-        public StoreWorker(Partition partition, BlobManager blobManager)
+        public StoreWorker(FasterKV store, Partition partition)
         {
-            this.store = new FasterKV(partition, blobManager);
+            this.store = store;
             this.partition = partition;
-            this.blobManager = blobManager;
 
+            // we are reusing the same effect list for all calls to reduce allocations
             this.effects = new TrackedObject.EffectList(this.partition);
         }
 
-        public Task StartAsync()
+        public async Task Initialize()
         {
-            foreach (var k in TrackedObjectKey.GetSingletons())
+            foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                store.GetOrCreate(k);
+                await store.GetOrCreate(key);
             }
-            return Task.CompletedTask;
         }
 
-        public async Task PersistAndShutdownAsync()
+        public async Task ShutdownAsync()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.shutdownWaiter = new TaskCompletionSource<bool>();
                 this.Notify();
             }
 
             await this.shutdownWaiter.Task; // waits for processor to stop processing reads and updates
-
-            // take a full checkpoint
-            store.TakeFullCheckpoint(out _);
-            await store.CompleteCheckpointAsync();
-
-            // we are done with the store
-            store.Dispose();
         }
 
-        public void Process(PartitionEvent evt)
+        protected override async Task Process(IList<object> batch)
         {
-            this.Submit(evt);
-        }
-
-        public void Process(IEnumerable<PartitionEvent> evts)
-        {
-            this.SubmitRange(evts);
-        }
-
-        public Task<TResult> ProcessRead<TObject, TResult>(TrackedObjectKey key, Func<TObject, TResult> read) where TObject : TrackedObject
-        {
-            var readtask = new Task<TResult>(() =>
+            foreach (var o in batch)
             {
-                var target = store.GetOrCreate(key);
-                TResult result;
-                result = read((TObject)target);
-                return result;
-            });
-
-            this.Submit(readtask);
-            return readtask;
-        }
-
-        protected override Task Process(IList<object> batch)
-        {
-            try
-            {
-                foreach (object o in batch)
+                if (this.IsShuttingDown)
                 {
-                    if (this.IsShuttingDown)
+                    break; // stop processing sooner rather than later
+                }
+
+                if (o is PartitionEvent partitionEvent)
+                {
+                    try
                     {
-                        break; // stop processing sooner rather than later
+                        this.partition.TraceProcess(partitionEvent);
+                        partitionEvent.DetermineEffects(this.effects);
+                        while (this.effects.Count > 0)
+                        {
+                            await this.ProcessRecursively(partitionEvent, this.effects);
+                        }
+                        partition.DiagnosticsTrace("Processing complete");
+                        Partition.TraceContext = null;
                     }
-
-                    switch (o)
+                    catch (Exception updateException)
                     {
-                        case Task task:
-                            {
-                                task.RunSynchronously(); // todo handle async reads
-                                break;
-                            }
-
-                        case PartitionEvent partitionEvent:
-                            {
-                                this.partition.TraceProcess(partitionEvent);
-                                partitionEvent.DetermineEffects(this.effects);
-                                while (this.effects.Count > 0)
-                                {
-                                    this.ProcessRecursively(partitionEvent, this.effects);
-                                }
-                                partition.DiagnosticsTrace("Processing complete");
-                                Partition.TraceContext = null;
-                                break;
-                            }
+                        partition.ReportError($"Processing Update", updateException);
                     }
                 }
-            }
-            catch (Exception e)
-            {
-                partition.ReportError(nameof(StoreWorker), e);
-                throw e;
+                else
+                {
+                    try
+                    {
+                        store.Read((StorageAbstraction.IReadContinuation)o, this.partition);
+                    }
+                    catch (Exception readException)
+                    {
+                        partition.ReportError($"Processing Read", readException);
+                    }
+                }
             }
 
             if (this.IsShuttingDown)
@@ -136,16 +103,13 @@ namespace DurableTask.EventSourced.Faster
                 // at this point we know we will not process any more reads or updates
                 this.shutdownWaiter.TrySetResult(true);
             }
-
-            return Task.CompletedTask;
         }
-
     
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
+        public async ValueTask ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
         {
             var startPos = effects.Count - 1;
             var thisKey = effects[startPos];
-            var thisObject = store.GetOrCreate(thisKey);
+            var thisObject = await store.GetOrCreate(thisKey);
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
@@ -159,16 +123,15 @@ namespace DurableTask.EventSourced.Faster
             dynamicThis.Process(dynamicPartitionEvent, effects);
 
             // tell Faster that this object was modified
-            store.MarkWritten(thisKey, evt);
+            await store.MarkWritten(thisKey, evt);
 
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)
             {
-                this.ProcessRecursively(evt, effects);
+                await this.ProcessRecursively(evt, effects);
             }
 
             effects.RemoveAt(startPos);
         }
-
     }
 }

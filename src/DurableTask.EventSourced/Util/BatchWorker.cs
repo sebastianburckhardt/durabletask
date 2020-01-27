@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced
     /// </summary>
     internal abstract class BatchWorker<T>
     {
-        protected readonly object lockable = new object();
+        protected readonly object thisLock = new object();
         protected readonly CancellationToken cancellationToken;
 
         private List<T> batch = new List<T>();
@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
 
         public virtual void Submit(T entry)
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.queue.Add(entry);
                 this.Notify();
@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced
 
         public void Submit(T entry1, T entry2)
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.queue.Add(entry1);
                 this.queue.Add(entry2);
@@ -67,7 +67,7 @@ namespace DurableTask.EventSourced
 
         public virtual void SubmitRange(IEnumerable<T> entries)
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.queue.AddRange(entries);
                 this.Notify();
@@ -76,7 +76,7 @@ namespace DurableTask.EventSourced
 
         protected void Requeue(IEnumerable<T> entries)
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.queue.InsertRange(0, entries);
                 this.Notify();
@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced
         {
             Partition.TraceContext = null;
 
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 var temp = queue;
                 this.queue = batch;
@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced
 
         public void Suspend()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.suspended = true;
             }
@@ -130,7 +130,7 @@ namespace DurableTask.EventSourced
 
         public void Resume()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 this.suspended = false;
                 this.Notify();
@@ -142,7 +142,7 @@ namespace DurableTask.EventSourced
         /// </summary>
         public void Notify()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 if (!this.suspended) // while suspended, the worker is remains unaware of new work
                 {
@@ -164,7 +164,7 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                // Start the task that is doing the work
+                // Start the task that is doing the work, on the threadpool
                 this.currentWorkCycle = Task.Run(this.Work);
             }
             finally
@@ -179,7 +179,7 @@ namespace DurableTask.EventSourced
         /// </summary>
         private void CheckForMoreWork()
         {
-            lock (this.lockable)
+            lock (this.thisLock)
             {
                 if (this.moreWork)
                 {
