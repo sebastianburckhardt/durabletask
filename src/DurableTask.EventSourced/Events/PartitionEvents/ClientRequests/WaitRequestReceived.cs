@@ -40,10 +40,10 @@ namespace DurableTask.EventSourced
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
             Debug.Assert(!effects.InRecovery);
-            _ = WaitForOrchestrationAsynchronously(effects.Partition);
+            _ = WaitForOrchestrationCompletionTask(effects.Partition);
         }
 
-        public async Task WaitForOrchestrationAsynchronously(Partition partition)
+        public async Task WaitForOrchestrationCompletionTask(Partition partition)
         {
             try
             {
@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                partition.ReportError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationAsynchronously)}", e);
+                partition.ReportError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationCompletionTask)}", e);
             }
         }
 

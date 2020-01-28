@@ -44,7 +44,9 @@ namespace DurableTask.EventSourced
                 && evt.DedupeStatuses != null
                 && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
             {
-                // An instance in this state already exists. do nothing but respond to client.
+                // An instance already exists and has a state for which we want to dedup.
+                // Therefore, we do nothing other than responding to the client so they
+                // know that creation failed.
                 if (!effects.InRecovery)
                 {
                     this.Partition.Send(new CreationResponseReceived()
@@ -74,7 +76,8 @@ namespace DurableTask.EventSourced
                     CompletedTime = Core.Common.DateTimeUtils.MinDateTime
                 };
 
-                // add the creation message to the session queue
+                // process the creation message on the sessions object
+                // so it can be added to the queue for workitems
                 effects.Add(TrackedObjectKey.Sessions);
 
                 if (!effects.InRecovery)

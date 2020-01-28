@@ -44,6 +44,8 @@ namespace DurableTask.EventSourced
 
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
+            // the creation request first checks the state of the instance;
+            // it then decides how to proceed from there
             effects.Add(TrackedObjectKey.Instance(this.InstanceId));
         }
     }

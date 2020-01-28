@@ -169,7 +169,7 @@ namespace DurableTask.EventSourced.Faster
                 case Status.PENDING:
                     // we missed in memory. Go into the slow path, 
                     // which handles the request asynchronosly in a fresh session.
-                    _ = this.ReadAsynchronously(key, readContinuation, partition);
+                    _ = this.AsynchronousReadTask(key, readContinuation, partition);
                     break;
 
                 case Status.ERROR:
@@ -178,7 +178,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // slow path read (taken on miss), one its own session. This is not awaited.
-        private async ValueTask ReadAsynchronously(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        private async ValueTask AsynchronousReadTask(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
         {
             try
             {
@@ -204,7 +204,7 @@ namespace DurableTask.EventSourced.Faster
             } 
             catch(Exception e)
             {
-                partition.ReportError(nameof(ReadAsynchronously), e);
+                partition.ReportError(nameof(AsynchronousReadTask), e);
             }
         }
 
