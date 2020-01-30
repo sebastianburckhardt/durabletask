@@ -30,15 +30,17 @@ namespace DurableTask.EventSourced
         /// </summary>
         internal interface IPartitionState
         {
-            Task RestoreAsync(Partition localPartition);
+            Task<long> RestoreAsync(Partition localPartition);
 
-            Task PersistAndShutdownAsync();
+            Task PersistAndShutdownAsync(); // clean shutdown
 
             void Submit(PartitionEvent evt);
 
             void SubmitRange(IEnumerable<PartitionEvent> evt);
 
             void ScheduleRead(IReadContinuation readContinuation);
+
+            CancellationToken OwnershipCancellationToken { get; }
         }
 
         public interface IReadContinuation

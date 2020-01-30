@@ -12,12 +12,12 @@ using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, PartitionEvent, TrackedObject, Empty, FasterKV.Functions>, IDisposable
+    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, Empty, TrackedObject, Empty, FasterKV.Functions>, IDisposable
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
         private readonly CancellationTokenSource shutdown;
-        private readonly ClientSession<Key, Value, PartitionEvent, TrackedObject, Empty, Functions> mainSession;
+        private readonly ClientSession<Key, Value, Empty, TrackedObject, Empty, Functions> mainSession;
 
         public FasterKV(Partition partition, BlobManager blobManager)
             : base(
@@ -29,7 +29,7 @@ namespace DurableTask.EventSourced.Faster
                     ObjectLogDevice = blobManager.ObjectLogDevice,
                     MemorySizeBits = 29,
                 },
-                new CheckpointSettings
+                blobManager.UseLocalFilesForTestingAndDebugging ? null : new CheckpointSettings
                 {
                     CheckpointManager = blobManager,
                     CheckPointType = CheckpointType.FoldOver,
@@ -145,7 +145,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public PartitionEvent NoInput = new TimerFired() { }; // just a dummy non-null object
+        public Empty NoInput = Empty.Default; 
 
         // fast path read, synchronous, on the main session
         public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
@@ -154,7 +154,7 @@ namespace DurableTask.EventSourced.Faster
             TrackedObject target = null;
 
             // try to read directly (fast path)
-            var status = this.mainSession.Read(ref key, ref this.NoInput, ref target, Empty.Default, 0);
+            var status = this.mainSession.Read(ref key, ref NoInput, ref target, Empty.Default, 0);
 
             switch (status)
             {
@@ -184,7 +184,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 using (var session = this.NewSession())
                 {
-                    var (status, target) = await session.ReadAsync(key, this.NoInput, false, this.shutdown.Token);
+                    var (status, target) = await session.ReadAsync(key, NoInput, false, this.shutdown.Token);
 
                     switch (status)
                     {
@@ -211,12 +211,12 @@ namespace DurableTask.EventSourced.Faster
         // retrieve or create the tracked object, asynchronously if necessary, on the one session
         public async ValueTask<TrackedObject> GetOrCreate(Key key)
         {
-            var (status, target) = await this.mainSession.ReadAsync(key, this.NoInput, false, this.shutdown.Token);
+            var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.shutdown.Token);
             if (status == Status.NOTFOUND)
             {
                 target = TrackedObjectKey.Factory(key);
                 await this.mainSession.UpsertAsync(key, target, false, this.shutdown.Token);
-                target.Restore(this.partition);
+                target.Partition = this.partition;
             }
             else if (status != Status.OK)
             {
@@ -226,12 +226,13 @@ namespace DurableTask.EventSourced.Faster
             return target;
         }
 
-        public ValueTask MarkWritten(TrackedObjectKey k, PartitionEvent evt)
+        public ValueTask MarkWritten(TrackedObjectKey k)
         {
-            return this.mainSession.RMWAsync(k, evt, false, this.shutdown.Token);
+            //TODO think about miss case which should be impossible
+            return this.mainSession.RMWAsync(k, NoInput, false, this.shutdown.Token);
         }
 
-        public class Functions : IFunctions<Key, Value, PartitionEvent, TrackedObject, Empty>
+        public class Functions : IFunctions<Key, Value, Empty, TrackedObject, Empty>
         {
             private readonly Partition partition;
 
@@ -240,40 +241,29 @@ namespace DurableTask.EventSourced.Faster
                 this.partition = partition;
             }
 
-            private void ApplyCore(TrackedObject t, PartitionEvent e)
-            {
-                if (EtwSource.EmitDiagnosticsTrace)
-                {
-                    this.partition.DiagnosticsTrace($"Updated [{t.Key}]");
-                }
-                // effects were already applied during process.
-            }
-
-            public void InitialUpdater(ref Key key, ref PartitionEvent input, ref Value value)
+            public void InitialUpdater(ref Key key, ref Empty input, ref Value value)
             {
                 value.Val = TrackedObjectKey.Factory(key.Val);
-                value.Val.Restore(partition);
-                this.ApplyCore(value, input);
+                value.Val.Partition = partition;
             }
 
-            public bool InPlaceUpdater(ref Key key, ref PartitionEvent input, ref Value value)
+            public bool InPlaceUpdater(ref Key key, ref Empty input, ref Value value)
             {
-                this.ApplyCore(value, input);
                 return true;
             }
 
-            public void CopyUpdater(ref Key key, ref PartitionEvent input, ref Value oldValue, ref Value newValue)
+            public void CopyUpdater(ref Key key, ref Empty input, ref Value oldValue, ref Value newValue)
             {
                 DurableTask.EventSourced.Serializer.SerializeTrackedObject(oldValue);
                 newValue.Val = oldValue.Val;
-                InPlaceUpdater(ref key, ref input, ref newValue);
             }
 
-            public void SingleReader(ref Key key, ref PartitionEvent input, ref Value value, ref TrackedObject dst)
+            public void SingleReader(ref Key key, ref Empty input, ref Value value, ref TrackedObject dst)
             {
                 dst = value.Val;
             }
-            public void ConcurrentReader(ref Key key, ref PartitionEvent input, ref Value value, ref TrackedObject dst)
+
+            public void ConcurrentReader(ref Key key, ref Empty input, ref Value value, ref TrackedObject dst)
             {
                 dst = value.Val;
             }
@@ -289,10 +279,9 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void ReadCompletionCallback(ref Key key, ref PartitionEvent input, ref TrackedObject output, Empty ctx, Status status) { }
-            public void RMWCompletionCallback(ref Key key, ref PartitionEvent input, Empty ctx, Status status) { }
+            public void ReadCompletionCallback(ref Key key, ref Empty input, ref TrackedObject output, Empty ctx, Status status) { }
+            public void RMWCompletionCallback(ref Key key, ref Empty input, Empty ctx, Status status) { }
             public void UpsertCompletionCallback(ref Key key, ref Value value, Empty ctx) { }
             public void DeleteCompletionCallback(ref Key key, Empty ctx) { }
         }

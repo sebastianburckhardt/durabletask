@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Timers);
 
-        protected override void OnRecoveryCompleted()
+        public override void OnRecoveryCompleted()
         {
             // restore the pending timers
             foreach (var kvp in PendingTimers)

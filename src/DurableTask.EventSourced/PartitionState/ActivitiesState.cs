@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Activities);
 
-        protected override void OnRecoveryCompleted()
+        public override void OnRecoveryCompleted()
         {
             // reschedule work items
             foreach (var pending in PendingActivities)

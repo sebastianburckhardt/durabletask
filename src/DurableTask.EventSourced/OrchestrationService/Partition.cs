@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced
             EventSourcedOrchestrationServiceSettings settings,
             WorkQueue<TaskActivityWorkItem> activityWorkItemQueue,
             WorkQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
-            CancellationToken cancellationToken)
+            CancellationToken serviceShutdownToken)
         {
             this.host = host;
             this.PartitionId = partitionId;
@@ -68,10 +68,12 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
 
-            this.partitionShutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            this.partitionShutdown = CancellationTokenSource.CreateLinkedTokenSource(
+                serviceShutdownToken,
+                state.OwnershipCancellationToken);
         }
 
-        public async Task StartAsync()
+        public async Task<long> StartAsync()
         {
             // initialize collections for pending work
             this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
@@ -79,9 +81,11 @@ namespace DurableTask.EventSourced
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
             // restore from last snapshot
-            await State.RestoreAsync(this);
+            var inputQueuePosition = await State.RestoreAsync(this);
 
             this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
+
+            return inputQueuePosition;
         }
 
         public void ProcessAsync(PartitionEvent partitionEvent)
@@ -189,11 +193,11 @@ namespace DurableTask.EventSourced
 
         public void TraceProcess(PartitionEvent evt)
         {
-            Partition.TraceContext = $"{evt.CommitPosition:D10}   ";
+            Partition.TraceContext = $"{evt.CommitLogPosition:D10}   ";
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitPosition:D10} Processing {evt} {evt.WorkItem}");
+                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing {evt} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -217,7 +221,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"Submitting {evt} {evt.CommitPosition:D10} {evt.WorkItem}");
+                this.DiagnosticsTrace($"Submitting {evt} {evt.CommitLogPosition:D10} {evt.WorkItem}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -236,7 +240,22 @@ namespace DurableTask.EventSourced
             {
                 System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{context} {msg}");
             }
-        }   
+        }
 
+        [Conditional("DEBUG")]
+        public void Assert(bool condition)
+        {
+            if (!condition)
+            {
+                var stacktrace = System.Environment.StackTrace;
+
+                if (EtwSource.EmitDiagnosticsTrace)
+                {
+                    System.Diagnostics.Trace.TraceError($"Part{this.PartitionId:D2} !!! Assertion failed {stacktrace}");
+                }
+ 
+                System.Diagnostics.Debugger.Break();
+            }
+        }
     }
 }

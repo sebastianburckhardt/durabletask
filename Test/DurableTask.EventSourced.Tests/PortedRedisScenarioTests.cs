@@ -20,7 +20,7 @@ using Xunit;
 
 namespace DurableTask.EventSourced.Tests
 {
-    [Collection("EventHubsTests")]
+    [Collection("EventSourcedTests")]
     public class PortedRedisScenarioTests
     {
        

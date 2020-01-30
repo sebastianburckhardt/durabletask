@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
 
             bool IsLast { get; }
 
-            long CommitPosition { get; }
+            long? CommitLogPosition { get; }
         }
 
         public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original)

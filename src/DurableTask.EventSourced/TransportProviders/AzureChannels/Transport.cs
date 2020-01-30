@@ -189,9 +189,9 @@ namespace DurableTask.EventSourced.AzureChannels
                 {
                     var content = Serializer.SerializeEvent(evt);
 
-                    string source = evt.CommitPosition == -1 ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
+                    string source = evt.CommitLogPosition == -1 ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
                     string destination = evt is PartitionEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
-                    long pos = evt.CommitPosition == -1 ? Interlocked.Increment(ref position) : evt.CommitPosition;
+                    long pos = evt.CommitLogPosition.HasValue ? evt.CommitLogPosition.Value : Interlocked.Increment(ref position);
                     transport.Send(evt, source, destination, pos, content, evt.ToString());
                 }
             }

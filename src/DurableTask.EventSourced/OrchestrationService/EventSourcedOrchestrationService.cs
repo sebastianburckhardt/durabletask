@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced
                     return new MemoryStorage();
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return new Faster.FasterStorage(settings.StorageConnectionString);
+                    return new Faster.FasterStorage(settings.StorageConnectionString, this.settings.TaskHubName);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -329,7 +329,7 @@ namespace DurableTask.EventSourced
             List<TaskMessage> localMessages = null;
             List<TaskMessage> remoteMessages = null;
 
-            System.Diagnostics.Debug.Assert(continuedAsNewMessage == null); // current implementation is eager
+            partition.Assert(continuedAsNewMessage == null); // current implementation is eager
  
             if (orchestratorMessages != null)
             {

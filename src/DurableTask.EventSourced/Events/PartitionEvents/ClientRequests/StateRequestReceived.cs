@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
 
         public override void DetermineEffects(TrackedObject.EffectList effects)
         {
-            Debug.Assert(!effects.InRecovery);
+            effects.Partition.Assert(!effects.InRecovery);
             effects.Partition.State.ScheduleRead(new Waiter(effects.Partition, this.InstanceId, this.ClientId, this.RequestId));
         }
 

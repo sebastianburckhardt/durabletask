@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
 
 
-        protected override void OnRecoveryCompleted()
+        public override void OnRecoveryCompleted()
         {
             // create work items for all sessions
             foreach(var kvp in Sessions)
@@ -201,9 +201,9 @@ namespace DurableTask.EventSourced
             }
 
             // remove processed messages from this batch
-            Debug.Assert(session != null);
-            Debug.Assert(session.SessionId == evt.SessionId);
-            Debug.Assert(session.BatchStartPosition == evt.BatchStartPosition);
+            effects.Partition.Assert(session != null);
+            effects.Partition.Assert(session.SessionId == evt.SessionId);
+            effects.Partition.Assert(session.BatchStartPosition == evt.BatchStartPosition);
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 

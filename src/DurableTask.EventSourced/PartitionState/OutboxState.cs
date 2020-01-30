@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
@@ -30,7 +31,7 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
-        protected override void OnRecoveryCompleted()
+        public override void OnRecoveryCompleted()
         {
             // resend all pending
             foreach (var kvp in Outbox)
@@ -93,7 +94,7 @@ namespace DurableTask.EventSourced
 
         public void Process(BatchProcessed evt, EffectList effects)
         {
-            this.Outbox[evt.CommitPosition] = evt.RemoteMessages;
+            this.Outbox[evt.CommitLogPosition.Value] = evt.RemoteMessages;
 
             if (evt.RemoteMessages?.Count > 0 && !effects.InRecovery)
             {
@@ -105,7 +106,7 @@ namespace DurableTask.EventSourced
         {
             // now that the event is durable we can send the messages
             var batchProcessedEvent = (BatchProcessed)evt;
-            this.Send(batchProcessedEvent.CommitPosition, batchProcessedEvent.RemoteMessages);
+            this.Send(batchProcessedEvent.CommitLogPosition.Value, batchProcessedEvent.RemoteMessages);
         }
 
         // SendConfirmed

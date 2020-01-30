@@ -17,6 +17,7 @@ using FASTER.devices;
 using Microsoft.Azure.Services.AppAuthentication;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
+using Microsoft.Azure.Storage.Blob.Protocol;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -41,8 +42,15 @@ namespace DurableTask.EventSourced.Faster
         private readonly uint partitionId;
 
         private CloudBlobContainer blobContainer;
-        private string snapshotsfolder;
-        private CloudPageBlob eventLogPageBlob;
+        private CloudBlockBlob eventLogCommitBlob;
+
+        private CancellationTokenSource ownershipCancellation;
+        private CancellationTokenSource shutdownCancellation;
+        private CancellationToken cancellationToken;
+
+        private string LeaseId;
+        private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(20);
+        private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(50) : TimeSpan.FromSeconds(15);
 
         public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
@@ -52,78 +60,213 @@ namespace DurableTask.EventSourced.Faster
         /// Create new instance of local checkpoint manager at given base directory
         /// </summary>
         /// <param name="connectionString">The connection string for the Azure storage account</param>
-        /// <param name="containerName">The blob container for storing the hybrid log and the checkpoints</param>
+        /// <param name="taskHubName">The name of the taskhub</param>
         /// <param name="partitionId">The partition id</param>
-        public BlobManager(string connectionString, string containerName, uint partitionId)
+        public BlobManager(string connectionString, string taskHubName, uint partitionId)
         {
             this.connectionString = connectionString;
-            this.containerName = containerName;
+            this.containerName = taskHubName.ToLowerInvariant() + "-data";
             this.partitionId = partitionId;
-        }
 
-        private bool useLocalFilesForDebugging = false;
-
-        public async Task StartAsync()
-        {
             CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
             CloudBlobClient serviceClient = account.CreateCloudBlobClient();
             this.blobContainer = serviceClient.GetContainerReference(containerName);
-            await this.blobContainer.CreateIfNotExistsAsync();
+        }
 
-            this.snapshotsfolder = $"partition{partitionId:D2}";
+        internal bool UseLocalFilesForTestingAndDebugging { get; set; }
 
-            var eventLogBlobName = $"events{partitionId:D2}.log";
-            var hybridLogBlobName = $"store{partitionId:D2}.log";
-            var objectLogBlobName = $"store{partitionId:D2}.obj.log";
+        private string LocalDirectoryPath => $"C:\\faster\\{this.containerName}";
+        private string SnapshotFolder => $"partition{this.partitionId:D2}";
+        private string EventLogBlobName => $"events{this.partitionId:D2}.log";
+        private string HybridLogBlobName => $"store{this.partitionId:D2}.log";
+        private string ObjectLogBlobName => $"store{this.partitionId:D2}.obj.log";
 
-            this.eventLogPageBlob = this.blobContainer.GetPageBlobReference(eventLogBlobName + "0");
+        private Task LeaseRenewalLoopTask = Task.CompletedTask;
 
-            if (useLocalFilesForDebugging)
+        public async Task StartAsync()
+        {
+            if (!UseLocalFilesForTestingAndDebugging)
             {
-                this.EventLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{eventLogBlobName}");
-                this.HybridLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{hybridLogBlobName}");
-                this.ObjectLogDevice = Devices.CreateLogDevice($"C:\\logs\\{containerName}\\{objectLogBlobName}");
+                await this.blobContainer.CreateIfNotExistsAsync();
+            }
+
+            this.eventLogCommitBlob = this.blobContainer.GetBlockBlobReference(this.EventLogBlobName + ".commit");
+
+            if (UseLocalFilesForTestingAndDebugging)
+            {
+                Directory.CreateDirectory(LocalDirectoryPath);
+                this.EventLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.EventLogBlobName}");
+                this.HybridLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.HybridLogBlobName}");
+                this.ObjectLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.ObjectLogBlobName}");
             }
             else
             {
-                this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, eventLogBlobName);
-                this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, hybridLogBlobName);
-                this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, objectLogBlobName);
+                this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, this.EventLogBlobName);
+                this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, this.HybridLogBlobName);
+                this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, this.ObjectLogBlobName);
             }
         }
 
+        public async Task StopAsync()
+        {
+            this.shutdownCancellation.Cancel();
+            await this.LeaseRenewalLoopTask;
+        }
+
+        private static bool ConflictOrExpiredLease(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 409) || (e.RequestInformation.HttpStatusCode == 412);
+        }
+    
+        private static bool BlobDoesNotExist(StorageException e)
+        {
+            var information = e.RequestInformation.ExtendedErrorInformation;
+            return (e.RequestInformation.HttpStatusCode == 404) && (information.ErrorCode.Equals(BlobErrorCodeStrings.BlobNotFound));
+        }
+
+        public async Task<CancellationToken> AcquireOwnership(CancellationToken token)
+        {
+            this.ownershipCancellation = new CancellationTokenSource();
+            this.shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ownershipCancellation.Token);
+            this.cancellationToken = shutdownCancellation.Token;
+
+            if (UseLocalFilesForTestingAndDebugging)
+            {
+                // no leases. Uses default commit manager.
+                return CancellationToken.None;
+            }
+
+            while (!this.cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null);
+                    break;
+                }
+                catch (StorageException ex) when (ConflictOrExpiredLease(ex))
+                {
+                    // the previous owner has not released the lease yet, 
+                    // try again until it becomes available, should be relatively soon
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+                    continue;
+                }
+                catch (StorageException ex) when (BlobDoesNotExist(ex))
+                {
+                    try
+                    {
+                        // Create blob with empty content, then try again
+                        await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
+                        continue;
+                    }
+                    catch (StorageException ex2) when (ConflictOrExpiredLease(ex2))
+                    {
+                        // creation race, try from top
+                        continue;
+                    }
+                }
+            }
+
+            // start background loop that renews the lease continuously
+            this.LeaseRenewalLoopTask = this.LeaseRenewalLoopAsync();
+
+            return this.ownershipCancellation.Token;
+        }
+
+        public async Task LeaseRenewalLoopAsync()
+        {
+            while (!this.cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(this.LeaseRenewal, this.cancellationToken);
+
+                    AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+
+                    await this.eventLogCommitBlob.RenewLeaseAsync(acc, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // for whatever reason we were unable to renew the lease
+                    this.ownershipCancellation.Cancel();
+                }
+            }
+
+            // if we haven't already lost the lease, release it now
+            if (!ownershipCancellation.IsCancellationRequested)
+            {
+                AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                try
+                {
+                    await this.eventLogCommitBlob.ReleaseLeaseAsync(acc);
+                }
+                catch // swallow exceptions when releasing a lease
+                {
+                }
+            }
+        }
+
+        public async Task DeleteTaskhubDataAsync()
+        {
+            if (UseLocalFilesForTestingAndDebugging)
+            {
+                System.IO.DirectoryInfo di = new DirectoryInfo(LocalDirectoryPath);
+                if (di.Exists)
+                {
+                    di.Delete(true);
+                }
+            }
+            else
+            {
+                if (await this.blobContainer.ExistsAsync())
+                {
+                    foreach (IListBlobItem blob in this.blobContainer.ListBlobs())
+                    {
+                        if (blob.GetType() == typeof(CloudBlob) || blob.GetType().BaseType == typeof(CloudBlob))
+                        {
+                            await ((CloudBlob)blob).DeleteIfExistsAsync();
+                        }
+                    }
+                }
+                // we are not deleting the container itself because it creates problems
+                // when trying to recreate the same container soon afterwards
+            }
+        }
 
         #region ILogCommitManager
 
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
-            int writeSize = sizeof(int) + commitMetadata.Length;
-            // Writes to PageBlob must be aligned at 512 boundaries, we need to therefore pad up to the closest
-            // multiple of 512 for the write buffer size.
-            int mask = BlobUtil.PAGE_BLOB_SECTOR_SIZE - 1;
-            byte[] alignedByteChunk = new byte[(writeSize + mask) & ~mask];
-
-            Array.Copy(BitConverter.GetBytes(commitMetadata.Length), alignedByteChunk, sizeof(int));
-            Array.Copy(commitMetadata, 0, alignedByteChunk, sizeof(int), commitMetadata.Length);
-
-            // TODO(Tianyu): We assume this operation is atomic I guess?
-            eventLogPageBlob.WritePages(new MemoryStream(alignedByteChunk), 0);
+            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+            try
+            {
+                this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc);
+            }
+            catch (StorageException ex) when (ConflictOrExpiredLease(ex))
+            {
+                this.ownershipCancellation.Cancel();
+                throw;
+            }
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()
         {
+            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
             try
             {
-                return BlobUtil.ReadMetadataFile(eventLogPageBlob);
-            }
-            catch(StorageException e) 
-            {
-                if (e.RequestInformation.HttpStatusCode == (int) HttpStatusCode.NotFound)
+                using (var stream = new MemoryStream())
                 {
-                    // the page blob does not exist yet
-                    return null; 
+                    this.eventLogCommitBlob.DownloadToStream(stream, acc);
+                    var bytes = stream.ToArray();
+                    return bytes.Length == 0 ? null : bytes;
                 }
-
+            }
+            catch (StorageException ex) when (ConflictOrExpiredLease(ex))
+            {
+                this.ownershipCancellation.Cancel();
                 throw;
             }
         }
@@ -257,14 +400,14 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetIndexCheckpointFolderName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     index_base_folder,
                                     token.ToString());
         }
 
         private string GetIndexCheckpointMetaFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     index_base_folder,
                                     token.ToString(),
                                     index_meta_file,
@@ -273,7 +416,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetIndexCheckpointCompletedFileName()
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     index_base_folder,
                                     index_completed_file,
                                     ".txt");
@@ -281,7 +424,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetPrimaryHashTableFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     index_base_folder,
                                     token.ToString(),
                                     hash_table_file,
@@ -290,7 +433,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetOverflowBucketsFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     index_base_folder,
                                     token.ToString(),
                                     overflow_buckets_file,
@@ -299,7 +442,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetHybridLogCheckpointMetaFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     cpr_base_folder,
                                     token.ToString(),
                                     cpr_meta_file,
@@ -308,7 +451,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetHybridLogCheckpointCompletedFileName()
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     cpr_base_folder,
                                     cpr_completed_file,
                                     ".txt");
@@ -316,7 +459,7 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetHybridLogCheckpointContextFileName(Guid checkpointToken, Guid sessionToken)
         {
-            return GetMergedFolderPath(snapshotsfolder,
+            return GetMergedFolderPath(this.SnapshotFolder,
                                     cpr_base_folder,
                                     checkpointToken.ToString(),
                                     sessionToken.ToString(),
@@ -325,12 +468,12 @@ namespace DurableTask.EventSourced.Faster
 
         private string GetLogSnapshotFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder, cpr_base_folder, token.ToString(), snapshot_file, ".dat");
+            return GetMergedFolderPath(this.SnapshotFolder, cpr_base_folder, token.ToString(), snapshot_file, ".dat");
         }
 
         private string GetObjectLogSnapshotFileName(Guid token)
         {
-            return GetMergedFolderPath(snapshotsfolder, cpr_base_folder, token.ToString(), snapshot_file, ".obj.dat");
+            return GetMergedFolderPath(this.SnapshotFolder, cpr_base_folder, token.ToString(), snapshot_file, ".obj.dat");
         }
 
         private static string GetMergedFolderPath(params String[] paths)

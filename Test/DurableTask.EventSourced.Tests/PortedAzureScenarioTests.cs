@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.Tests
 
 
     // These tests are copied from AzureStorageScenarioTests
-    [Collection("EventHubsTests")]
+    [Collection("EventSourcedTests")]
     public partial class PortedAzureScenarioTests : IClassFixture<TestFixture>, IDisposable
     {
         private readonly TestFixture fixture;

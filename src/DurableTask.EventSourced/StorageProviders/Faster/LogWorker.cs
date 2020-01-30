@@ -42,11 +42,11 @@ namespace DurableTask.EventSourced.Faster
             if (evt.Serialized.Count == 0)
             {
                 byte[] bytes = Serializer.SerializeEvent(evt);
-                evt.CommitPosition = this.log.Enqueue(bytes);
+                evt.CommitLogPosition = this.log.Enqueue(bytes);
             }
             else
             {
-                evt.CommitPosition = this.log.Enqueue(evt.Serialized.AsSpan<byte>());
+                evt.CommitLogPosition = this.log.Enqueue(evt.Serialized.AsSpan<byte>());
             }
 
             this.partition.TraceSubmit(evt);
@@ -54,7 +54,22 @@ namespace DurableTask.EventSourced.Faster
 
         public void AddToLog(IEnumerable<PartitionEvent> evts)
         {
-            foreach (var evt in evts)
+            lock (this.thisLock) // we need the lock so concurrent submissions have consistent ordering
+            {
+                foreach (var evt in evts)
+                {
+                    if (evt.PersistInLog)
+                    {
+                        EnqueueEvent(evt);
+                        this.Submit(evt);
+                    }
+                }
+            }
+        }
+
+        public void AddToLog(PartitionEvent evt)
+        {
+            lock (this.thisLock) // we need the lock so concurrent submissions have consistent ordering
             {
                 if (evt.PersistInLog)
                 {
@@ -64,29 +79,21 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void AddToLog(PartitionEvent evt)
-        {
-            if (evt.PersistInLog)
-            {
-                EnqueueEvent(evt);
-                this.Submit(evt);
-            }
-        }
-
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
             {
                 await log.CommitAsync(this.cancellationToken);
 
-                if (this.IsShuttingDown)
+                foreach (var evt in batch)
                 {
-                    // at this point we know all the enqueued entries have been persisted
-                    this.shutdownWaiter.TrySetResult(true);
-                }
-                else
-                {
-                    foreach (var evt in batch)
+                    if (evt == null)
+                    {
+                        this.shutdownWaiter.TrySetResult(true);
+                        return;
+                    }
+                    
+                    if (!this.IsShuttingDown)
                     {
                         AckListeners.Acknowledge(evt);
                     }
@@ -107,7 +114,7 @@ namespace DurableTask.EventSourced.Faster
             lock (this.thisLock)
             {
                 this.shutdownWaiter = new TaskCompletionSource<bool>();
-                this.Notify();
+                this.Submit(null);
             }
 
             await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted

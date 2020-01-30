@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced
     internal abstract class TrackedObject
     {
         [IgnoreDataMember]
-        protected Partition Partition;
+        public Partition Partition;
 
         [IgnoreDataMember]
         public abstract TrackedObjectKey Key { get; }
@@ -35,16 +35,7 @@ namespace DurableTask.EventSourced
         internal byte[] SerializedSnapshot { get; set; }
 
         [DataMember]
-        public long CommitPosition { get; set; } = -1;
-
-        // call after deserialization, or after simulating a recovery
-        public void Restore(Partition Partition)
-        {
-            if (this.Partition != Partition)
-            {
-                this.Partition = Partition;
-            }
-        }
+        public long CommitLogPosition { get; set; } = -1;
 
         private static IEnumerable<Type> KnownTypes()
         {
@@ -62,8 +53,9 @@ namespace DurableTask.EventSourced
             }
         }
 
-        protected virtual void OnRecoveryCompleted()
+        public virtual void OnRecoveryCompleted()
         {
+            // this is called on all singletons, after recovery
             // subclasses override this if there is work they need to do here
         }
 

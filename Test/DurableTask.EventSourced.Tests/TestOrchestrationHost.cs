@@ -42,6 +42,8 @@ namespace DurableTask.EventSourced.Tests
             this.addedActivityTypes = new HashSet<Type>();
         }
 
+        public string TaskHub => this.settings.TaskHubName;
+
         public void Dispose()
         {
             this.worker.Dispose();

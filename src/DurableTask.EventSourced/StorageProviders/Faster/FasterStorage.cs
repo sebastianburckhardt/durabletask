@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
@@ -21,6 +22,7 @@ namespace DurableTask.EventSourced.Faster
     internal class FasterStorage : StorageAbstraction.IPartitionState
     {
         private readonly string connectionString;
+        private readonly string taskHubName;
 
         private Partition partition;
         private BlobManager blobManager;
@@ -31,17 +33,23 @@ namespace DurableTask.EventSourced.Faster
 
         private bool shuttingDown;
 
-        public FasterStorage(string connectionString)
+        private long inputQueuePosition;
+
+        public CancellationToken OwnershipCancellationToken { get; private set; }
+
+        public FasterStorage(string connectionString, string taskHubName)
         {
             this.connectionString = connectionString;
+            this.taskHubName = taskHubName;
         }
 
-        public async Task RestoreAsync(Partition partition)
+        public async Task<long> RestoreAsync(Partition partition)
         {
             this.partition = partition;
-            this.blobManager = new BlobManager(this.connectionString, "faster", partition.PartitionId);
+            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
             await blobManager.StartAsync();
+            this.OwnershipCancellationToken = await blobManager.AcquireOwnership(CancellationToken.None);
 
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
@@ -49,29 +57,45 @@ namespace DurableTask.EventSourced.Faster
             this.logWorker = new LogWorker(log, this.partition);
             this.storeWorker = new StoreWorker(store, this.partition);
 
-            // initialize all singleton objects
+            // read all singleton objects and determine from where to resume the commit log
             await storeWorker.Initialize();
-        
-            // TODO recovery
+
+            // replay the commit log to the end, if necessary
+            await storeWorker.ReplayCommitLog(log);
+
+            // finish the recovery
+            this.inputQueuePosition = await storeWorker.FinishRecovery();
+
+            // resume the input queue from the last processed position
+            return inputQueuePosition;
         }
+
 
         public async Task PersistAndShutdownAsync()
         {
-            this.shuttingDown = true;
+            try
+            {
+                this.shuttingDown = true;
 
-            // persist the latest log
-            await this.logWorker.PersistAndShutdownAsync();
+                await Task.WhenAll(
+                    this.logWorker.PersistAndShutdownAsync(), // persist all current entries in the commit log
+                    this.storeWorker.CancelAndShutdown() // cancel all pending entries in the store queue, we'll replay on recovery
+                );
 
-            // cancel all pending events and reads in the store queue
-            // (for faster shutdown)
-            await this.storeWorker.ShutdownAsync();
+                // at this point we know the log was successfully persisted, so can we persist a store checkpoint
+                this.store.TakeFullCheckpoint(out _);
+                await this.store.CompleteCheckpointAsync();
 
-            // at this point we know the log was persisted, so can we persist a store checkpoint
-            this.store.TakeFullCheckpoint(out _);
-            await this.store.CompleteCheckpointAsync();
-
-            // we are done with the store
-            this.store.Dispose();
+            }
+            catch(Exception e)
+            {
+                this.partition.ReportError($"{nameof(FasterStorage)}.{nameof(PersistAndShutdownAsync)}", e);
+            }
+            finally
+            {
+                // we are done with the store
+                this.store.Dispose();
+            }
         }
 
         public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)

@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
@@ -64,7 +65,7 @@ namespace DurableTask.EventSourced
         {
             uint PartitionId { get; }
 
-            Task StartAsync();
+            Task<long> StartAsync();
 
             void Submit(PartitionEvent partitionEvent);
 

@@ -39,10 +39,11 @@ namespace DurableTask.EventSourced
             this.GetOrAdd(TrackedObjectKey.Sessions);
             this.GetOrAdd(TrackedObjectKey.Timers);
         }
+        public CancellationToken OwnershipCancellationToken => CancellationToken.None;
 
         public void Submit(PartitionEvent entry)
         {
-            entry.CommitPosition = nextSubmitPosition++;
+            entry.CommitLogPosition = nextSubmitPosition++;
             this.partition.TraceSubmit(entry);
             base.Submit(entry);
         }
@@ -51,7 +52,7 @@ namespace DurableTask.EventSourced
         {
             foreach (var entry in entries)
             {
-                entry.CommitPosition = nextSubmitPosition++;
+                entry.CommitLogPosition = nextSubmitPosition++;
                 this.partition.TraceSubmit(entry);
             }
 
@@ -63,16 +64,16 @@ namespace DurableTask.EventSourced
             this.Submit(readContinuation);
         }
 
-        public Task RestoreAsync(Partition partition)
+        public Task<long> RestoreAsync(Partition partition)
         {
             this.partition = partition;
 
             foreach (var trackedObject in this.trackedObjects.Values)
             {
-                trackedObject.Restore(partition);
+                trackedObject.Partition = partition;
             }
 
-            return Task.CompletedTask;
+            return Task.FromResult(-1L);
         }
 
         public Task PersistAndShutdownAsync()
@@ -83,7 +84,7 @@ namespace DurableTask.EventSourced
         private TrackedObject GetOrAdd(TrackedObjectKey key)
         {
             var result = trackedObjects.GetOrAdd(key, TrackedObjectKey.Factory);
-            result.Restore(this.partition);
+            result.Partition = this.partition;
             return result;
         }
 
@@ -97,7 +98,7 @@ namespace DurableTask.EventSourced
                 {
                     if (o is PartitionEvent partitionEvent)
                     {
-                        partitionEvent.CommitPosition = nextCommitPosition++;
+                        partitionEvent.CommitLogPosition = nextCommitPosition++;
                         partition.TraceProcess(partitionEvent);
 
                         // determine the effects and apply all the updates

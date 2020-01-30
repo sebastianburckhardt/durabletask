@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Mime;
 using System.Text;
 using System.Threading.Tasks;
 using DurableTask.EventSourced.Emulated;
@@ -30,13 +31,15 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly Guid processorId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
 
+        private StorageAbstraction.IPartitionState partitionState;
         private TransportAbstraction.IPartition partition;
 
         private Stopwatch timeSinceLastCheckpoint = new Stopwatch();
         private int eventsSinceLastCheckpoint;
         private Checkpoint pendingCheckpoint;
         private Checkpoint completedCheckpoint;
-        
+        private long inputQueuePosition;
+
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
         public EventProcessor(TransportAbstraction.IHost host, TransportAbstraction.ISender sender, EventSourcedOrchestrationServiceSettings settings)
@@ -50,9 +53,9 @@ namespace DurableTask.EventSourced.EventHubs
         async Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            var partitionState = this.host.CreatePartitionState();
-            this.partition = host.AddPartition(partitionId, partitionState, this.sender);
-            await this.partition.StartAsync();
+            this.partitionState = this.host.CreatePartitionState();
+            this.partition = host.AddPartition(partitionId, this.partitionState, this.sender);
+            this.inputQueuePosition = await this.partition.StartAsync();
             timeSinceLastCheckpoint.Start();
             eventsSinceLastCheckpoint = 0;
         }
@@ -61,7 +64,8 @@ namespace DurableTask.EventSourced.EventHubs
         {         
             await this.partition.StopAsync();
 
-            if (this.completedCheckpoint != null)
+            if (this.completedCheckpoint != null
+                && !this.partitionState.OwnershipCancellationToken.IsCancellationRequested)
             {
                 await context.CheckpointAsync(this.completedCheckpoint);
                 completedCheckpoint = null;
@@ -76,14 +80,22 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> messages)
         {
+            this.partitionState.OwnershipCancellationToken.ThrowIfCancellationRequested();
+
             var batch = new List<PartitionEvent>();
             EventData last = null;
 
             foreach(var eventData in messages)
             {
-                var evt = (PartitionEvent) Serializer.DeserializeEvent(eventData.Body);
-                evt.Serialized = eventData.Body; // we'll reuse this for writing to the event log
-                batch.Add(evt);
+                var seqno = eventData.SystemProperties.SequenceNumber;
+                if (seqno > this.inputQueuePosition)
+                {
+                    var evt = (PartitionEvent)Serializer.DeserializeEvent(eventData.Body);
+                    evt.Serialized = eventData.Body; // we'll reuse this for writing to the event log
+                    evt.InputQueuePosition = seqno;
+                    batch.Add(evt);
+                    this.inputQueuePosition = seqno;
+                }
                 last = eventData;
             }
 
@@ -98,6 +110,8 @@ namespace DurableTask.EventSourced.EventHubs
                 var lastEventInBatch = batch[batch.Count - 1];
                 AckListeners.Register(lastEventInBatch, this); 
             }
+
+            this.partitionState.OwnershipCancellationToken.ThrowIfCancellationRequested();
 
             partition.SubmitRange(batch);
 

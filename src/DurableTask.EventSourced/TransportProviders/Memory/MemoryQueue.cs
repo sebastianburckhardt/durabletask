@@ -50,7 +50,7 @@ namespace DurableTask.EventSourced.Emulated
                     }
 
                     eventbatch[i] = this.Deserialize(batch[i]);
-                    eventbatch[i].CommitPosition = position + i;
+                    eventbatch[i].InputQueuePosition = position + i;
                 }
 
                 foreach (var evt in eventbatch)

@@ -33,6 +33,11 @@ namespace DurableTask.EventSourced
         public string StorageConnectionString { get; set; }
 
         /// <summary>
+        /// The name of the taskhub
+        /// </summary>
+        public string TaskHubName { get; set; }
+
+        /// <summary>
         /// Determines the component to use for message delivery and partition load balancing.
         /// </summary>
         public TransportChoices TransportComponent
@@ -142,12 +147,14 @@ namespace DurableTask.EventSourced
             return
                 (this.EventHubsConnectionString,
                 this.StorageConnectionString,
+                this.TaskHubName,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
                 this.KeepServiceRunning)
                 ==
                 (other.EventHubsConnectionString,
                 other.StorageConnectionString,
+                other.TaskHubName,
                 other.MaxConcurrentTaskActivityWorkItems,
                 other.MaxConcurrentTaskOrchestrationWorkItems,
                 other.KeepServiceRunning);
@@ -158,6 +165,7 @@ namespace DurableTask.EventSourced
         {
             return (this.EventHubsConnectionString,
                 this.StorageConnectionString,
+                this.TaskHubName,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
                 this.KeepServiceRunning).GetHashCode();

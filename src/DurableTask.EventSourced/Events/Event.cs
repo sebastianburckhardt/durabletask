@@ -24,10 +24,16 @@ namespace DurableTask.EventSourced
     internal abstract class Event
     {
         /// <summary>
-        /// The position at which this event committed, filled in by the storage back-end.
+        /// For events entering the commit log, the position at which this event committed
         /// </summary>
         [IgnoreDataMember]
-        public long CommitPosition { get; set; } = -1;
+        public long? CommitLogPosition { get; set; }
+
+        /// <summary>
+        /// For events coming from the input queue, the input queue position.
+        /// </summary>
+        [DataMember]
+        public long? InputQueuePosition { get; set; }
 
         /// <summary>
         /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous

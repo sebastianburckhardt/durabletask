@@ -24,11 +24,11 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class MemorySerializingPartitionQueue : MemoryQueue<PartitionEvent,byte[]>, IMemoryQueue<PartitionEvent>
+    internal class MemoryPartitionQueue : MemoryQueue<PartitionEvent,byte[]>, IMemoryQueue<PartitionEvent>
     {
         private readonly TransportAbstraction.IPartition partition;
 
-        public MemorySerializingPartitionQueue(TransportAbstraction.IPartition partition, CancellationToken cancellationToken)
+        public MemoryPartitionQueue(TransportAbstraction.IPartition partition, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
             this.partition = partition;
@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(MemorySerializingPartitionQueue), e);
+                partition.ReportError(nameof(MemoryPartitionQueue), e);
             }
         }
     }

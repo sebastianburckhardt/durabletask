@@ -11,24 +11,8 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using System;
-using System.Collections.Generic;
-using System.Text;
-using FASTER.core;
+using System.Runtime.CompilerServices;
 
-namespace DurableTask.EventSourced.Faster
-{
-    internal class FasterLog : FASTER.core.FasterLog
-        
-    {
-        public FasterLog(BlobManager blobManager)
-            : base(new FasterLogSettings 
-              { 
-                LogDevice = blobManager.EventLogDevice,
-                LogCommitManager = blobManager.UseLocalFilesForTestingAndDebugging ? null : blobManager,
-              })
-        {
-        }
- 
-    }
-}
+#if !SIGN_ASSEMBLY
+[assembly: InternalsVisibleTo("DurableTask.EventSourced.Tests")]
+#endif

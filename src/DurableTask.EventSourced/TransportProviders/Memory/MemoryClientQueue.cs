@@ -24,11 +24,11 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class MemorySerializingClientQueue : MemoryQueue<ClientEvent, byte[]>, IMemoryQueue<ClientEvent>
+    internal class MemoryClientQueue : MemoryQueue<ClientEvent, byte[]>, IMemoryQueue<ClientEvent>
     {
         private readonly TransportAbstraction.IClient client;
 
-        public MemorySerializingClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken)
+        public MemoryClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
             this.client = client;
@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                client.ReportError(nameof(MemorySerializingClientQueue), e);
+                client.ReportError(nameof(MemoryClientQueue), e);
             }
         }
     }

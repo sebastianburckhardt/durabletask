@@ -25,6 +25,12 @@ namespace DurableTask.EventSourced
     internal class DedupState : TrackedObject
     {
         [DataMember]
+        public long InputQueuePosition { get; set; } = -1; // this is read and written directly by storage backend
+
+        [DataMember]
+        public long CommitQueuePosition { get; set; } = -1; // this is read and written directly by storage backend
+
+        [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
 
         [IgnoreDataMember]

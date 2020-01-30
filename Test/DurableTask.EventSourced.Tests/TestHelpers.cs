@@ -14,6 +14,7 @@
 namespace DurableTask.EventSourced.Tests
 {
     using System;
+    using System.Configuration;
     using System.Threading.Tasks;
     using Microsoft.Extensions.Configuration;
 
@@ -25,6 +26,7 @@ namespace DurableTask.EventSourced.Tests
             {
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
+                TaskHubName = GetTestTaskHubName(),
             };
             return new EventSourcedOrchestrationService(settings);
         }
@@ -38,8 +40,16 @@ namespace DurableTask.EventSourced.Tests
             {
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
+                TaskHubName = GetTestTaskHubName(),
             };
             return new TestOrchestrationHost(settings);
+        }
+
+        public static string GetTestTaskHubName()
+        {
+            return "test-taskhub";
+            //Configuration appConfig = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            //return appConfig.AppSettings.Settings["TaskHubName"].Value;
         }
 
         public const string DurabeTaskTestPrefix = "DurableTaskTest";
@@ -54,10 +64,10 @@ namespace DurableTask.EventSourced.Tests
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";
-            // return "MemoryF:1";
+             return "MemoryF:1";
             // return "MemoryF:8";
             // return "MemoryF:32";
-            return GetTestSetting("EventHubsConnectionString", false);
+            //return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)
@@ -71,7 +81,5 @@ namespace DurableTask.EventSourced.Tests
 
             return setting;
         }
-
-     
     }
 }
