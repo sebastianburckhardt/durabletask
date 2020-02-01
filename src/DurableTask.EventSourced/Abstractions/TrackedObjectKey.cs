@@ -23,6 +23,7 @@ namespace DurableTask.EventSourced
             // singletons
             Activities,
             Dedup,
+            Index,
             Outbox,
             Reassembly,
             Sessions,
@@ -37,10 +38,13 @@ namespace DurableTask.EventSourced
         {
             { TrackedObjectType.Activities, typeof(ActivitiesState) },
             { TrackedObjectType.Dedup, typeof(DedupState) },
+            { TrackedObjectType.Index, typeof(IndexState) },
             { TrackedObjectType.Outbox, typeof(OutboxState) },
             { TrackedObjectType.Reassembly, typeof(ReassemblyState) },
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
+            
+            // non-singletons
             { TrackedObjectType.History, typeof(HistoryState) },
             { TrackedObjectType.Instance, typeof(InstanceState) },
         };
@@ -61,6 +65,7 @@ namespace DurableTask.EventSourced
 
         public static TrackedObjectKey Activities = new TrackedObjectKey() { ObjectType = TrackedObjectType.Activities };
         public static TrackedObjectKey Dedup = new TrackedObjectKey() { ObjectType = TrackedObjectType.Dedup };
+        public static TrackedObjectKey Index = new TrackedObjectKey() { ObjectType = TrackedObjectType.Index };
         public static TrackedObjectKey Outbox = new TrackedObjectKey() { ObjectType = TrackedObjectType.Outbox };
         public static TrackedObjectKey Reassembly = new TrackedObjectKey() { ObjectType = TrackedObjectType.Reassembly };
         public static TrackedObjectKey Sessions = new TrackedObjectKey() { ObjectType = TrackedObjectType.Sessions };
@@ -87,6 +92,8 @@ namespace DurableTask.EventSourced
                     return new ActivitiesState();
                 case TrackedObjectKey.TrackedObjectType.Dedup:
                     return new DedupState();
+                case TrackedObjectKey.TrackedObjectType.Index:
+                    return new IndexState();
                 case TrackedObjectKey.TrackedObjectType.Outbox:
                     return new OutboxState();
                 case TrackedObjectKey.TrackedObjectType.Reassembly:

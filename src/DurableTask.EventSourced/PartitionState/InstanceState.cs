@@ -81,6 +81,9 @@ namespace DurableTask.EventSourced
                     CompletedTime = Core.Common.DateTimeUtils.MinDateTime
                 };
 
+                // update the index also
+                effects.Add(TrackedObjectKey.Index);
+
                 // process the creation message on the sessions object
                 // so it can be added to the queue for workitems
                 effects.Add(TrackedObjectKey.Sessions);
@@ -104,6 +107,9 @@ namespace DurableTask.EventSourced
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
             this.OrchestrationState = evt.State;
+
+            // update the index also
+            effects.Add(TrackedObjectKey.Index);
 
             // notify observers that this orchestration state has changed
             if (!effects.IsReplaying)
