@@ -14,6 +14,7 @@
 using FASTER.core;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Threading;
@@ -25,65 +26,90 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterLog log;
         private readonly Partition partition;
+        private readonly StoreWorker storeWorker;
 
         private volatile TaskCompletionSource<bool> shutdownWaiter;
 
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
-        public LogWorker(FasterLog log, Partition partition)
+        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker)
             : base()
         {
             this.log = log;
             this.partition = partition;
+            this.storeWorker = storeWorker;
         }
 
-        private void EnqueueEvent(PartitionEvent evt)
+        public void EnsureSerialized(PartitionEvent evt)
         {
             if (evt.Serialized.Count == 0)
             {
                 byte[] bytes = Serializer.SerializeEvent(evt);
-                evt.CommitLogPosition = this.log.Enqueue(bytes);
-            }
-            else
-            {
-                evt.CommitLogPosition = this.log.Enqueue(evt.Serialized.AsSpan<byte>());
-            }
-
-            this.partition.TraceSubmit(evt);
-        }
-
-        public void AddToLog(IEnumerable<PartitionEvent> evts)
-        {
-            lock (this.thisLock) // we need the lock so concurrent submissions have consistent ordering
-            {
-                foreach (var evt in evts)
-                {
-                    if (evt.PersistInLog)
-                    {
-                        EnqueueEvent(evt);
-                        this.Submit(evt);
-                    }
-                }
+                evt.Serialized = new ArraySegment<byte>(bytes, 0, bytes.Length);
             }
         }
 
-        public void AddToLog(PartitionEvent evt)
+        public override void Submit(PartitionEvent evt)
         {
-            lock (this.thisLock) // we need the lock so concurrent submissions have consistent ordering
+            this.EnsureSerialized(evt);
+
+            lock (this.thisLock)
             {
-                if (evt.PersistInLog)
-                {
-                    EnqueueEvent(evt);
-                    this.Submit(evt);
-                }
+                // append to faster log
+                this.log.Enqueue(evt.Serialized.AsSpan<byte>());
+                evt.CommitLogPosition = (ulong)this.log.TailAddress;
+
+                // add to store worker (under lock for consistent ordering)
+                this.storeWorker.Submit(evt);
+
+                base.Submit(evt);
             }
+        }      
+
+        public override void SubmitRange(IEnumerable<PartitionEvent> events)
+        {
+            foreach (var evt in events)
+            {
+                this.EnsureSerialized(evt);
+            }
+
+            lock (this.thisLock)
+            {
+                foreach (var evt in events)
+                {
+                    // append to faster log
+                    this.log.Enqueue(evt.Serialized.AsSpan<byte>());
+                    evt.CommitLogPosition = (ulong)this.log.TailAddress;
+                }
+
+                // add to store worker (under lock for consistent ordering)
+                this.storeWorker.SubmitRange(events);
+
+                base.SubmitRange(events);
+            }
+        }
+
+        public async Task PersistAndShutdownAsync()
+        {
+            lock (this.thisLock)
+            {
+                this.shutdownWaiter = new TaskCompletionSource<bool>();
+                base.Submit(null);
+            }
+
+            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
             {
+                //  checkpoint the log
+                var stopwatch = new System.Diagnostics.Stopwatch();
+                stopwatch.Start();
+                long previous = log.CommittedUntilAddress;
                 await log.CommitAsync(this.cancellationToken);
+                partition.TracePartitionLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
 
                 foreach (var evt in batch)
                 {
@@ -92,7 +118,7 @@ namespace DurableTask.EventSourced.Faster
                         this.shutdownWaiter.TrySetResult(true);
                         return;
                     }
-                    
+
                     if (!this.IsShuttingDown)
                     {
                         AckListeners.Acknowledge(evt);
@@ -109,15 +135,5 @@ namespace DurableTask.EventSourced.Faster
             }      
         }
 
-        public async Task PersistAndShutdownAsync()
-        {
-            lock (this.thisLock)
-            {
-                this.shutdownWaiter = new TaskCompletionSource<bool>();
-                this.Submit(null);
-            }
-
-            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
-        }
     }
 }

@@ -26,22 +26,22 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterKV store;
         private readonly Partition partition;
 
-        private readonly TrackedObject.EffectList effects;
+        private readonly TrackedObject.EffectTracker effects;
 
         private volatile TaskCompletionSource<bool> cancellationWaiter;
 
         private bool IsShuttingDown => this.cancellationWaiter != null;
 
-        private long inputQueuePosition;
-        private long commitLogPosition;
+        public ulong InputQueuePosition { get; private set; }
+        public ulong CommitLogPosition { get; private set; }
 
         public StoreWorker(FasterKV store, Partition partition)
         {
             this.store = store;
             this.partition = partition;
 
-            // we are reusing the same effect list for all calls to reduce allocations
-            this.effects = new TrackedObject.EffectList(this.partition);
+            // we are reusing the same effect tracker for all calls to reduce allocations
+            this.effects = new TrackedObject.EffectTracker(this.partition);
         }
 
         public async Task Initialize()
@@ -52,16 +52,19 @@ namespace DurableTask.EventSourced.Faster
 
                 if (target is DedupState dedupState)
                 {
-                    this.inputQueuePosition = dedupState.InputQueuePosition;
-                    this.commitLogPosition = dedupState.CommitLogPosition;
+                    this.InputQueuePosition = dedupState.InputQueuePosition = 0;
+                    this.CommitLogPosition = dedupState.CommitLogPosition = 0;
                 }
             }
-
-            if (this.commitLogPosition == -1)
-            {
-                this.commitLogPosition = 0; // the first position in FasterLog is larger than 0, so 0 is our before-the-first value
-            }
         }
+
+        public async Task Recover()
+        {
+            var dedupState = (DedupState) await store.GetOrCreate(TrackedObjectKey.Dedup);
+
+            this.InputQueuePosition = dedupState.InputQueuePosition;
+            this.CommitLogPosition = dedupState.CommitLogPosition;
+         }
 
         public async Task CancelAndShutdown()
         {
@@ -72,13 +75,11 @@ namespace DurableTask.EventSourced.Faster
             }
 
             // waits for the currently processing entry to finish processing
-            await this.cancellationWaiter.Task; 
+            await this.cancellationWaiter.Task;
 
             // write back the queue and log positions
-            var dedup = (DedupState)await store.GetOrCreate(TrackedObjectKey.Dedup);
-            dedup.InputQueuePosition = this.inputQueuePosition;
-            dedup.CommitLogPosition = this.commitLogPosition;
-            await store.MarkWritten(TrackedObjectKey.Dedup);
+            this.effects.Effect = this;
+            await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
         }
 
         protected override async Task Process(IList<object> batch)
@@ -116,14 +117,19 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task ReplayCommitLog(FasterLog log)
         {
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+
+            var startPosition = this.CommitLogPosition;
             this.effects.InRecovery = true;
-            await ReplayCommitLog(this.commitLogPosition, log.TailAddress);
-            this.partition.DiagnosticsTrace($"Commit log replay complete");
+            await ReplayCommitLog(startPosition, log.TailAddress);
+            stopwatch.Stop();
+            this.partition.DiagnosticsTrace($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
             this.effects.InRecovery = false;
 
-            async Task ReplayCommitLog(long from, long to)
+            async Task ReplayCommitLog(ulong from, long to)
             {
-                using (var iter = log.Scan(from, to))
+                using (var iter = log.Scan((long) from, to))
                 {
                     byte[] result;
                     int entryLength;
@@ -131,6 +137,8 @@ namespace DurableTask.EventSourced.Faster
 
                     while (true)
                     {
+                        var next = (ulong) iter.NextAddress;
+
                         while (!iter.GetNext(out result, out entryLength, out currentAddress))
                         {
                             if (currentAddress >= to)
@@ -141,51 +149,48 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         var partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 0, entryLength));
-                        partitionEvent.CommitLogPosition = currentAddress;
+                        partitionEvent.CommitLogPosition = next;
                         await this.ProcessEvent(partitionEvent);
                     }
                 }
             }
         }
 
-        public async Task<long> FinishRecovery()
-        {
-            foreach (var key in TrackedObjectKey.GetSingletons())
-            {
-                var target = (TrackedObject)await store.GetOrCreate(key);
-                target.OnRecoveryCompleted();
-            }
-
-            this.partition.DiagnosticsTrace($"Recovery complete {this.inputQueuePosition}");
-
-            return this.inputQueuePosition;
-        }
-
         public async ValueTask ProcessEvent(PartitionEvent partitionEvent)
         {
-            if (partitionEvent.InputQueuePosition.HasValue && partitionEvent.InputQueuePosition.Value <= this.inputQueuePosition)
+            if (partitionEvent.InputQueuePosition.HasValue && partitionEvent.InputQueuePosition.Value <= this.InputQueuePosition)
             {
                 partition.DiagnosticsTrace($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
+                return;
             }
 
             try
             {
                 this.partition.TraceProcess(partitionEvent);
+                this.effects.Effect = partitionEvent;
+
+                // collect the initial list of targets
                 partitionEvent.DetermineEffects(this.effects);
+
+                // process until there are no more targets
                 while (this.effects.Count > 0)
                 {
                     await this.ProcessRecursively(partitionEvent);
                 }
+
+                // update the commit log and input queue positions
                 if (partitionEvent.CommitLogPosition.HasValue)
                 {
-                    this.partition.Assert(partitionEvent.CommitLogPosition.Value > this.commitLogPosition);
-                    this.commitLogPosition = partitionEvent.CommitLogPosition.Value;
+                    this.partition.Assert(partitionEvent.CommitLogPosition.Value > this.CommitLogPosition);
+                    this.CommitLogPosition = partitionEvent.CommitLogPosition.Value;
                 }
                 if (partitionEvent.InputQueuePosition.HasValue)
                 {
-                    partition.Assert(partitionEvent.InputQueuePosition.Value > this.inputQueuePosition);
-                    this.inputQueuePosition = partitionEvent.InputQueuePosition.Value;
+                    partition.Assert(partitionEvent.InputQueuePosition.Value > this.InputQueuePosition);
+                    this.InputQueuePosition = partitionEvent.InputQueuePosition.Value;
                 }
+
+                this.effects.Effect = null;
                 partition.DiagnosticsTrace($"Processing complete {partitionEvent.InputQueuePosition}");
                 Partition.TraceContext = null;
             }
@@ -199,29 +204,23 @@ namespace DurableTask.EventSourced.Faster
         public async ValueTask ProcessRecursively(PartitionEvent evt)
         {
             var startPos = this.effects.Count - 1;
-            var thisKey = this.effects[startPos];
-            var thisObject = await store.GetOrCreate(thisKey);
+            var key = this.effects[startPos];
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                partition.DiagnosticsTrace($"Process on [{thisObject.Key}]");
+                partition.DiagnosticsTrace($"Process on [{key}]");
             }
 
-            // start with processing the event on this object, which
-            // updates its state and can flag more objects to process on
-            dynamic dynamicThis = thisObject;
-            dynamic dynamicPartitionEvent = evt;
-            dynamicThis.Process(dynamicPartitionEvent, this.effects);
-
-            // tell Faster that this object was modified
-            await store.MarkWritten(thisKey);
-
+            // start with processing the event on this object 
+            await store.ProcessEffectOnTrackedObject(key, this.effects);
+             
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)
             {
                 await this.ProcessRecursively(evt);
             }
 
+            // pop this object as we are done processing
             effects.RemoveAt(startPos);
         }
     }

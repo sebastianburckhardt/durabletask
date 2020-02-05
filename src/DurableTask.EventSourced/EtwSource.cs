@@ -146,5 +146,42 @@ namespace DurableTask.EventSourced
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(61, clientId, eventInfo);
         }
+
+        // ----- partition storage events
+
+        [Event(70, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionCheckpointSaved(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(70, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
+        }
+
+        [Event(71, Level = EventLevel.Verbose, Version = 1)]
+        public void PartitionLogPersisted(uint partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(71, partitionId, commitPosition, numBytes, elapsedMilliseconds);
+        }
+
+        [Event(72, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionStoreCreated(uint partitionId, ulong inputPosition, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(72, partitionId, inputPosition, elapsedMilliseconds);
+        }
+
+        [Event(73, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionCheckpointLoaded(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(73, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
+        }
+
+        [Event(74, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionLogReplayed(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(74, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
+        }
     }
 }

@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override bool AtMostOnce => true;
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
         }

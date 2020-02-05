@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public PartitionEvent ReassembledEvent;
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Reassembly);
         }

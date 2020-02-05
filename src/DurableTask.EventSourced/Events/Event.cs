@@ -27,13 +27,13 @@ namespace DurableTask.EventSourced
         /// For events entering the commit log, the position at which this event committed
         /// </summary>
         [IgnoreDataMember]
-        public long? CommitLogPosition { get; set; }
+        public ulong? CommitLogPosition { get; set; }
 
         /// <summary>
         /// For events coming from the input queue, the input queue position.
         /// </summary>
         [DataMember]
-        public long? InputQueuePosition { get; set; }
+        public ulong? InputQueuePosition { get; set; }
 
         /// <summary>
         /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous

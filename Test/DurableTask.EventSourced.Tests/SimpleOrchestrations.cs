@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced.Tests
         public async override Task<string> RunTask(OrchestrationContext context, string input)
         {
             // start a responder orchestration
-            var responderId = "responderId";
+            var responderId = "responderId" + context.OrchestrationInstance.InstanceId;
             var responderOrchestration = context.CreateSubOrchestrationInstance<string>(typeof(Responder), responderId, "Herkimer");
 
             // send the id of this orchestration to the responder

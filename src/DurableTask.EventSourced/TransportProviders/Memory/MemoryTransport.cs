@@ -30,6 +30,7 @@ namespace DurableTask.EventSourced.Emulated
         private IMemoryQueue<PartitionEvent>[] partitionQueues;
         private TransportAbstraction.IClient client;
         private StorageAbstraction.IPartitionState[] partitionStates;
+        private TransportAbstraction.IPartition[] partitions;
         private CancellationTokenSource shutdownTokenSource;
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
@@ -47,6 +48,7 @@ namespace DurableTask.EventSourced.Emulated
             this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
             this.partitionQueues = new IMemoryQueue<PartitionEvent>[numberPartitions];
             this.partitionStates = new StorageAbstraction.IPartitionState[numberPartitions];
+            this.partitions = new TransportAbstraction.IPartition[numberPartitions];
         }
 
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
@@ -87,9 +89,15 @@ namespace DurableTask.EventSourced.Emulated
                 var partitionState = partitionStates[i] = this.host.CreatePartitionState();
                 var partition = this.host.AddPartition(i, partitionState, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                var partitionQueue = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
-                this.partitionQueues[i] = partitionQueue;
-                await partition.StartAsync();
+                this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
+                this.partitions[i] = partition;
+            }
+
+            // create or recover all the partitions
+            for (uint i = 0; i < this.settings.MemoryPartitions; i++)
+            {
+                var lastProcessedInput = await partitions[i].StartAsync(CancellationToken.None);
+                partitionQueues[i].StartPosition = lastProcessedInput + 1;
             }
 
             // start all the emulated queues

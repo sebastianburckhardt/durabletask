@@ -44,6 +44,7 @@ namespace DurableTask.EventSourced
                     TimerFiredMessage = kvp.Value,
                 };
 
+                Partition.DiagnosticsTrace($"Rescheduled {kvp.Value}");
                 Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
             }
         }
@@ -51,7 +52,7 @@ namespace DurableTask.EventSourced
         // TimerFired
         // removes the entry for the pending timer, and then adds it to the sessions queue
 
-        public void Process(TimerFired evt, EffectList effects)
+        public void Process(TimerFired evt, EffectTracker effects)
         {
             PendingTimers.Remove(evt.TimerId);
         }
@@ -59,7 +60,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // starts new timers as specified by the batch
 
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker effects)
         {
             foreach (var t in evt.TimerMessages)
             {

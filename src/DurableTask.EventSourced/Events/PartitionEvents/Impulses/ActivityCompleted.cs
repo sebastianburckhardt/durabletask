@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
             effects.Add(TrackedObjectKey.Activities);

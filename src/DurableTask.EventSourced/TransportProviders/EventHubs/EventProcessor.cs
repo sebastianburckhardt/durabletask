@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Mime;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.EventSourced.Emulated;
 using Microsoft.Azure.EventHubs;
@@ -38,7 +39,7 @@ namespace DurableTask.EventSourced.EventHubs
         private int eventsSinceLastCheckpoint;
         private Checkpoint pendingCheckpoint;
         private Checkpoint completedCheckpoint;
-        private long inputQueuePosition;
+        private ulong inputQueuePosition;
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
 
@@ -55,7 +56,7 @@ namespace DurableTask.EventSourced.EventHubs
             uint partitionId = uint.Parse(context.PartitionId);
             this.partitionState = this.host.CreatePartitionState();
             this.partition = host.AddPartition(partitionId, this.partitionState, this.sender);
-            this.inputQueuePosition = await this.partition.StartAsync();
+            this.inputQueuePosition = await this.partition.StartAsync(CancellationToken.None);
             timeSinceLastCheckpoint.Start();
             eventsSinceLastCheckpoint = 0;
         }
@@ -87,14 +88,14 @@ namespace DurableTask.EventSourced.EventHubs
 
             foreach(var eventData in messages)
             {
-                var seqno = eventData.SystemProperties.SequenceNumber;
-                if (seqno > this.inputQueuePosition)
+                var seqno = (ulong) eventData.SystemProperties.SequenceNumber;
+                if (seqno >= this.inputQueuePosition)
                 {
                     var evt = (PartitionEvent)Serializer.DeserializeEvent(eventData.Body);
                     evt.Serialized = eventData.Body; // we'll reuse this for writing to the event log
-                    evt.InputQueuePosition = seqno;
+                    this.inputQueuePosition = seqno + 1;
+                    evt.InputQueuePosition = this.inputQueuePosition;
                     batch.Add(evt);
-                    this.inputQueuePosition = seqno;
                 }
                 last = eventData;
             }

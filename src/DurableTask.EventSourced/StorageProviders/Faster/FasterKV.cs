@@ -12,28 +12,19 @@ using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, Empty, TrackedObject, Empty, FasterKV.Functions>, IDisposable
+    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, TrackedObject.EffectTracker, TrackedObject, Empty, FasterKV.Functions>, IDisposable
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
         private readonly CancellationTokenSource shutdown;
-        private readonly ClientSession<Key, Value, Empty, TrackedObject, Empty, Functions> mainSession;
+        private readonly ClientSession<Key, Value, TrackedObject.EffectTracker, TrackedObject, Empty, Functions> mainSession;
 
         public FasterKV(Partition partition, BlobManager blobManager)
             : base(
                 1L << 17,
                 new Functions(partition),
-                new LogSettings
-                {
-                    LogDevice = blobManager.HybridLogDevice,
-                    ObjectLogDevice = blobManager.ObjectLogDevice,
-                    MemorySizeBits = 29,
-                },
-                blobManager.UseLocalFilesForTestingAndDebugging ? null : new CheckpointSettings
-                {
-                    CheckpointManager = blobManager,
-                    CheckPointType = CheckpointType.FoldOver,
-                },
+                blobManager.StoreLogSettings,
+                blobManager.StoreCheckpointSettings,
                 new SerializerSettings<FasterKV.Key, FasterKV.Value>
                 {
                     keySerializer = () => new Key.Serializer(),
@@ -145,7 +136,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public Empty NoInput = Empty.Default; 
+        public TrackedObject.EffectTracker NoInput = null; 
 
         // fast path read, synchronous, on the main session
         public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
@@ -216,23 +207,22 @@ namespace DurableTask.EventSourced.Faster
             {
                 target = TrackedObjectKey.Factory(key);
                 await this.mainSession.UpsertAsync(key, target, false, this.shutdown.Token);
-                target.Partition = this.partition;
             }
             else if (status != Status.OK)
             {
                 throw new Exception("Faster"); //TODO
             }
 
+            target.Partition = this.partition;
             return target;
         }
 
-        public ValueTask MarkWritten(TrackedObjectKey k)
+        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, TrackedObject.EffectTracker tracker)
         {
-            //TODO think about miss case which should be impossible
-            return this.mainSession.RMWAsync(k, NoInput, false, this.shutdown.Token);
+            return this.mainSession.RMWAsync(k, tracker, false, this.shutdown.Token);
         }
 
-        public class Functions : IFunctions<Key, Value, Empty, TrackedObject, Empty>
+        public class Functions : IFunctions<Key, Value, TrackedObject.EffectTracker, TrackedObject, Empty>
         {
             private readonly Partition partition;
 
@@ -241,29 +231,36 @@ namespace DurableTask.EventSourced.Faster
                 this.partition = partition;
             }
 
-            public void InitialUpdater(ref Key key, ref Empty input, ref Value value)
+            public void InitialUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
             {
                 value.Val = TrackedObjectKey.Factory(key.Val);
                 value.Val.Partition = partition;
+                tracker.ProcessEffectOn(value.Val);
+                value.Val.SerializedSnapshot = null; //is invalidated
             }
 
-            public bool InPlaceUpdater(ref Key key, ref Empty input, ref Value value)
+            public bool InPlaceUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
             {
+                value.Val.Partition = partition;
+                value.Val.SerializedSnapshot = null; //is invalidated
+                tracker.ProcessEffectOn(value.Val);
                 return true;
             }
 
-            public void CopyUpdater(ref Key key, ref Empty input, ref Value oldValue, ref Value newValue)
+            public void CopyUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value oldValue, ref Value newValue)
             {
-                DurableTask.EventSourced.Serializer.SerializeTrackedObject(oldValue);
                 newValue.Val = oldValue.Val;
+                newValue.Val.Partition = partition;
+                newValue.Val.SerializedSnapshot = null; //is invalidated
+                tracker.ProcessEffectOn(newValue.Val);
             }
 
-            public void SingleReader(ref Key key, ref Empty input, ref Value value, ref TrackedObject dst)
+            public void SingleReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
                 dst = value.Val;
             }
 
-            public void ConcurrentReader(ref Key key, ref Empty input, ref Value value, ref TrackedObject dst)
+            public void ConcurrentReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
                 dst = value.Val;
             }
@@ -280,8 +277,8 @@ namespace DurableTask.EventSourced.Faster
             }
 
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void ReadCompletionCallback(ref Key key, ref Empty input, ref TrackedObject output, Empty ctx, Status status) { }
-            public void RMWCompletionCallback(ref Key key, ref Empty input, Empty ctx, Status status) { }
+            public void ReadCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, ref TrackedObject output, Empty ctx, Status status) { }
+            public void RMWCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, Empty ctx, Status status) { }
             public void UpsertCompletionCallback(ref Key key, ref Value value, Empty ctx) { }
             public void DeleteCompletionCallback(ref Key key, Empty ctx) { }
         }

@@ -25,8 +25,8 @@ namespace DurableTask.EventSourced
     internal class MemoryStorage : BatchWorker<object>, StorageAbstraction.IPartitionState
     {
         private Partition partition;
-        private long nextSubmitPosition = 0;
-        private long nextCommitPosition = 0;
+        private ulong nextSubmitPosition = 0;
+        private ulong nextCommitPosition = 0;
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
 
@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced
             this.Submit(readContinuation);
         }
 
-        public Task<long> RestoreAsync(Partition partition)
+        public Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
         {
             this.partition = partition;
 
@@ -73,7 +73,7 @@ namespace DurableTask.EventSourced
                 trackedObject.Partition = partition;
             }
 
-            return Task.FromResult(-1L);
+            return Task.FromResult(0UL);
         }
 
         public Task PersistAndShutdownAsync()
@@ -90,7 +90,7 @@ namespace DurableTask.EventSourced
 
         protected override Task Process(IList<object> batch)
         {
-            var effects = new TrackedObject.EffectList(this.partition);
+            var effects = new TrackedObject.EffectTracker(this.partition);
 
             if (batch.Count != 0)
             {
@@ -100,6 +100,7 @@ namespace DurableTask.EventSourced
                     {
                         partitionEvent.CommitLogPosition = nextCommitPosition++;
                         partition.TraceProcess(partitionEvent);
+                        effects.Effect = partitionEvent;
 
                         // determine the effects and apply all the updates
                         partitionEvent.DetermineEffects(effects);
@@ -108,6 +109,7 @@ namespace DurableTask.EventSourced
                             this.ProcessRecursively(partitionEvent, effects);
                         }
 
+                        effects.Effect = null;
                         partition.DiagnosticsTrace("Processing complete");
                         Partition.TraceContext = null;
 
@@ -125,23 +127,20 @@ namespace DurableTask.EventSourced
             return Task.CompletedTask;
         }
 
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectList effects)
+        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectTracker effects)
         {
             // process the last effect in the list, and recursively any effects it adds
             var startPos = effects.Count - 1;
-            var thisKey = effects[startPos];
-            var thisObject = this.GetOrAdd(thisKey);
+            var key = effects[startPos];
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                partition.DiagnosticsTrace($"Process on [{thisObject.Key}]");
+                partition.DiagnosticsTrace($"Process on [{key}]");
             }
 
             // start with processing the event on this object, which
             // updates its state and can flag more objects to process on
-            dynamic dynamicThis = thisObject;
-            dynamic dynamicPartitionEvent = evt;
-            dynamicThis.Process(dynamicPartitionEvent, effects);
+            effects.ProcessEffectOn(this.GetOrAdd(key));
 
             // recursively process all additional objects to process
             while (effects.Count - 1 > startPos)

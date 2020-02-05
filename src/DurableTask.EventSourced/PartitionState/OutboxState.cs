@@ -36,6 +36,7 @@ namespace DurableTask.EventSourced
             // resend all pending
             foreach (var kvp in Outbox)
             {
+                Partition.DiagnosticsTrace($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 Send(kvp.Key, kvp.Value);
             }
         }
@@ -92,9 +93,9 @@ namespace DurableTask.EventSourced
 
         // BatchProcessed
 
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker effects)
         {
-            this.Outbox[evt.CommitLogPosition.Value] = evt.RemoteMessages;
+            this.Outbox[(long) evt.CommitLogPosition.Value] = evt.RemoteMessages;
 
             if (evt.RemoteMessages?.Count > 0 && !effects.InRecovery)
             {
@@ -106,12 +107,12 @@ namespace DurableTask.EventSourced
         {
             // now that the event is durable we can send the messages
             var batchProcessedEvent = (BatchProcessed)evt;
-            this.Send(batchProcessedEvent.CommitLogPosition.Value, batchProcessedEvent.RemoteMessages);
+            this.Send((long) batchProcessedEvent.CommitLogPosition.Value, batchProcessedEvent.RemoteMessages);
         }
 
         // SendConfirmed
 
-        public void Process(SendConfirmed evt, EffectList effects)
+        public void Process(SendConfirmed evt, EffectTracker effects)
         {
             // we no longer need to keep these events around
             this.Outbox.Remove(evt.Position);

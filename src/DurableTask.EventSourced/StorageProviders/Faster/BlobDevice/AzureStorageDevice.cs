@@ -59,17 +59,19 @@ namespace FASTER.devices
             foreach (IListBlobItem item in container.ListBlobs(blobName))
             {
                 string[] parts = item.Uri.Segments;
-                int segmentId = Int32.Parse(parts[parts.Length - 1].Replace(blobName, ""));
-                if (segmentId != prevSegmentId + 1)
+                if (Int32.TryParse(parts[parts.Length - 1].Replace(blobName + ".", ""), out int segmentId))
                 {
-                    startSegment = segmentId;
+                    if (segmentId != prevSegmentId + 1)
+                    {
+                        startSegment = segmentId;
 
+                    }
+                    else
+                    {
+                        endSegment = segmentId;
+                    }
+                    prevSegmentId = segmentId;
                 }
-                else
-                {
-                    endSegment = segmentId;
-                }
-                prevSegmentId = segmentId;
             }
 
             for (int i = startSegment; i <= endSegment; i++)
@@ -219,7 +221,7 @@ namespace FASTER.devices
 
         private string GetSegmentBlobName(int segmentId)
         {
-            return blobName + segmentId;
+            return $"{blobName}.{segmentId}";
         }
     }
 }

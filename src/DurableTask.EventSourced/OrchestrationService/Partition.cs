@@ -23,7 +23,7 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class Partition : TransportAbstraction.IPartition
+    internal partial class Partition : TransportAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
 
@@ -73,15 +73,15 @@ namespace DurableTask.EventSourced
                 state.OwnershipCancellationToken);
         }
 
-        public async Task<long> StartAsync()
+        public async Task<ulong> StartAsync(CancellationToken token)
         {
             // initialize collections for pending work
             this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
-            // restore from last snapshot
-            var inputQueuePosition = await State.RestoreAsync(this);
+            // create or restore from last snapshot
+            var inputQueuePosition = await State.CreateOrRestoreAsync(this, token);
 
             this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
@@ -177,85 +177,6 @@ namespace DurableTask.EventSourced
             }
 
             this.OrchestrationWorkItemQueue.Add(item);
-        }
-
-        public void ReportError(string where, Exception e)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                System.Diagnostics.Trace.TraceError($"Part{this.PartitionId:D2} !!! Exception in {where}: {e}");
-            }
-            if (EtwSource.EmitEtwTrace)
-            {
-                EtwSource.Log.PartitionErrorReported(this.PartitionId, where, e.GetType().Name, e.Message);
-            }
-        }
-
-        public void TraceProcess(PartitionEvent evt)
-        {
-            Partition.TraceContext = $"{evt.CommitLogPosition:D10}   ";
-
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing {evt} {evt.WorkItem}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventReceived(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
-            }
-        }
-
-        public void TraceSend(Event evt)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Sending {evt} {evt.WorkItem}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
-            }
-        }
-
-        public void TraceSubmit(Event evt)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Submitting {evt} {evt.CommitLogPosition:D10} {evt.WorkItem}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
-            }
-        }
-
-        public void DiagnosticsTrace(string msg)
-        {
-            var context = Partition.TraceContext;
-            if (string.IsNullOrEmpty(context))
-            {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2} {msg}");
-            }
-            else
-            {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{context} {msg}");
-            }
-        }
-
-        [Conditional("DEBUG")]
-        public void Assert(bool condition)
-        {
-            if (!condition)
-            {
-                var stacktrace = System.Environment.StackTrace;
-
-                if (EtwSource.EmitDiagnosticsTrace)
-                {
-                    System.Diagnostics.Trace.TraceError($"Part{this.PartitionId:D2} !!! Assertion failed {stacktrace}");
-                }
- 
-                System.Diagnostics.Debugger.Break();
-            }
         }
     }
 }

@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
         // ActivityCompleted
         // records the result of a finished activity
 
-        public void Process(ActivityCompleted evt, EffectList effects)
+        public void Process(ActivityCompleted evt, EffectTracker effects)
         {
             PendingActivities.Remove(evt.ActivityId);
         }
@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // may launch new activities
 
-        public void Process(BatchProcessed evt, EffectList effect)
+        public void Process(BatchProcessed evt, EffectTracker effect)
         {
             foreach (var msg in evt.ActivityMessages)
             {

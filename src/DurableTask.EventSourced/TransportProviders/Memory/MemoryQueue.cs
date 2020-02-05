@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced.Emulated
     /// </summary>
     internal abstract class MemoryQueue<T,B> : BatchWorker<B> where T:Event
     {
-        private long position = 0;
+        private ulong position = 0;
 
         public MemoryQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
         {
@@ -35,6 +35,8 @@ namespace DurableTask.EventSourced.Emulated
         protected abstract T Deserialize(B evt);
 
         protected abstract void Deliver(T evt);
+
+        public ulong StartPosition { get; set; }
 
         protected override Task Process(IList<B> batch)
         {
@@ -50,7 +52,7 @@ namespace DurableTask.EventSourced.Emulated
                     }
 
                     eventbatch[i] = this.Deserialize(batch[i]);
-                    eventbatch[i].InputQueuePosition = position + i;
+                    eventbatch[i].InputQueuePosition = StartPosition + position + (ulong) i;
                 }
 
                 foreach (var evt in eventbatch)
@@ -63,7 +65,7 @@ namespace DurableTask.EventSourced.Emulated
                     Deliver(evt);
                 }
 
-                position = position + batch.Count;
+                position = position + (ulong) batch.Count;
             }
 
             return Task.CompletedTask;

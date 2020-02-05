@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using Dynamitey;
+using Microsoft.Azure.Amqp.Framing;
 using System;
 using System.Collections.Generic;
 using System.Dynamic;
@@ -33,9 +34,6 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         internal byte[] SerializedSnapshot { get; set; }
-
-        [DataMember]
-        public long CommitLogPosition { get; set; } = -1;
 
         private static IEnumerable<Type> KnownTypes()
         {
@@ -59,24 +57,31 @@ namespace DurableTask.EventSourced
             // subclasses override this if there is work they need to do here
         }
 
-        public virtual void Process(PartitionEventFragment e, EffectList effect)
+        public virtual void Process(PartitionEventFragment e, EffectTracker effects)
         {
             // processing a reassembled event just applies the original event
             dynamic dynamicThis = this;
             dynamic dynamicPartitionEvent = e.ReassembledEvent;
-            dynamicThis.Process(dynamicPartitionEvent, effect);
+            dynamicThis.Process(dynamicPartitionEvent, effects);
         }
 
-        public class EffectList : List<TrackedObjectKey>
+        public class EffectTracker : List<TrackedObjectKey>
         {
-            public EffectList(Partition Partition)
+            public EffectTracker(Partition Partition)
             {
                 this.Partition = Partition;
             }
 
             public Partition Partition { get; }
 
+            public dynamic Effect { get; set; }
+
             public bool InRecovery { get; set; }
+
+            public void ProcessEffectOn(dynamic trackedObject)
+            {
+                trackedObject.Process(Effect, this); // dispatches dynamically based on the event and object classes
+            }
         } 
     }
 }

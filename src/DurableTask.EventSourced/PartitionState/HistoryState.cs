@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // can add events to the history, or replace it with a new history
 
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker effects)
         {
             // update the stored history
             if (this.History == null || evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)

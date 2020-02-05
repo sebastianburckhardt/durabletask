@@ -42,7 +42,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override bool AtMostOnce => true;
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             // the creation request first checks the state of the instance;
             // it then decides how to proceed from there

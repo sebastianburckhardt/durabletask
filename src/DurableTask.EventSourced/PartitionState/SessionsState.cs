@@ -112,7 +112,7 @@ namespace DurableTask.EventSourced
         // TaskMessageReceived
         // queues task message (from another partition) in a new or existing session
 
-        public void Process(TaskMessageReceived taskMessageReceived, EffectList effects)
+        public void Process(TaskMessageReceived taskMessageReceived, EffectTracker effects)
         {
             foreach (var group in taskMessageReceived.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
@@ -124,7 +124,7 @@ namespace DurableTask.EventSourced
         // ClientTaskMessagesReceived
         // queues task message (from a client) in a new or existing session
 
-        public void Process(ClientTaskMessagesReceived evt, EffectList effects)
+        public void Process(ClientTaskMessagesReceived evt, EffectTracker effects)
         {
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
             this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.InRecovery);
@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced
         // CreationMessageReceived
         // queues a creation task message in a new or existing session
 
-        public void Process(CreationRequestReceived creationRequestReceived, EffectList effects)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
             this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.InRecovery);
         }
@@ -141,7 +141,7 @@ namespace DurableTask.EventSourced
         // TimerFired
         // queues a timer fired message in a session
 
-        public void Process(TimerFired timerFired, EffectList effects)
+        public void Process(TimerFired timerFired, EffectTracker effects)
         {
             this.AddMessageToSession(timerFired.TimerFiredMessage, false, effects.InRecovery);
         }
@@ -149,7 +149,7 @@ namespace DurableTask.EventSourced
         // ActivityCompleted
         // queues an activity-completed message in a session
 
-        public void Process(ActivityCompleted activityCompleted, EffectList effects)
+        public void Process(ActivityCompleted activityCompleted, EffectTracker effects)
         {
             this.AddMessageToSession(activityCompleted.Response, false, effects.InRecovery);
         }
@@ -157,7 +157,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // updates the session and other state
 
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker effects)
         {
             var session = this.Sessions[evt.InstanceId];
 
@@ -210,7 +210,7 @@ namespace DurableTask.EventSourced
             this.StartNewBatchIfNeeded(session, effects, evt.InstanceId, effects.InRecovery);
         }
 
-        private void StartNewBatchIfNeeded(Session session, EffectList effects, string instanceId, bool inRecovery)
+        private void StartNewBatchIfNeeded(Session session, EffectTracker effects, string instanceId, bool inRecovery)
         {
             if (session.Batch.Count == 0)
             {

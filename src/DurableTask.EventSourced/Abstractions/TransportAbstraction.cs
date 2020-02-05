@@ -65,7 +65,7 @@ namespace DurableTask.EventSourced
         {
             uint PartitionId { get; }
 
-            Task<long> StartAsync();
+            Task<ulong> StartAsync(CancellationToken token);
 
             void Submit(PartitionEvent partitionEvent);
 

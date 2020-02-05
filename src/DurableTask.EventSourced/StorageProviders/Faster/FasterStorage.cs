@@ -12,8 +12,8 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -31,9 +31,7 @@ namespace DurableTask.EventSourced.Faster
         private FasterLog log;
         private FasterKV store;
 
-        private bool shuttingDown;
-
-        private long inputQueuePosition;
+        private volatile bool shuttingDown;
 
         public CancellationToken OwnershipCancellationToken { get; private set; }
 
@@ -43,33 +41,67 @@ namespace DurableTask.EventSourced.Faster
             this.taskHubName = taskHubName;
         }
 
-        public async Task<long> RestoreAsync(Partition partition)
+        public async Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
         {
             this.partition = partition;
             this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
+            this.blobManager.UseLocalFilesForTestingAndDebugging = true;
+
             await blobManager.StartAsync();
-            this.OwnershipCancellationToken = await blobManager.AcquireOwnership(CancellationToken.None);
+            this.OwnershipCancellationToken = await blobManager.AcquireOwnership(token);
+
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
 
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.logWorker = new LogWorker(log, this.partition);
             this.storeWorker = new StoreWorker(store, this.partition);
+            this.logWorker = new LogWorker(log, this.partition, this.storeWorker);
 
-            // read all singleton objects and determine from where to resume the commit log
-            await storeWorker.Initialize();
+            if (this.log.TailAddress == this.log.BeginAddress)
+            {
+                // this is a fresh partition
+                await storeWorker.Initialize();
 
-            // replay the commit log to the end, if necessary
-            await storeWorker.ReplayCommitLog(log);
+                // take an (empty) checkpoint immediately to ensure the paths are working
+                this.store.TakeFullCheckpoint(out _);
+                await this.store.CompleteCheckpointAsync();
 
-            // finish the recovery
-            this.inputQueuePosition = await storeWorker.FinishRecovery();
+                partition.TracePartitionStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                // we are recovering
+                // recover the last checkpoint of the store
+                this.store.Recover();
+                await storeWorker.Recover();
 
-            // resume the input queue from the last processed position
-            return inputQueuePosition;
+                partition.TracePartitionCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+
+                stopwatch.Restart();
+
+                // replay log if the store checkpoint lags behind the log
+                if (this.log.TailAddress > (long) storeWorker.CommitLogPosition)
+                {
+                    await this.storeWorker.ReplayCommitLog(log);
+                }
+
+                partition.TracePartitionLogReplayed(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+
+                // restart pending actitivities, timers, work items etc.
+                foreach (var key in TrackedObjectKey.GetSingletons())
+                {
+                    var target = (TrackedObject)await store.GetOrCreate(key);
+                    target.OnRecoveryCompleted();
+                }
+
+                this.partition.DiagnosticsTrace($"Recovery complete.");
+            }
+
+            return storeWorker.InputQueuePosition;
         }
-
 
         public async Task PersistAndShutdownAsync()
         {
@@ -83,11 +115,13 @@ namespace DurableTask.EventSourced.Faster
                 );
 
                 // at this point we know the log was successfully persisted, so can we persist a store checkpoint
+                var stopwatch = new System.Diagnostics.Stopwatch();
+                stopwatch.Start();
                 this.store.TakeFullCheckpoint(out _);
                 await this.store.CompleteCheckpointAsync();
-
+                partition.TracePartitionCheckpointSaved(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 this.partition.ReportError($"{nameof(FasterStorage)}.{nameof(PersistAndShutdownAsync)}", e);
             }
@@ -100,34 +134,34 @@ namespace DurableTask.EventSourced.Faster
 
         public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
         {
-            if (this.shuttingDown)
+            if (!this.shuttingDown)
             {
-                return; // as we are already shutting down, we will never run this action
+                this.storeWorker.Submit(readContinuation);
             }
-
-            this.storeWorker.Submit(readContinuation);
         }
 
         public void SubmitRange(IEnumerable<PartitionEvent> evts)
         {
-            if (this.shuttingDown)
+            if (!this.shuttingDown)
             {
-                return; // as we are already shutting down, ignore the event
+                this.logWorker.SubmitRange(evts.Where(e => !e.IsReadOnly));
+                this.storeWorker.SubmitRange(evts.Where(e => e.IsReadOnly));
             }
-
-            this.logWorker.AddToLog(evts);
-            this.storeWorker.SubmitRange(evts);
         }
 
         public void Submit(PartitionEvent evt)
         {
-            if (this.shuttingDown)
+            if (!this.shuttingDown)
             {
-                return; // as we are already shutting down, ignore the event
+                if (!evt.IsReadOnly)
+                {
+                    this.logWorker.Submit(evt);
+                }
+                else
+                {
+                    this.storeWorker.Submit(evt);
+                }
             }
-
-            this.logWorker.AddToLog(evt);
-            this.storeWorker.Submit(evt);
         }
     }
 }

@@ -1221,6 +1221,8 @@ namespace DurableTask.EventSourced.Tests
                         var senderInstance = new OrchestrationInstance() { InstanceId = message };
                         context.SendEvent(senderInstance, ChannelName, responseString);
 
+                        context.ContinueAsNew(null);
+
                         return "this return value is not observed by anyone";
                     }
 

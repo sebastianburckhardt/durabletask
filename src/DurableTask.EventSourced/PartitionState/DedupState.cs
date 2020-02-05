@@ -18,6 +18,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Faster;
 
 namespace DurableTask.EventSourced
 {
@@ -25,10 +26,10 @@ namespace DurableTask.EventSourced
     internal class DedupState : TrackedObject
     {
         [DataMember]
-        public long InputQueuePosition { get; set; } = -1; // this is read and written directly by storage backend
+        public ulong InputQueuePosition { get; set; } // this is read and written directly by storage backend
 
         [DataMember]
-        public long CommitQueuePosition { get; set; } = -1; // this is read and written directly by storage backend
+        public ulong CommitLogPosition { get; set; } // this is read and written directly by storage backend
 
         [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
@@ -39,7 +40,7 @@ namespace DurableTask.EventSourced
         // TaskMessageReceived 
         // filters any messages that originated on a partition, and whose origin is marked as processed
 
-        public void Process(TaskMessageReceived evt, EffectList effects)
+        public void Process(TaskMessageReceived evt, EffectTracker effects)
         {
             long alreadyProcessed = -1;
             this.ProcessedOrigins.TryGetValue(evt.OriginPartition, out alreadyProcessed);
@@ -48,6 +49,13 @@ namespace DurableTask.EventSourced
                 effects.Add(TrackedObjectKey.Sessions);
                 this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
             }
+        }
+
+        // the storage layer updates these positions before writing a checkpoint
+        public void Process(StoreWorker storeWorker, EffectTracker _)
+        {
+            this.InputQueuePosition = storeWorker.InputQueuePosition;
+            this.CommitLogPosition = storeWorker.CommitLogPosition;
         }
     }
 }

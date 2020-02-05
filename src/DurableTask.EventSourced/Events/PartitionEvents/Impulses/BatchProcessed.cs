@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public OrchestrationRuntimeState InMemoryRuntimeState { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             // start on the sessions object; further effects are determined from there
             effects.Add(TrackedObjectKey.Sessions);

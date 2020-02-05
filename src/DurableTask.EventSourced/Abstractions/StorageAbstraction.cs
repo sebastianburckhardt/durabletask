@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced
         /// </summary>
         internal interface IPartitionState
         {
-            Task<long> RestoreAsync(Partition localPartition);
+            Task<ulong> CreateOrRestoreAsync(Partition localPartition, CancellationToken token);
 
             Task PersistAndShutdownAsync(); // clean shutdown
 

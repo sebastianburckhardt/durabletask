@@ -22,11 +22,7 @@ namespace DurableTask.EventSourced.Faster
         
     {
         public FasterLog(BlobManager blobManager)
-            : base(new FasterLogSettings 
-              { 
-                LogDevice = blobManager.EventLogDevice,
-                LogCommitManager = blobManager.UseLocalFilesForTestingAndDebugging ? null : blobManager,
-              })
+            : base(blobManager.EventLogSettings)
         {
         }
  

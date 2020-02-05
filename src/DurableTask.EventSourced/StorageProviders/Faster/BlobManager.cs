@@ -56,6 +56,27 @@ namespace DurableTask.EventSourced.Faster
         public IDevice HybridLogDevice { get; private set; }
         public IDevice ObjectLogDevice { get; private set; }
 
+        public FasterLogSettings EventLogSettings => new FasterLogSettings
+        {
+            LogDevice = this.EventLogDevice,
+            LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
+                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.CommitBlobName}") : (ILogCommitManager) this,
+        };
+
+        public LogSettings StoreLogSettings => new LogSettings
+        {
+            LogDevice = this.HybridLogDevice,
+            ObjectLogDevice = this.ObjectLogDevice,
+            MemorySizeBits = 29,
+        };
+
+        public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
+        {
+            CheckpointManager = this.UseLocalFilesForTestingAndDebugging ? 
+                new LocalCheckpointManager($"{LocalDirectoryPath}\\checkpoints{this.partitionId:D2}") : (ICheckpointManager) this,
+            CheckPointType = CheckpointType.FoldOver,
+        };    
+
         /// <summary>
         /// Create new instance of local checkpoint manager at given base directory
         /// </summary>
@@ -75,32 +96,31 @@ namespace DurableTask.EventSourced.Faster
 
         internal bool UseLocalFilesForTestingAndDebugging { get; set; }
 
-        private string LocalDirectoryPath => $"C:\\faster\\{this.containerName}";
+        private string LocalDirectoryPath => $"E:\\faster\\{this.containerName}";
         private string SnapshotFolder => $"partition{this.partitionId:D2}";
-        private string EventLogBlobName => $"events{this.partitionId:D2}.log";
-        private string HybridLogBlobName => $"store{this.partitionId:D2}.log";
-        private string ObjectLogBlobName => $"store{this.partitionId:D2}.obj.log";
+        private string EventLogBlobName => $"events{this.partitionId:D2}.segment";
+        private string CommitBlobName => $"events{this.partitionId:D2}.commit";
+        private string HybridLogBlobName => $"store{this.partitionId:D2}.segment";
+        private string ObjectLogBlobName => $"store{this.partitionId:D2}.obj.segment";
+
 
         private Task LeaseRenewalLoopTask = Task.CompletedTask;
 
         public async Task StartAsync()
         {
-            if (!UseLocalFilesForTestingAndDebugging)
-            {
-                await this.blobContainer.CreateIfNotExistsAsync();
-            }
-
-            this.eventLogCommitBlob = this.blobContainer.GetBlockBlobReference(this.EventLogBlobName + ".commit");
-
             if (UseLocalFilesForTestingAndDebugging)
             {
                 Directory.CreateDirectory(LocalDirectoryPath);
+
                 this.EventLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.EventLogBlobName}");
                 this.HybridLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.HybridLogBlobName}");
                 this.ObjectLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.ObjectLogBlobName}");
             }
             else
             {
+                await this.blobContainer.CreateIfNotExistsAsync();
+                this.eventLogCommitBlob = this.blobContainer.GetBlockBlobReference(this.CommitBlobName);
+
                 this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, this.EventLogBlobName);
                 this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, this.HybridLogBlobName);
                 this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, this.ObjectLogBlobName);
@@ -127,7 +147,7 @@ namespace DurableTask.EventSourced.Faster
         public async Task<CancellationToken> AcquireOwnership(CancellationToken token)
         {
             this.ownershipCancellation = new CancellationTokenSource();
-            this.shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ownershipCancellation.Token);
+            this.shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, token);
             this.cancellationToken = shutdownCancellation.Token;
 
             if (UseLocalFilesForTestingAndDebugging)
@@ -135,41 +155,43 @@ namespace DurableTask.EventSourced.Faster
                 // no leases. Uses default commit manager.
                 return CancellationToken.None;
             }
-
-            while (!this.cancellationToken.IsCancellationRequested)
+            else
             {
-                try
-                {
-                    this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null);
-                    break;
-                }
-                catch (StorageException ex) when (ConflictOrExpiredLease(ex))
-                {
-                    // the previous owner has not released the lease yet, 
-                    // try again until it becomes available, should be relatively soon
-                    await Task.Delay(TimeSpan.FromSeconds(1));
-                    continue;
-                }
-                catch (StorageException ex) when (BlobDoesNotExist(ex))
+                while (!this.cancellationToken.IsCancellationRequested)
                 {
                     try
                     {
-                        // Create blob with empty content, then try again
-                        await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
+                        this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null);
+                        break;
+                    }
+                    catch (StorageException ex) when (ConflictOrExpiredLease(ex))
+                    {
+                        // the previous owner has not released the lease yet, 
+                        // try again until it becomes available, should be relatively soon
+                        await Task.Delay(TimeSpan.FromSeconds(1));
                         continue;
                     }
-                    catch (StorageException ex2) when (ConflictOrExpiredLease(ex2))
+                    catch (StorageException ex) when (BlobDoesNotExist(ex))
                     {
-                        // creation race, try from top
-                        continue;
+                        try
+                        {
+                            // Create blob with empty content, then try again
+                            await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
+                            continue;
+                        }
+                        catch (StorageException ex2) when (ConflictOrExpiredLease(ex2))
+                        {
+                            // creation race, try from top
+                            continue;
+                        }
                     }
                 }
+
+                // start background loop that renews the lease continuously
+                this.LeaseRenewalLoopTask = this.LeaseRenewalLoopAsync();
+
+                return this.ownershipCancellation.Token;
             }
-
-            // start background loop that renews the lease continuously
-            this.LeaseRenewalLoopTask = this.LeaseRenewalLoopAsync();
-
-            return this.ownershipCancellation.Token;
         }
 
         public async Task LeaseRenewalLoopAsync()

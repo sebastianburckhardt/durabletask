@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced
 
             if (!this.IsExecutableInstance(out var warningMessage))
             {
-                this.Partition.DiagnosticsTrace($"Discarding non-executable orchestration {this.WorkItemId}");
+                this.Partition.DiagnosticsTrace($"Discarding non-executable orchestration {this.WorkItemId}: {warningMessage}");
 
                 // discard the messages, by marking the batch as processed without updating the state
                 this.Partition.Submit(new BatchProcessed()

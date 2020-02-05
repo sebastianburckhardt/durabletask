@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced
         // can create or replace an instance and return a success response, or 
         // return an error response
 
-        public void Process(CreationRequestReceived evt, EffectList effects)
+        public void Process(CreationRequestReceived evt, EffectTracker effects)
         {
             if (this.OrchestrationState != null
                 && evt.DedupeStatuses != null
@@ -96,7 +96,7 @@ namespace DurableTask.EventSourced
         // BatchProcessed
         // updates the state of an orchestration and notifies observers
 
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker effects)
         {
             this.OrchestrationState = evt.State;
 

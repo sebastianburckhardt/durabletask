@@ -97,7 +97,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
                 var partition = partitions[i] = this.host.AddPartition(i, partitionStates[i], partitionTransport.PartitionSender);
                 
-                await partition.StartAsync();
+                await partition.StartAsync(CancellationToken.None);
             }
 
             // create a client

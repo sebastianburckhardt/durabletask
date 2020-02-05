@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long Position { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Outbox);
         }

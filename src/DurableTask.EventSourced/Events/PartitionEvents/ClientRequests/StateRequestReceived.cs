@@ -33,9 +33,9 @@ namespace DurableTask.EventSourced
         public override bool AtMostOnce => false;
 
         [IgnoreDataMember]
-        public override bool PersistInLog => false;
+        public override bool IsReadOnly => true;
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Partition.Assert(!effects.InRecovery);
             effects.Partition.State.ScheduleRead(new Waiter(effects.Partition, this.InstanceId, this.ClientId, this.RequestId));

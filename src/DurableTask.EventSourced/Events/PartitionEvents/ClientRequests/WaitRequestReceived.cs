@@ -29,7 +29,7 @@ namespace DurableTask.EventSourced
         public override bool AtMostOnce => false;
 
         [IgnoreDataMember]
-        public override bool PersistInLog => false;
+        public override bool IsReadOnly => true;
 
         protected override void TraceInformation(StringBuilder s)
         {
@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
             s.Append(this.InstanceId);
         }
 
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public override void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Partition.Assert(!effects.InRecovery);
             _ = WaitForOrchestrationCompletionTask(effects.Partition);
