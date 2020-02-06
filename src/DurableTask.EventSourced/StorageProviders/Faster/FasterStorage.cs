@@ -66,29 +66,56 @@ namespace DurableTask.EventSourced.Faster
                 await storeWorker.Initialize();
 
                 // take an (empty) checkpoint immediately to ensure the paths are working
-                this.store.TakeFullCheckpoint(out _);
-                await this.store.CompleteCheckpointAsync();
+                try
+                {
+                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "creating store");
 
-                partition.TracePartitionStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.store.TakeFullCheckpoint(out _);
+                    await this.store.CompleteCheckpointAsync();
+                    EtwSource.Log.FasterStoreCreated((int) this.partition.PartitionId, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                }
+                catch (Exception e)
+                {
+                    EtwSource.Log.FasterStorageError((int) this.partition.PartitionId, "creating store", e.ToString());
+                    throw;
+                }
             }
             else
             {
-                // we are recovering
-                // recover the last checkpoint of the store
-                this.store.Recover();
-                await storeWorker.Recover();
+                try
+                {
+                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "loading checkpoint");
 
-                partition.TracePartitionCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    // we are recovering
+                    // recover the last checkpoint of the store
+                    this.store.Recover();
+                    await storeWorker.Recover();
+
+                    EtwSource.Log.FasterCheckpointLoaded((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                }
+                catch(Exception e)
+                {
+                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "loading checkpoint", e.ToString());
+                    throw;
+                }
 
                 stopwatch.Restart();
 
-                // replay log if the store checkpoint lags behind the log
-                if (this.log.TailAddress > (long) storeWorker.CommitLogPosition)
+                try
                 {
-                    await this.storeWorker.ReplayCommitLog(log);
-                }
+                    // replay log if the store checkpoint lags behind the log
+                    if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
+                    {
+                        await this.storeWorker.ReplayCommitLog(log);
+                    }
 
-                partition.TracePartitionLogReplayed(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    EtwSource.Log.FasterLogReplayed((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                }
+                catch (Exception e)
+                {
+                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "replay log", e.ToString());
+                    throw;
+                }
 
                 // restart pending actitivities, timers, work items etc.
                 foreach (var key in TrackedObjectKey.GetSingletons())
@@ -105,32 +132,65 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task PersistAndShutdownAsync()
         {
+            bool workersStoppedCleanly;
+
             try
             {
+                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping workers");
                 this.shuttingDown = true;
 
-                await Task.WhenAll(
-                    this.logWorker.PersistAndShutdownAsync(), // persist all current entries in the commit log
-                    this.storeWorker.CancelAndShutdown() // cancel all pending entries in the store queue, we'll replay on recovery
-                );
+                Task t1 = this.logWorker.PersistAndShutdownAsync();
+                Task t2 = this.storeWorker.CancelAndShutdown();
 
-                // at this point we know the log was successfully persisted, so can we persist a store checkpoint
-                var stopwatch = new System.Diagnostics.Stopwatch();
-                stopwatch.Start();
-                this.store.TakeFullCheckpoint(out _);
-                await this.store.CompleteCheckpointAsync();
-                partition.TracePartitionCheckpointSaved(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                await t1;
+                await t2;
+     
+                workersStoppedCleanly = true;
             }
             catch (Exception e)
             {
-                this.partition.ReportError($"{nameof(FasterStorage)}.{nameof(PersistAndShutdownAsync)}", e);
+                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "stopping workers", e.ToString());
+                // swallow this exception and continue shutdown
+                workersStoppedCleanly = false;
             }
-            finally
-            {
-                // we are done with the store
-                this.store.Dispose();
 
+            if (workersStoppedCleanly)
+            {
+                // at this point we know the log was successfully persisted, so can we persist latest store
+                try
+                {
+                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "writing final checkpoint");
+                    var stopwatch = new System.Diagnostics.Stopwatch();
+                    stopwatch.Start();
+                    this.store.TakeFullCheckpoint(out _);
+                    await this.store.CompleteCheckpointAsync();
+                    EtwSource.Log.FasterCheckpointSaved((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                }
+                catch (Exception e)
+                {
+                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "writing final checkpoint", e.ToString());
+                    // swallow this exception and continue shutdown
+                }
+            }
+
+            try
+            {
+                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "disposing store");
+                this.store.Dispose();
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "disposing store", e.ToString());
+            }
+
+            try
+            {
+                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping BlobManager");
                 await blobManager.StopAsync();
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "stopping BlobManager", e.ToString());
             }
         }
 

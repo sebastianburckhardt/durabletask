@@ -53,6 +53,11 @@ namespace FASTER.devices
             RecoverBlobs();
         }
 
+        /// <summary>
+        /// Is called on exceptions, if non-null; can be set by application
+        /// </summary>
+        public Action<string, Exception> ExceptionTracer { get; set; }
+
         private void RecoverBlobs()
         {
             int prevSegmentId = -1;
@@ -150,7 +155,7 @@ namespace FASTER.devices
                 // I don't think I can be more specific in catch here because no documentation on exception behavior is provided
                 catch (Exception e)
                 {
-                    Trace.TraceError(e.Message);
+                    this.ExceptionTracer?.Invoke(nameof(ReadAsync), e);
                     // Is there any documentation on the meaning of error codes here? The handler suggests that any non-zero value is an error
                     // but does not distinguish between them.
                     callback(2, readLength, ovNative);
@@ -197,7 +202,7 @@ namespace FASTER.devices
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static unsafe void WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
+        private unsafe void WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
         {
             // Even though Azure Page Blob does not make use of Overlapped, we populate one to conform to the callback API
             Overlapped ov = new Overlapped(0, 0, IntPtr.Zero, asyncResult);
@@ -212,7 +217,7 @@ namespace FASTER.devices
                 // I don't think I can be more specific in catch here because no documentation on exception behavior is provided
                 catch (Exception e)
                 {
-                    Trace.TraceError(e.Message);
+                    this.ExceptionTracer?.Invoke(nameof(WriteToBlobAsync), e);
                     // Is there any documentation on the meaning of error codes here? The handler suggests that any non-zero value is an error
                     // but does not distinguish between them.
                     callback(1, numBytesToWrite, ovNative);

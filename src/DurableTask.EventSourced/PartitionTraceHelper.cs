@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.EmitEtwTrace)
             {
-                EtwSource.Log.PartitionErrorReported(this.PartitionId, where, e.GetType().Name, e.Message);
+                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, where, e.GetType().Name, e.Message);
             }
         }
 
@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
 
@@ -63,53 +63,8 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
-        }
-
-        public void TracePartitionCheckpointSaved(ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Checkpoint saved. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
-            }
-            EtwSource.Log.PartitionCheckpointSaved((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
-        }
-
-        public void TracePartitionLogPersisted(long commitPosition, long numBytes, long elapsedMilliseconds)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Log persisted. commitPosition={commitPosition} numBytes={numBytes} elapsedMilliseconds={elapsedMilliseconds}");
-            }
-            EtwSource.Log.PartitionLogPersisted((int)this.PartitionId, commitPosition, numBytes, elapsedMilliseconds);
-        }
-
-        public void TracePartitionStoreCreated(ulong inputPosition, long elapsedMilliseconds)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Store created. inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
-            }
-            EtwSource.Log.PartitionStoreCreated((int)this.PartitionId, inputPosition, elapsedMilliseconds);
-        }
-
-        public void TracePartitionCheckpointLoaded(ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Checkpoint loaded. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
-            }
-            EtwSource.Log.PartitionCheckpointLoaded((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
-        }
-
-        public void TracePartitionLogReplayed(ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
-        {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Log replayed. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
-            }
-            EtwSource.Log.PartitionLogReplayed((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         public void DiagnosticsTrace(string msg)

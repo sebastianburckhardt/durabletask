@@ -70,7 +70,7 @@ namespace DurableTask.EventSourced.Tests
             // return "Memory:4";
             // return "Memory:32";
             // return "MemoryF:1";
-            // return "MemoryF:8";
+            // return "MemoryF:4";
             // return "MemoryF:32";
             return GetTestSetting("EventHubsConnectionString", false);
         }

@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced.Faster
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
         public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker)
-            : base()
+            : base(CancellationToken.None)
         {
             this.log = log;
             this.partition = partition;
@@ -94,6 +94,8 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task PersistAndShutdownAsync()
         {
+            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping LogWorker");
+
             lock (this.thisLock)
             {
                 this.shutdownWaiter = new TaskCompletionSource<bool>();
@@ -101,6 +103,8 @@ namespace DurableTask.EventSourced.Faster
             }
 
             await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
+
+            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopped LogWorker");
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -108,11 +112,21 @@ namespace DurableTask.EventSourced.Faster
             try
             {
                 //  checkpoint the log
+                EtwSource.Log.FasterProgress((int)partition.PartitionId, "persisting log");
                 var stopwatch = new System.Diagnostics.Stopwatch();
                 stopwatch.Start();
                 long previous = log.CommittedUntilAddress;
-                await log.CommitAsync(this.cancellationToken);
-                partition.TracePartitionLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
+
+                try
+                {
+                    await log.CommitAsync();
+                    EtwSource.Log.FasterLogPersisted((int)partition.PartitionId, log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
+                }
+                catch(Exception e)
+                {
+                    EtwSource.Log.FasterStorageError((int)partition.PartitionId, "persisting log", e.ToString());
+                    throw;
+                }
 
                 foreach (var evt in batch)
                 {

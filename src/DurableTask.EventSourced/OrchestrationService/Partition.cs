@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced
             // wait for current state (log and store) to be persisted
             await this.State.PersistAndShutdownAsync();
 
-            EtwSource.Log.PartitionStopped(this.PartitionId);
+            EtwSource.Log.PartitionStopped((int)this.PartitionId);
         }
 
         private void TimersFired(List<PartitionEvent> timersFired)
@@ -159,7 +159,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued((int)this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.ActivityWorkItemQueue.Add(item);
@@ -173,7 +173,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionWorkItemEnqueued(this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
+                EtwSource.Log.PartitionWorkItemEnqueued((int)this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
             }
 
             this.OrchestrationWorkItemQueue.Add(item);

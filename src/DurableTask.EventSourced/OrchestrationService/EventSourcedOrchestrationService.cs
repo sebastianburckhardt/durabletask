@@ -201,7 +201,7 @@ namespace DurableTask.EventSourced
         {
             var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
 
-            EtwSource.Log.PartitionStarted(partitionId);
+            EtwSource.Log.PartitionStarted((int)partitionId);
 
             return partition;
         }

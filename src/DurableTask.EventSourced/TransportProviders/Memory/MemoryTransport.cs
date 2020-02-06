@@ -82,16 +82,17 @@ namespace DurableTask.EventSourced.Emulated
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
-            for (uint i = 0; i < this.settings.MemoryPartitions; i++)
+            Parallel.For(0, this.settings.MemoryPartitions, (iteration) =>
             {
-                uint partitionId = i;
+                int i = (int) iteration;
+                uint partitionId = (uint) iteration;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
                 var partitionState = partitionStates[i] = this.host.CreatePartitionState();
-                var partition = this.host.AddPartition(i, partitionState, partitionSender);
+                var partition = this.host.AddPartition(partitionId, partitionState, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
                 this.partitions[i] = partition;
-            }
+            });
 
             // create or recover all the partitions
             for (uint i = 0; i < this.settings.MemoryPartitions; i++)
@@ -116,7 +117,13 @@ namespace DurableTask.EventSourced.Emulated
                 this.shutdownTokenSource = null;
 
                 await this.client.StopAsync();
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.PersistAndShutdownAsync()));
+
+                var tasks = new List<Task>();
+                foreach(var s in this.partitionStates)
+                {
+                    tasks.Add(s.PersistAndShutdownAsync());
+                }
+                await Task.WhenAll(tasks);
             }
         }
 

@@ -46,11 +46,10 @@ namespace DurableTask.EventSourced.Faster
 
         private CancellationTokenSource ownershipCancellation;
         private CancellationTokenSource shutdownCancellation;
-        private CancellationToken cancellationToken;
 
         private string LeaseId;
-        private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(20);
-        private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(50) : TimeSpan.FromSeconds(15);
+        private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(30);
+        private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(55) : TimeSpan.FromSeconds(25);
 
         public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
@@ -60,7 +59,7 @@ namespace DurableTask.EventSourced.Faster
         {
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
-                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.CommitBlobName}") : (ILogCommitManager) this,
+                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.CommitBlobName}") : (ILogCommitManager)this,
         };
 
         public LogSettings StoreLogSettings => new LogSettings
@@ -72,10 +71,10 @@ namespace DurableTask.EventSourced.Faster
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {
-            CheckpointManager = this.UseLocalFilesForTestingAndDebugging ? 
-                new LocalCheckpointManager($"{LocalDirectoryPath}\\checkpoints{this.partitionId:D2}") : (ICheckpointManager) this,
+            CheckpointManager = this.UseLocalFilesForTestingAndDebugging ?
+                new LocalCheckpointManager($"{LocalDirectoryPath}\\checkpoints{this.partitionId:D2}") : (ICheckpointManager)this,
             CheckPointType = CheckpointType.FoldOver,
-        };    
+        };
 
         /// <summary>
         /// Create new instance of local checkpoint manager at given base directory
@@ -94,11 +93,8 @@ namespace DurableTask.EventSourced.Faster
             this.blobContainer = serviceClient.GetContainerReference(containerName);
         }
 
-
-
         public string LocalFileDirectoryForTestingAndDebugging { get; set; } = null;
         private bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
-
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.containerName}";
         private string SnapshotFolder => $"partition{this.partitionId:D2}";
@@ -108,8 +104,8 @@ namespace DurableTask.EventSourced.Faster
         private string HybridLogBlobName => $"store{this.partitionId:D2}.segment";
         private string ObjectLogBlobName => $"store{this.partitionId:D2}.obj.segment";
 
-
         private Task LeaseRenewalLoopTask = Task.CompletedTask;
+        private volatile Task NextLeaseRenewalTask = Task.CompletedTask;
 
         public async Task StartAsync()
         {
@@ -126,23 +122,42 @@ namespace DurableTask.EventSourced.Faster
                 await this.blobContainer.CreateIfNotExistsAsync();
                 this.eventLogCommitBlob = this.blobContainer.GetBlockBlobReference(this.CommitBlobName);
 
-                this.EventLogDevice = new AzureStorageDevice(connectionString, containerName, this.EventLogBlobName);
-                this.HybridLogDevice = new AzureStorageDevice(connectionString, containerName, this.HybridLogBlobName);
-                this.ObjectLogDevice = new AzureStorageDevice(connectionString, containerName, this.ObjectLogBlobName);
+                var eventLogDevice = new AzureStorageDevice(connectionString, containerName, this.EventLogBlobName);
+                var hybridLogDevice = new AzureStorageDevice(connectionString, containerName, this.HybridLogBlobName);
+                var objectLogDevice = new AzureStorageDevice(connectionString, containerName, this.ObjectLogBlobName);
+
+                eventLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"eventLog.{method}", e.ToString());
+                hybridLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"hybridLog.{method}", e.ToString());
+                objectLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"objectLog.{method}", e.ToString());
+
+                this.EventLogDevice = eventLogDevice;
+                this.HybridLogDevice = hybridLogDevice;
+                this.ObjectLogDevice = objectLogDevice;
             }
         }
 
         public async Task StopAsync()
         {
-            this.shutdownCancellation.Cancel();
+            EtwSource.Log.LeaseProgress((int)this.partitionId, "stopping");
+            this.shutdownCancellation?.Cancel();
             await this.LeaseRenewalLoopTask;
         }
 
-        private static bool ConflictOrExpiredLease(StorageException e)
+        private static bool LeaseConflictOrExpired(StorageException e)
         {
             return (e.RequestInformation.HttpStatusCode == 409) || (e.RequestInformation.HttpStatusCode == 412);
         }
-    
+
+        private static bool LeaseConflict(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 409);
+        }
+
+        private static bool LeaseExpired(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 412);
+        }
+
         private static bool BlobDoesNotExist(StorageException e)
         {
             var information = e.RequestInformation.ExtendedErrorInformation;
@@ -151,30 +166,35 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task<CancellationToken> AcquireOwnership(CancellationToken token)
         {
+            // ownership is cancelled if a lease is lost and cannot be renewed due to conflict
             this.ownershipCancellation = new CancellationTokenSource();
-            this.shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, token);
-            this.cancellationToken = shutdownCancellation.Token;
+
+            // shutdown can be triggered from three sources
+            // - before this method even completes, via token
+            // - implicitly if ownership is lost, after it is acquired
+            // - if shutdown is called explicitly at the end
+            this.shutdownCancellation = CancellationTokenSource.CreateLinkedTokenSource(this.ownershipCancellation.Token, token);
 
             if (UseLocalFilesForTestingAndDebugging)
             {
-                // no leases. Uses default commit manager.
+                // No-op for simple testing scenarios.
                 return CancellationToken.None;
             }
             else
             {
-                while (!this.cancellationToken.IsCancellationRequested)
+                while (!this.shutdownCancellation.IsCancellationRequested)
                 {
                     try
                     {
                         this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null);
                         break;
                     }
-                    catch (StorageException ex) when (ConflictOrExpiredLease(ex))
+                    catch (StorageException ex) when (LeaseConflictOrExpired(ex))
                     {
                         // the previous owner has not released the lease yet, 
                         // try again until it becomes available, should be relatively soon
-                        EtwSource.Log.LeaseVerbose((int)this.partitionId, "waiting for lease");
-                        await Task.Delay(TimeSpan.FromSeconds(1));
+                        EtwSource.Log.LeaseProgress((int)this.partitionId, "waiting for lease");
+                        await Task.Delay(TimeSpan.FromSeconds(1), this.shutdownCancellation.Token);
                         continue;
                     }
                     catch (StorageException ex) when (BlobDoesNotExist(ex))
@@ -182,75 +202,89 @@ namespace DurableTask.EventSourced.Faster
                         try
                         {
                             // Create blob with empty content, then try again
-                            EtwSource.Log.LeaseVerbose((int)this.partitionId, "creating commit blob");
+                            EtwSource.Log.LeaseProgress((int)this.partitionId, "creating commit blob");
                             await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
                             continue;
                         }
-                        catch (StorageException ex2) when (ConflictOrExpiredLease(ex2))
+                        catch (StorageException ex2) when (LeaseConflictOrExpired(ex2))
                         {
                             // creation race, try from top
-                            EtwSource.Log.LeaseVerbose((int)this.partitionId, "creation race, retrying");
+                            EtwSource.Log.LeaseProgress((int)this.partitionId, "creation race, retrying");
                             continue;
                         }
                     }
                 }
 
-                EtwSource.Log.LeaseInfo((int)this.partitionId, "lease acquired");
-
                 // start background loop that renews the lease continuously
                 this.LeaseRenewalLoopTask = this.LeaseRenewalLoopAsync();
+
+                EtwSource.Log.LeaseAcquired((int)this.partitionId);
 
                 return this.ownershipCancellation.Token;
             }
         }
 
-        private void OwnershipLost(string reason, Exception e)
-        {
-            EtwSource.Log.LeaseError((int)this.partitionId, e.GetType().Name, $"lost ownership: {reason}");
-            this.ownershipCancellation.Cancel();
-        }
-
         public async Task LeaseRenewalLoopAsync()
         {
-            while (!this.cancellationToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!this.shutdownCancellation.Token.IsCancellationRequested)
                 {
-                    await Task.Delay(this.LeaseRenewal, this.cancellationToken);
-
-                    AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
-
-                    EtwSource.Log.LeaseVerbose((int)this.partitionId, "renewing lease");
-
-                    await this.eventLogCommitBlob.RenewLeaseAsync(acc, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception e)
-                {
-                    // for whatever reason we were unable to renew the lease
-                    this.OwnershipLost("lease renewal failed", e);
+                    this.NextLeaseRenewalTask = RenewLeaseTask();
+                    await this.NextLeaseRenewalTask;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // We get here as part of normal termination after shutdownCancellation was triggered. 
+            }
 
-            EtwSource.Log.LeaseVerbose((int)this.partitionId, "shutting down");
+            EtwSource.Log.LeaseProgress((int)this.partitionId, "shutting down");
 
-
-            // if we haven't already lost the lease, release it now
+            // if we haven't already lost ownership, try to cancel the lease now
             if (!ownershipCancellation.IsCancellationRequested)
             {
                 AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
                 try
                 {
                     await this.eventLogCommitBlob.ReleaseLeaseAsync(acc);
-                    EtwSource.Log.LeaseInfo((int)this.partitionId, "released lease");
+                    EtwSource.Log.LeaseReleased((int)this.partitionId);
                 }
-                catch(Exception e) // swallow exceptions when releasing a lease
+                catch (Exception e) // swallow exceptions when releasing a lease
                 {
-                    EtwSource.Log.LeaseError((int)this.partitionId, e.GetType().Name, "could not release lease");
+                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, "release", e.ToString());
                 }
+            }
+        }
+
+        public async Task RenewLeaseTask()
+        {
+            await Task.Delay(this.LeaseRenewal, this.shutdownCancellation.Token);
+
+            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+
+            EtwSource.Log.LeaseProgress((int)this.partitionId, "renewing lease");
+
+            try
+            {
+                await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.shutdownCancellation.Token);
+                EtwSource.Log.LeaseProgress((int)this.partitionId, "renewed lease");
+            }
+            catch (OperationCanceledException)
+            {
+                // we are shutting down
+                throw;
+            }
+            catch (StorageException ex) when (LeaseConflict(ex))
+            {
+                // We lost the lease to someone else. Terminate ownership immediately.
+                EtwSource.Log.LeaseLost((int)this.partitionId, "renew");
+                this.ownershipCancellation.Cancel();
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, "renew", e.ToString());
+                // continue trying to renew at normal intervals, to survive temporary storage unavailability
             }
         }
 
@@ -285,34 +319,69 @@ namespace DurableTask.EventSourced.Faster
 
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
-            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
-            try
+            while (true)
             {
-                this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc);
-            }
-            catch (StorageException ex) when (ConflictOrExpiredLease(ex))
-            {
-                this.OwnershipLost("log append failed", ex);
-                throw;
+                AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                try
+                {
+                    this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc);
+                    return;
+                }
+                catch (StorageException ex) when (LeaseExpired(ex))
+                {
+                    // if we get here, the lease renewal task did not complete in time
+                    // wait for it to complete or throw
+                    this.NextLeaseRenewalTask.Wait();
+                    continue;
+                }
+                catch (StorageException ex) when (LeaseConflict(ex))
+                {
+                    // We lost the lease to someone else. Terminate ownership immediately.
+                    EtwSource.Log.LeaseLost((int)this.partitionId, nameof(ILogCommitManager.Commit));
+                    this.ownershipCancellation.Cancel();
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ILogCommitManager.Commit), e.ToString());
+                    throw;
+                }
             }
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()
         {
-            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
-            try
+            while (true)
             {
-                using (var stream = new MemoryStream())
+                AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                try
                 {
-                    this.eventLogCommitBlob.DownloadToStream(stream, acc);
-                    var bytes = stream.ToArray();
-                    return bytes.Length == 0 ? null : bytes;
+                    using (var stream = new MemoryStream())
+                    {
+                        this.eventLogCommitBlob.DownloadToStream(stream, acc);
+                        var bytes = stream.ToArray();
+                        return bytes.Length == 0 ? null : bytes;
+                    }
                 }
-            }
-            catch (StorageException ex) when (ConflictOrExpiredLease(ex))
-            {
-                this.OwnershipLost("log read failed", ex);
-                throw;
+                catch (StorageException ex) when (LeaseExpired(ex))
+                {
+                    // if we get here, the lease renewal task did not complete in time
+                    // wait for it to complete or throw
+                    this.NextLeaseRenewalTask.Wait();
+                    continue;
+                }
+                catch (StorageException ex) when (LeaseConflict(ex))
+                {
+                    // We lost the lease to someone else. Terminate ownership immediately.
+                    EtwSource.Log.LeaseLost((int)this.partitionId, nameof(ILogCommitManager.GetCommitMetadata));
+                    this.ownershipCancellation.Cancel();
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ILogCommitManager.GetCommitMetadata), e.ToString());
+                    throw;
+                }
             }
         }
 
@@ -332,97 +401,161 @@ namespace DurableTask.EventSourced.Faster
 
         void ICheckpointManager.CommitIndexCheckpoint(Guid indexToken, byte[] commitMetadata)
         {
-            var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
-            using (var blobStream = metaFileBlob.OpenWrite())
+            try
             {
-                using (var writer = new BinaryWriter(blobStream))
+                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
+                using (var blobStream = metaFileBlob.OpenWrite())
                 {
-                    writer.Write(commitMetadata.Length);
-                    writer.Write(commitMetadata);
-                    writer.Flush();
+                    using (var writer = new BinaryWriter(blobStream))
+                    {
+                        writer.Write(commitMetadata.Length);
+                        writer.Write(commitMetadata);
+                        writer.Flush();
+                    }
                 }
-            }
 
-            var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
-            completedFileBlob.UploadText(indexToken.ToString());
+                var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
+                completedFileBlob.UploadText(indexToken.ToString());
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.CommitIndexCheckpoint), e.ToString());
+                throw;
+            }
         }
 
         void ICheckpointManager.CommitLogCheckpoint(Guid logToken, byte[] commitMetadata)
         {
-            var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
-            using (var blobStream = metaFileBlob.OpenWrite())
+            try
             {
-                using (var writer = new BinaryWriter(blobStream))
+                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
+                using (var blobStream = metaFileBlob.OpenWrite())
                 {
-                    writer.Write(commitMetadata.Length);
-                    writer.Write(commitMetadata);
-                    writer.Flush();
+                    using (var writer = new BinaryWriter(blobStream))
+                    {
+                        writer.Write(commitMetadata.Length);
+                        writer.Write(commitMetadata);
+                        writer.Flush();
+                    }
                 }
-            }
 
-            var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
-            completedFileBlob.UploadText(logToken.ToString());
+                var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
+                completedFileBlob.UploadText(logToken.ToString());
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.CommitLogCheckpoint), e.ToString());
+                throw;
+            }
         }
 
         byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
         {
-            var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
-            using (var blobstream = metaFileBlob.OpenRead())
+            try
             {
-                using (var reader = new BinaryReader(blobstream))
+                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
+                using (var blobstream = metaFileBlob.OpenRead())
                 {
-                    var len = reader.ReadInt32();
-                    return reader.ReadBytes(len);
+                    using (var reader = new BinaryReader(blobstream))
+                    {
+                        var len = reader.ReadInt32();
+                        return reader.ReadBytes(len);
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetIndexCommitMetadata), e.ToString());
+                throw;
             }
         }
 
         byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
         {
-            var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
-            using (var blobstream = metaFileBlob.OpenRead())
+            try
             {
-                using (var reader = new BinaryReader(blobstream))
+                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
+                using (var blobstream = metaFileBlob.OpenRead())
                 {
-                    var len = reader.ReadInt32();
-                    return reader.ReadBytes(len);
+                    using (var reader = new BinaryReader(blobstream))
+                    {
+                        var len = reader.ReadInt32();
+                        return reader.ReadBytes(len);
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetLogCommitMetadata), e.ToString());
+                throw;
             }
         }
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
         {
-            return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetPrimaryHashTableFileName(indexToken));
+            try
+            {
+                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetPrimaryHashTableFileName(indexToken));
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetIndexDevice), e.ToString());
+                throw;
+            }
         }
 
         IDevice ICheckpointManager.GetSnapshotLogDevice(Guid token)
         {
-            return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetLogSnapshotFileName(token));
+            try
+            {
+                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetLogSnapshotFileName(token));
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetSnapshotLogDevice), e.ToString());
+                throw;
+            }
         }
 
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
         {
-            return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetObjectLogSnapshotFileName(token));
+            try
+            {
+                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetObjectLogSnapshotFileName(token));
+            }
+            catch (Exception e)
+            {
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetSnapshotObjectLogDevice), e.ToString());
+                throw;
+            }
         }
 
         bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
         {
-            var indexCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
-            var logCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
-
-            if (indexCompletedFileBlob.Exists() && logCompletedFileBlob.Exists())
+            try
             {
-                var lastIndexCheckpoint = indexCompletedFileBlob.DownloadText();
-                indexToken = Guid.Parse(lastIndexCheckpoint);
+                var indexCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
+                var logCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
 
-                var lastLogCheckpoint = logCompletedFileBlob.DownloadText();
-                logToken = Guid.Parse(lastLogCheckpoint);
+                if (indexCompletedFileBlob.Exists() && logCompletedFileBlob.Exists())
+                {
+                    var lastIndexCheckpoint = indexCompletedFileBlob.DownloadText();
+                    indexToken = Guid.Parse(lastIndexCheckpoint);
 
-                return true;
+                    var lastLogCheckpoint = logCompletedFileBlob.DownloadText();
+                    logToken = Guid.Parse(lastLogCheckpoint);
+
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
             }
-            else
+            catch (Exception e)
             {
-                return false;
+                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetLatestCheckpoint), e.ToString());
+                throw;
             }
         }
 

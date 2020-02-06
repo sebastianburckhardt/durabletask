@@ -68,6 +68,8 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task CancelAndShutdown()
         {
+            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping StoreWorker");
+
             lock (this.thisLock)
             {
                 this.cancellationWaiter = new TaskCompletionSource<bool>();
@@ -80,6 +82,8 @@ namespace DurableTask.EventSourced.Faster
             // write back the queue and log positions
             this.effects.Effect = this;
             await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
+
+            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopped StoreWorker");
         }
 
         protected override async Task Process(IList<object> batch)
