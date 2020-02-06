@@ -20,12 +20,12 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class SendConfirmed : PartitionEvent
+    internal class SendConfirmed : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public long Position { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Outbox);
         }

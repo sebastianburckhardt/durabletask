@@ -46,7 +46,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
-            this.blobManager.UseLocalFilesForTestingAndDebugging = true;
+            //this.blobManager.LocalFileDirectoryForTestingAndDebugging = "E:\\faster";
 
             await blobManager.StartAsync();
             this.OwnershipCancellationToken = await blobManager.AcquireOwnership(token);
@@ -129,6 +129,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 // we are done with the store
                 this.store.Dispose();
+
+                await blobManager.StopAsync();
             }
         }
 
@@ -144,8 +146,8 @@ namespace DurableTask.EventSourced.Faster
         {
             if (!this.shuttingDown)
             {
-                this.logWorker.SubmitRange(evts.Where(e => !e.IsReadOnly));
-                this.storeWorker.SubmitRange(evts.Where(e => e.IsReadOnly));
+                this.logWorker.SubmitRange(evts.Where(e => e is IPartitionEventWithSideEffects));
+                this.storeWorker.SubmitRange(evts.Where(e => e is IReadonlyPartitionEvent));
             }
         }
 
@@ -153,12 +155,13 @@ namespace DurableTask.EventSourced.Faster
         {
             if (!this.shuttingDown)
             {
-                if (!evt.IsReadOnly)
+                if (evt is IPartitionEventWithSideEffects)
                 {
                     this.logWorker.Submit(evt);
                 }
                 else
                 {
+                    partition.Assert(evt is IReadonlyPartitionEvent);
                     this.storeWorker.Submit(evt);
                 }
             }

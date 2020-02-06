@@ -91,20 +91,21 @@ namespace DurableTask.EventSourced.Faster
                     break; // stop processing sooner rather than later
                 }
 
-                if (o is PartitionEvent partitionEvent)
-                {
-                    await this.ProcessEvent(partitionEvent);
-                }
-                else
+                if (o is StorageAbstraction.IReadContinuation readContinuation)
                 {
                     try
                     {
-                        store.Read((StorageAbstraction.IReadContinuation)o, this.partition);
+                        store.Read(readContinuation, this.partition);
                     }
                     catch (Exception readException)
                     {
                         partition.ReportError($"Processing Read", readException);
                     }
+                }
+                else
+                {
+                    partition.Assert(o is IPartitionEventWithSideEffects);
+                    await this.ProcessEvent((PartitionEvent) o);
                 }
             }
 
@@ -170,7 +171,7 @@ namespace DurableTask.EventSourced.Faster
                 this.effects.Effect = partitionEvent;
 
                 // collect the initial list of targets
-                partitionEvent.DetermineEffects(this.effects);
+                ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(this.effects);
 
                 // process until there are no more targets
                 while (this.effects.Count > 0)

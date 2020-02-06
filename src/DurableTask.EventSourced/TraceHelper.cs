@@ -73,7 +73,7 @@ namespace DurableTask.EventSourced
             {
                 this.DiagnosticsTrace($"Checkpoint saved. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
             }
-            EtwSource.Log.PartitionCheckpointSaved(this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
+            EtwSource.Log.PartitionCheckpointSaved((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         public void TracePartitionLogPersisted(long commitPosition, long numBytes, long elapsedMilliseconds)
@@ -82,7 +82,7 @@ namespace DurableTask.EventSourced
             {
                 this.DiagnosticsTrace($"Log persisted. commitPosition={commitPosition} numBytes={numBytes} elapsedMilliseconds={elapsedMilliseconds}");
             }
-            EtwSource.Log.PartitionLogPersisted(this.PartitionId, commitPosition, numBytes, elapsedMilliseconds);
+            EtwSource.Log.PartitionLogPersisted((int)this.PartitionId, commitPosition, numBytes, elapsedMilliseconds);
         }
 
         public void TracePartitionStoreCreated(ulong inputPosition, long elapsedMilliseconds)
@@ -91,7 +91,7 @@ namespace DurableTask.EventSourced
             {
                 this.DiagnosticsTrace($"Store created. inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
             }
-            EtwSource.Log.PartitionStoreCreated(this.PartitionId, inputPosition, elapsedMilliseconds);
+            EtwSource.Log.PartitionStoreCreated((int)this.PartitionId, inputPosition, elapsedMilliseconds);
         }
 
         public void TracePartitionCheckpointLoaded(ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
@@ -100,7 +100,7 @@ namespace DurableTask.EventSourced
             {
                 this.DiagnosticsTrace($"Checkpoint loaded. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
             }
-            EtwSource.Log.PartitionCheckpointLoaded(this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
+            EtwSource.Log.PartitionCheckpointLoaded((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         public void TracePartitionLogReplayed(ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
@@ -109,7 +109,7 @@ namespace DurableTask.EventSourced
             {
                 this.DiagnosticsTrace($"Log replayed. commitPosition={commitPosition} inputPosition={inputPosition} elapsedMilliseconds={elapsedMilliseconds}");
             }
-            EtwSource.Log.PartitionLogReplayed(this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
+            EtwSource.Log.PartitionLogReplayed((int)this.PartitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         public void DiagnosticsTrace(string msg)

@@ -22,7 +22,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class CreationRequestReceived : ClientRequestEvent
+    internal class CreationRequestReceived : ClientRequestEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public OrchestrationStatus[] DedupeStatuses { get; set; }
@@ -39,10 +39,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
-        [IgnoreDataMember]
-        public override bool AtMostOnce => true;
-
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             // the creation request first checks the state of the instance;
             // it then decides how to proceed from there

@@ -21,7 +21,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class BatchProcessed : PartitionEvent
+    internal class BatchProcessed : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public long SessionId { get; set; }
@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public OrchestrationRuntimeState InMemoryRuntimeState { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             // start on the sessions object; further effects are determined from there
             effects.Add(TrackedObjectKey.Sessions);

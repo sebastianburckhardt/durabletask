@@ -105,9 +105,9 @@ namespace DurableTask.EventSourced.Faster
 
         public struct Value
         {
-            public TrackedObject Val;
+            public object Val;
 
-            public static implicit operator TrackedObject(Value v) => v.Val;
+            public static implicit operator TrackedObject(Value v) => (TrackedObject)v.Val;
             public static implicit operator Value(TrackedObject v) => new Value() { Val = v };
 
             public override string ToString()
@@ -126,12 +126,18 @@ namespace DurableTask.EventSourced.Faster
 
                 public override void Serialize(ref Value obj)
                 {
-                    if (obj.Val.SerializedSnapshot == null)
+                    if (obj.Val is byte[] serialized)
                     {
-                        DurableTask.EventSourced.Serializer.SerializeTrackedObject(obj.Val);
+                        writer.Write(serialized.Length);
+                        writer.Write(serialized);
                     }
-                    writer.Write(obj.Val.SerializedSnapshot.Length);
-                    writer.Write(obj.Val.SerializedSnapshot);
+                    else
+                    {
+                        TrackedObject trackedObject = obj;
+                        DurableTask.EventSourced.Serializer.SerializeTrackedObject(trackedObject);
+                        writer.Write(trackedObject.SerializationCache.Length);
+                        writer.Write(trackedObject.SerializationCache);
+                    }
                 }
             }
         }
@@ -233,36 +239,47 @@ namespace DurableTask.EventSourced.Faster
 
             public void InitialUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
             {
-                value.Val = TrackedObjectKey.Factory(key.Val);
-                value.Val.Partition = partition;
-                tracker.ProcessEffectOn(value.Val);
-                value.Val.SerializedSnapshot = null; //is invalidated
+                var trackedObject = TrackedObjectKey.Factory(key.Val);
+                trackedObject.Partition = partition;
+                value.Val = trackedObject;
+                tracker.ProcessEffectOn(trackedObject);
             }
 
             public bool InPlaceUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
             {
-                value.Val.Partition = partition;
-                value.Val.SerializedSnapshot = null; //is invalidated
-                tracker.ProcessEffectOn(value.Val);
+                partition.Assert(value.Val is TrackedObject);
+                TrackedObject trackedObject = value;
+                trackedObject.SerializationCache = null; // cache is invalidated
+                trackedObject.Partition = partition;
+                tracker.ProcessEffectOn(trackedObject);
                 return true;
             }
 
             public void CopyUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value oldValue, ref Value newValue)
             {
-                newValue.Val = oldValue.Val;
-                newValue.Val.Partition = partition;
-                newValue.Val.SerializedSnapshot = null; //is invalidated
-                tracker.ProcessEffectOn(newValue.Val);
+                // replace old object with its serialized snapshot
+                partition.Assert(oldValue.Val is TrackedObject);
+                TrackedObject trackedObject = oldValue;
+                DurableTask.EventSourced.Serializer.SerializeTrackedObject(trackedObject);
+                oldValue.Val = trackedObject.SerializationCache;
+
+                // keep object as the new object, and apply effect
+                newValue.Val = trackedObject;
+                trackedObject.SerializationCache = null; // cache is invalidated
+                trackedObject.Partition = partition;
+                tracker.ProcessEffectOn(trackedObject);
             }
 
             public void SingleReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
-                dst = value.Val;
+                partition.Assert(value.Val is TrackedObject);
+                dst = value;
             }
 
             public void ConcurrentReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
-                dst = value.Val;
+                partition.Assert(value.Val is TrackedObject);
+                dst = value;
             }
 
             public void SingleWriter(ref Key key, ref Value src, ref Value dst)

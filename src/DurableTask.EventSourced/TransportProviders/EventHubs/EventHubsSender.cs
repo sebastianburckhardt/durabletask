@@ -119,7 +119,7 @@ namespace DurableTask.EventSourced.EventHubs
                         // the event was definitely sent successfully
                         AckListeners.Acknowledge(evt);
                     }
-                    else if (i > maybeSent || !evt.AtMostOnce)
+                    else if (i > maybeSent || evt.SafeToDuplicateInTransport())
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
                         (requeue ?? (requeue = new List<Event>())).Add(evt);

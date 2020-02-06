@@ -21,7 +21,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TimerFired : PartitionEvent
+    internal class TimerFired : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public long TimerId { get; set; }
@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
             effects.Add(TrackedObjectKey.Timers);

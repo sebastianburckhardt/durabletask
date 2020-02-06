@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced
         public abstract TrackedObjectKey Key { get; }
 
         [IgnoreDataMember]
-        internal byte[] SerializedSnapshot { get; set; }
+        internal byte[] SerializationCache { get; set; }
 
         private static IEnumerable<Type> KnownTypes()
         {

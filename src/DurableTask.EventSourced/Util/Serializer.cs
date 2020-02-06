@@ -55,16 +55,19 @@ namespace DurableTask.EventSourced
 
         public static void SerializeTrackedObject(TrackedObject trackedObject)
         {
-            var stream = new MemoryStream();
-            trackedObjectSerializer.WriteObject(stream, trackedObject);
-            trackedObject.SerializedSnapshot = stream.ToArray();
+            if (trackedObject.SerializationCache == null)
+            {
+                var stream = new MemoryStream();
+                trackedObjectSerializer.WriteObject(stream, trackedObject);
+                trackedObject.SerializationCache = stream.ToArray();
+            }
         }
 
         public static TrackedObject DeserializeTrackedObject(byte[] bytes)
         {
             var stream = new MemoryStream(bytes);
             var result = (TrackedObject) trackedObjectSerializer.ReadObject(stream);
-            result.SerializedSnapshot = bytes;
+            result.SerializationCache = bytes;
             return result;
         }
     }

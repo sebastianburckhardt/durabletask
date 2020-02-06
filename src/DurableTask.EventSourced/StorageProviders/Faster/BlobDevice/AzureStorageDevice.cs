@@ -58,19 +58,21 @@ namespace FASTER.devices
             int prevSegmentId = -1;
             foreach (IListBlobItem item in container.ListBlobs(blobName))
             {
-                string[] parts = item.Uri.Segments;
-                if (Int32.TryParse(parts[parts.Length - 1].Replace(blobName + ".", ""), out int segmentId))
+                if (item is CloudPageBlob pageBlob)
                 {
-                    if (segmentId != prevSegmentId + 1)
+                    if (Int32.TryParse(pageBlob.Name.Replace(blobName + ".", ""), out int segmentId))
                     {
-                        startSegment = segmentId;
+                        if (segmentId != prevSegmentId + 1)
+                        {
+                            startSegment = segmentId;
 
+                        }
+                        else
+                        {
+                            endSegment = segmentId;
+                        }
+                        prevSegmentId = segmentId;
                     }
-                    else
-                    {
-                        endSegment = segmentId;
-                    }
-                    prevSegmentId = segmentId;
                 }
             }
 

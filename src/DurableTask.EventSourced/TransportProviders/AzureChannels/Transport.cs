@@ -121,7 +121,7 @@ namespace DurableTask.EventSourced.AzureChannels
         {
             this.partition.ReportError($"could not send {evt}", exception);
 
-            if (! evt.AtMostOnce)
+            if (evt.SafeToDuplicateInTransport())
             {
                 return true;
             }

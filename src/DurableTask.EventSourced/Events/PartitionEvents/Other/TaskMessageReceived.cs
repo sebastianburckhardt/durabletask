@@ -22,7 +22,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TaskMessageReceived : PartitionEvent
+    internal class TaskMessageReceived : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public List<TaskMessage> TaskMessages { get; set; }
@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public long OriginPosition { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Dedup);
         }

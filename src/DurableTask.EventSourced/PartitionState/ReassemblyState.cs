@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced
 
                 this.Fragments.Remove(evt.CohortId);
 
-                evt.ReassembledEvent.DetermineEffects(effects);
+                ((IPartitionEventWithSideEffects) evt.ReassembledEvent).DetermineEffects(effects);
             }
             else
             {

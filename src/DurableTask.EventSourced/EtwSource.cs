@@ -86,7 +86,7 @@ namespace DurableTask.EventSourced
         public void PartitionErrorReported(uint partitionId, string where, string exceptionType, string message)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(22, partitionId, where, message);
+            this.WriteEvent(22, partitionId, where, exceptionType, message);
         }
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
@@ -130,7 +130,7 @@ namespace DurableTask.EventSourced
         public void ClientErrorReported(Guid clientId, string where, string exceptionType, string message)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(52, clientId, where, message);
+            this.WriteEvent(52, clientId, where, exceptionType, message);
         }
 
         [Event(60, Level = EventLevel.Verbose, Version = 1)]
@@ -150,38 +150,62 @@ namespace DurableTask.EventSourced
         // ----- partition storage events
 
         [Event(70, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionCheckpointSaved(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void PartitionCheckpointSaved(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(70, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(71, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionLogPersisted(uint partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
+        public void PartitionLogPersisted(int partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(71, partitionId, commitPosition, numBytes, elapsedMilliseconds);
         }
 
         [Event(72, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionStoreCreated(uint partitionId, ulong inputPosition, long elapsedMilliseconds)
+        public void PartitionStoreCreated(int partitionId, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(72, partitionId, inputPosition, elapsedMilliseconds);
         }
 
         [Event(73, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionCheckpointLoaded(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void PartitionCheckpointLoaded(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(73, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(74, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionLogReplayed(uint partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void PartitionLogReplayed(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(74, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
+        }
+
+
+        // ----- lease management events
+
+        [Event(90, Level = EventLevel.Informational, Version = 1)]
+        public void LeaseInfo(int partitionId, string message)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(90, partitionId, message);
+        }
+
+        [Event(91, Level = EventLevel.Verbose, Version = 1)]
+        public void LeaseVerbose(int partitionId, string message)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(91, partitionId, message);
+        }
+
+        [Event(92, Level = EventLevel.Error, Version = 1)]
+        public void LeaseError(int partitionId, string exceptiontype, string message)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(92, partitionId, exceptiontype, message);
         }
     }
 }

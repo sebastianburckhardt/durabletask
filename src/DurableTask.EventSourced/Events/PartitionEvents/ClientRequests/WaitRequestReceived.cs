@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class WaitRequestReceived : ClientRequestEvent
+    internal class WaitRequestReceived : ClientRequestEvent, IReadonlyPartitionEvent
     {
         [DataMember]
         public string InstanceId { get; set; }
@@ -25,22 +25,36 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string ExecutionId { get; set; }
 
-        [IgnoreDataMember]
-        public override bool AtMostOnce => false;
-
-        [IgnoreDataMember]
-        public override bool IsReadOnly => true;
-
         protected override void TraceInformation(StringBuilder s)
         {
             s.Append(' ');
             s.Append(this.InstanceId);
         }
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        [IgnoreDataMember]
+        public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
+
+        public void OnReadComplete(TrackedObject target)
         {
-            effects.Partition.Assert(!effects.InRecovery);
-            _ = WaitForOrchestrationCompletionTask(effects.Partition);
+            var orchestrationState = ((InstanceState)target)?.OrchestrationState;
+
+            if (orchestrationState != null &&
+                    orchestrationState.OrchestrationStatus != OrchestrationStatus.Running &&
+                    orchestrationState.OrchestrationStatus != OrchestrationStatus.Pending &&
+                    orchestrationState.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew)
+            {
+                target.Partition.Send(new WaitResponseReceived()
+                {
+                    ClientId = this.ClientId,
+                    RequestId = this.RequestId,
+                    OrchestrationState = orchestrationState,
+                });
+            }
+            else
+            {
+                //  we have to wait until the instance completes. To this end we register a listener
+                _ = WaitForOrchestrationCompletionTask(target.Partition);
+            }
         }
 
         public async Task WaitForOrchestrationCompletionTask(Partition partition)
@@ -48,9 +62,6 @@ namespace DurableTask.EventSourced
             try
             {
                 var waiter = new OrchestrationWaiter(this, partition);
-
-                // start an async read from state
-                partition.State.ScheduleRead(waiter);
 
                 var response = await waiter.Task;
 
@@ -68,8 +79,8 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private class OrchestrationWaiter : 
-            Partition.ResponseWaiter, 
+        private class OrchestrationWaiter :
+            Partition.ResponseWaiter,
             PubSub<string, OrchestrationState>.IListener,
             StorageAbstraction.IReadContinuation
         {

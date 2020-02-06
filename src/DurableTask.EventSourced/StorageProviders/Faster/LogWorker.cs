@@ -51,6 +51,8 @@ namespace DurableTask.EventSourced.Faster
 
         public override void Submit(PartitionEvent evt)
         {
+            partition.Assert(evt is IPartitionEventWithSideEffects);
+
             this.EnsureSerialized(evt);
 
             lock (this.thisLock)
@@ -70,6 +72,7 @@ namespace DurableTask.EventSourced.Faster
         {
             foreach (var evt in events)
             {
+                partition.Assert(evt is IPartitionEventWithSideEffects);
                 this.EnsureSerialized(evt);
             }
 

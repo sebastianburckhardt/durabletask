@@ -26,8 +26,5 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public long RequestId { get; set; }
-
-        [IgnoreDataMember]
-        public override bool AtMostOnce => false;
     }
 }

@@ -96,14 +96,22 @@ namespace DurableTask.EventSourced
             {
                 foreach (var o in batch)
                 {
-                    if (o is PartitionEvent partitionEvent)
+                    if (o is StorageAbstraction.IReadContinuation readContinuation)
                     {
+                        var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
+                        readContinuation.OnReadComplete(readTarget);
+                    }
+                    else
+                    {
+                        partition.Assert(o is IPartitionEventWithSideEffects);
+                        var partitionEvent = (PartitionEvent)o;
+
                         partitionEvent.CommitLogPosition = nextCommitPosition++;
                         partition.TraceProcess(partitionEvent);
                         effects.Effect = partitionEvent;
 
                         // determine the effects and apply all the updates
-                        partitionEvent.DetermineEffects(effects);
+                        ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(effects);
                         while (effects.Count > 0)
                         {
                             this.ProcessRecursively(partitionEvent, effects);
@@ -114,12 +122,6 @@ namespace DurableTask.EventSourced
                         Partition.TraceContext = null;
 
                         AckListeners.Acknowledge(partitionEvent);
-                    }
-                    else
-                    {
-                        var readContinuation = (StorageAbstraction.IReadContinuation)o;
-                        var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
-                        readContinuation.OnReadComplete(readTarget);
                     }
                 }
             }

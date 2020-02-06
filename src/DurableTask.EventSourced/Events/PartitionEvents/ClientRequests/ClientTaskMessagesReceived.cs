@@ -22,15 +22,12 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ClientTaskMessagesReceived : ClientRequestEvent
+    internal class ClientTaskMessagesReceived : ClientRequestEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public TaskMessage[] TaskMessages { get; set; }
 
-        [IgnoreDataMember]
-        public override bool AtMostOnce => true;
-
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
         }

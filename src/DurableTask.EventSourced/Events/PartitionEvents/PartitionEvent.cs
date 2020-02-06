@@ -25,16 +25,20 @@ namespace DurableTask.EventSourced
         public uint PartitionId { get; set; }
 
         [IgnoreDataMember]
-        public override bool AtMostOnce => false;
-
-        [IgnoreDataMember]
-        public virtual bool IsReadOnly => false;
-
-        [IgnoreDataMember]
         public ArraySegment<byte> Serialized;
+    }
 
-        // determines the set of tracked objects on which to process this event
-        public abstract void DetermineEffects(TrackedObject.EffectTracker effects);
+    // all partition events must implement exactly one of the following two interfaces, 
+    // depending on whether the event updates the store state or only reads it
+
+    internal interface IPartitionEventWithSideEffects
+    {
+          // determines the set of tracked objects on which to process this event
+        void DetermineEffects(TrackedObject.EffectTracker effects);
+    }
+
+    internal interface IReadonlyPartitionEvent : StorageAbstraction.IReadContinuation
+    {
 
     }
 }

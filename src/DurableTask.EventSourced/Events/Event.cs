@@ -35,12 +35,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public ulong? InputQueuePosition { get; set; }
 
-        /// <summary>
-        /// Some events should not be duplicated, so we do not retry them when enqueue is ambigous
-        /// </summary>
-        [IgnoreDataMember]
-        public abstract bool AtMostOnce { get; }
-
         [IgnoreDataMember]
         public AckListeners AckListeners;
 
@@ -72,6 +66,25 @@ namespace DurableTask.EventSourced
             yield return typeof(TimerFired);
             yield return typeof(TaskMessageReceived);
             yield return typeof(PartitionEventFragment);
+        }
+
+        public bool SafeToDuplicateInTransport()
+        {
+            if (this is ClientEvent)
+            {
+                // duplicate responses sent to clients are simply ignored
+                return true; 
+            }
+            else if (this is ClientRequestEvent)
+            {
+                // requests from clients are safe to duplicate if and only if they are read-only
+                return this is IReadonlyPartitionEvent;
+            }
+            else
+            {
+                // all partition events are safe to duplicate because they are perfectly deduplicated by Dedup
+                return true; 
+            }
         }
 
         #region ETW trace properties

@@ -20,7 +20,7 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ActivityCompleted : PartitionEvent
+    internal class ActivityCompleted : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public long ActivityId { get; set; }
@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage Response { get; set; }
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
             effects.Add(TrackedObjectKey.Activities);

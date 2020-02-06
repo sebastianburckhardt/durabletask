@@ -20,7 +20,10 @@ using System.Text;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class PartitionEventFragment : PartitionEvent, FragmentationAndReassembly.IEventFragment
+    internal class PartitionEventFragment : 
+        PartitionEvent, 
+        IPartitionEventWithSideEffects, 
+        FragmentationAndReassembly.IEventFragment
     {
         [DataMember]
         public Guid CohortId { get; set; }
@@ -34,7 +37,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public PartitionEvent ReassembledEvent;
 
-        public override void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(TrackedObject.EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Reassembly);
         }
