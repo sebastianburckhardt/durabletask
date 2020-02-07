@@ -17,6 +17,7 @@ using FASTER.devices;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.Storage.Blob.Protocol;
+using Newtonsoft.Json;
 using System;
 using System.IO;
 using System.Linq;
@@ -36,6 +37,7 @@ namespace DurableTask.EventSourced.Faster
 
         private CloudBlobContainer blobContainer;
         private CloudBlockBlob eventLogCommitBlob;
+        private CloudBlobDirectory partitionDirectory;
 
         private CancellationTokenSource ownershipCancellation;
         private CancellationTokenSource shutdownCancellation;
@@ -52,7 +54,7 @@ namespace DurableTask.EventSourced.Faster
         {
             LogDevice = this.EventLogDevice,
             LogCommitManager = UseLocalFilesForTestingAndDebugging ?
-                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.CommitBlobName}") : (ILogCommitManager)this,
+                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
         };
 
         public LogSettings StoreLogSettings => new LogSettings
@@ -65,7 +67,7 @@ namespace DurableTask.EventSourced.Faster
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {
             CheckpointManager = UseLocalFilesForTestingAndDebugging ?
-                new LocalCheckpointManager($"{LocalDirectoryPath}\\checkpoints{this.partitionId:D2}") : (ICheckpointManager)this,
+                new LocalCheckpointManager($"{LocalDirectoryPath}\\chkpts{this.partitionId:D2}") : (ICheckpointManager)this,
             CheckPointType = CheckpointType.FoldOver,
         };
 
@@ -89,12 +91,13 @@ namespace DurableTask.EventSourced.Faster
         public static string LocalFileDirectoryForTestingAndDebugging { get; set; } = null;
         private static bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
 
+
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.containerName}";
-        private string SnapshotFolder => $"partition{this.partitionId:D2}";
-        private string EventLogBlobName => $"events{this.partitionId:D2}.segment";
-        private string CommitBlobName => $"events{this.partitionId:D2}.commit";
-        private string HybridLogBlobName => $"store{this.partitionId:D2}.segment";
-        private string ObjectLogBlobName => $"store{this.partitionId:D2}.obj.segment";
+        private string PartitionFolder => $"p{this.partitionId:D2}";
+        private const string EventLogBlobName = "evts";
+        private const string CommitBlobName = "evts.commit";
+        private const string HybridLogBlobName = "store";
+        private const string ObjectLogBlobName = "store.obj";
 
         private Task LeaseRenewalLoopTask = Task.CompletedTask;
         private volatile Task NextLeaseRenewalTask = Task.CompletedTask;
@@ -108,24 +111,26 @@ namespace DurableTask.EventSourced.Faster
         {
             if (UseLocalFilesForTestingAndDebugging)
             {
-                Directory.CreateDirectory(LocalDirectoryPath);
+                Directory.CreateDirectory($"{LocalDirectoryPath}\\{PartitionFolder}");
 
-                this.EventLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.EventLogBlobName}");
-                this.HybridLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.HybridLogBlobName}");
-                this.ObjectLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{this.ObjectLogBlobName}");
+                this.EventLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{PartitionFolder}\\{EventLogBlobName}");
+                this.HybridLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{PartitionFolder}\\{HybridLogBlobName}");
+                this.ObjectLogDevice = Devices.CreateLogDevice($"{LocalDirectoryPath}\\{PartitionFolder}\\{ObjectLogBlobName}");
             }
             else
             {
                 await this.blobContainer.CreateIfNotExistsAsync();
-                this.eventLogCommitBlob = this.blobContainer.GetBlockBlobReference(this.CommitBlobName);
+                this.partitionDirectory = this.blobContainer.GetDirectoryReference(this.PartitionFolder);
 
-                var eventLogDevice = new AzureStorageDevice(connectionString, containerName, this.EventLogBlobName);
-                var hybridLogDevice = new AzureStorageDevice(connectionString, containerName, this.HybridLogBlobName);
-                var objectLogDevice = new AzureStorageDevice(connectionString, containerName, this.ObjectLogBlobName);
+                this.eventLogCommitBlob = this.partitionDirectory.GetBlockBlobReference(CommitBlobName);
+                
+                var eventLogDevice = new AzureStorageDevice(EventLogBlobName, this.partitionDirectory);
+                var hybridLogDevice = new AzureStorageDevice(HybridLogBlobName, this.partitionDirectory);
+                var objectLogDevice = new AzureStorageDevice(ObjectLogBlobName, this.partitionDirectory);
 
-                eventLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"eventLog.{method}", e.ToString());
-                hybridLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"hybridLog.{method}", e.ToString());
-                objectLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"objectLog.{method}", e.ToString());
+                eventLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{EventLogBlobName}.{method}", e.ToString());
+                hybridLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{HybridLogBlobName}.{method}", e.ToString());
+                objectLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{ObjectLogBlobName}.{method}", e.ToString());
 
                 this.EventLogDevice = eventLogDevice;
                 this.HybridLogDevice = hybridLogDevice;
@@ -408,7 +413,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
+                var metaFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointMetaBlob(indexToken));
                 using (var blobStream = metaFileBlob.OpenWrite())
                 {
                     using (var writer = new BinaryWriter(blobStream))
@@ -419,7 +424,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
-                var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
+                var completedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointCompletedBlob());
                 completedFileBlob.UploadText(indexToken.ToString());
             }
             catch (Exception e)
@@ -433,7 +438,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
+                var metaFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointMetaBlob(logToken));
                 using (var blobStream = metaFileBlob.OpenWrite())
                 {
                     using (var writer = new BinaryWriter(blobStream))
@@ -444,7 +449,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
-                var completedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
+                var completedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedBlob());
                 completedFileBlob.UploadText(logToken.ToString());
             }
             catch (Exception e)
@@ -458,7 +463,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointMetaFileName(indexToken));
+                var metaFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointMetaBlob(indexToken));
                 using (var blobstream = metaFileBlob.OpenRead())
                 {
                     using (var reader = new BinaryReader(blobstream))
@@ -479,7 +484,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var metaFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointMetaFileName(logToken));
+                var metaFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointMetaBlob(logToken));
                 using (var blobstream = metaFileBlob.OpenRead())
                 {
                     using (var reader = new BinaryReader(blobstream))
@@ -500,7 +505,11 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetPrimaryHashTableFileName(indexToken));
+                var (path, blobName) = this.GetPrimaryHashTableBlob(indexToken);
+                var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory);
+                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"indexDevice.{method}", e.ToString());
+                return device;
             }
             catch (Exception e)
             {
@@ -513,7 +522,11 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetLogSnapshotFileName(token));
+                var (path, blobName) = this.GetLogSnapshotBlob(token);
+                var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory);
+                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"snapshotLogDevice.{method}", e.ToString());
+                return device;
             }
             catch (Exception e)
             {
@@ -526,7 +539,11 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                return new AzureStorageDevice(this.connectionString, blobContainer.Name, this.GetObjectLogSnapshotFileName(token));
+                var (path, blobName) = this.GetObjectLogSnapshotBlob(token);
+                var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory);
+                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"snapshotObjectLogDevice.{method}", e.ToString());
+                return device;
             }
             catch (Exception e)
             {
@@ -539,8 +556,8 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var indexCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetIndexCheckpointCompletedFileName());
-                var logCompletedFileBlob = this.blobContainer.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedFileName());
+                var indexCompletedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointCompletedBlob());
+                var logCompletedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedBlob());
 
                 if (indexCompletedFileBlob.Exists() && logCompletedFileBlob.Exists())
                 {
@@ -568,112 +585,39 @@ namespace DurableTask.EventSourced.Faster
 
         #region Blob Name Management
 
-        private const string index_base_folder = "index-checkpoints";
-        private const string index_meta_file = "info";
-        private const string index_completed_file = "index-last-checkpoint";
-        private const string hash_table_file = "ht";
-        private const string overflow_buckets_file = "ofb";
-        private const string snapshot_file = "snapshot";
-
-        private const string cpr_base_folder = "cpr-checkpoints";
-        private const string cpr_meta_file = "info";
-        private const string cpr_completed_file = "cpr-last-checkpoint";
-
-        private string GetIndexCheckpointFolderName(Guid token)
+        private string GetIndexCheckpointMetaBlob(Guid token)
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    index_base_folder,
-                                    token.ToString());
+            return $"index-checkpoints/{token}/info.dat";
         }
 
-        private string GetIndexCheckpointMetaFileName(Guid token)
+        private string GetIndexCheckpointCompletedBlob()
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    index_base_folder,
-                                    token.ToString(),
-                                    index_meta_file,
-                                    ".dat");
+            return $"index-checkpoints/last.txt";
         }
 
-        private string GetIndexCheckpointCompletedFileName()
+        private (string, string) GetPrimaryHashTableBlob(Guid token)
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    index_base_folder,
-                                    index_completed_file,
-                                    ".txt");
+            return ($"index-checkpoints/{token}", "ht.dat");
         }
 
-        private string GetPrimaryHashTableFileName(Guid token)
+        private string GetHybridLogCheckpointMetaBlob(Guid token)
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    index_base_folder,
-                                    token.ToString(),
-                                    hash_table_file,
-                                    ".dat");
+            return $"cpr-checkpoints/{token}/info.dat";
         }
 
-        private string GetOverflowBucketsFileName(Guid token)
+        private string GetHybridLogCheckpointCompletedBlob()
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    index_base_folder,
-                                    token.ToString(),
-                                    overflow_buckets_file,
-                                    ".dat");
+            return $"cpr-checkpoints/last.txt";
         }
 
-        private string GetHybridLogCheckpointMetaFileName(Guid token)
+        private (string, string) GetLogSnapshotBlob(Guid token)
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    cpr_base_folder,
-                                    token.ToString(),
-                                    cpr_meta_file,
-                                    ".dat");
+            return ($"cpr-checkpoints/{token}", "snapshot.dat");
         }
 
-        private string GetHybridLogCheckpointCompletedFileName()
+        private (string, string) GetObjectLogSnapshotBlob(Guid token)
         {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    cpr_base_folder,
-                                    cpr_completed_file,
-                                    ".txt");
-        }
-
-        private string GetHybridLogCheckpointContextFileName(Guid checkpointToken, Guid sessionToken)
-        {
-            return GetMergedFolderPath(this.SnapshotFolder,
-                                    cpr_base_folder,
-                                    checkpointToken.ToString(),
-                                    sessionToken.ToString(),
-                                    ".dat");
-        }
-
-        private string GetLogSnapshotFileName(Guid token)
-        {
-            return GetMergedFolderPath(this.SnapshotFolder, cpr_base_folder, token.ToString(), snapshot_file, ".dat");
-        }
-
-        private string GetObjectLogSnapshotFileName(Guid token)
-        {
-            return GetMergedFolderPath(this.SnapshotFolder, cpr_base_folder, token.ToString(), snapshot_file, ".obj.dat");
-        }
-
-        private static string GetMergedFolderPath(params String[] paths)
-        {
-            String fullPath = paths[0];
-
-            for (int i = 1; i < paths.Length; i++)
-            {
-                if (i == paths.Length - 1 && paths[i].Contains("."))
-                {
-                    fullPath += paths[i];
-                }
-                else
-                {
-                    fullPath += '/' + paths[i];
-                }
-            }
-
-            return fullPath;
+            return ($"cpr-checkpoints/{token}", "snapshot.obj.dat");
         }
 
         #endregion

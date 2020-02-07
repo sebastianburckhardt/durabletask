@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
-            //this.blobManager.LocalFileDirectoryForTestingAndDebugging = "E:\\faster";
+            //BlobManager.LocalFileDirectoryForTestingAndDebugging = "C:\\faster";
 
             await blobManager.StartAsync();
             this.OwnershipCancellationToken = await blobManager.AcquireOwnership(token);

@@ -21,7 +21,7 @@ namespace DurableTask.EventSourced.Faster
 
         public FasterKV(Partition partition, BlobManager blobManager)
             : base(
-                1L << 17,
+                1L << 16,
                 new Functions(partition),
                 blobManager.StoreLogSettings,
                 blobManager.StoreCheckpointSettings,

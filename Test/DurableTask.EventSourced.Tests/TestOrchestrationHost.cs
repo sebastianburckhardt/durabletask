@@ -31,13 +31,13 @@ namespace DurableTask.EventSourced.Tests
 
         public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings)
         {
-            var service = new EventSourced.EventSourcedOrchestrationService(settings);
-            ((IOrchestrationService)service).CreateAsync().GetAwaiter().GetResult();
+            this.orchestrationService = new EventSourced.EventSourcedOrchestrationService(settings);
+            ((IOrchestrationService)this.orchestrationService).CreateAsync(TestHelpers.DeleteStorageBeforeRunningTests).GetAwaiter().GetResult();
 
             this.settings = settings;
 
-            this.worker = new TaskHubWorker(service);
-            this.client = new TaskHubClient(service);
+            this.worker = new TaskHubWorker(this.orchestrationService);
+            this.client = new TaskHubClient(this.orchestrationService);
             this.addedOrchestrationTypes = new HashSet<Type>();
             this.addedActivityTypes = new HashSet<Type>();
         }
@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced.Tests
 
         public async Task StartAsync()
         {
-            Trace.TraceInformation($"Started {orchestrationService}");
+            Trace.TraceInformation($"Started {this.orchestrationService}");
 
             await this.worker.StartAsync();
         }

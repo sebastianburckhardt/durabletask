@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using FASTER.core;
@@ -19,8 +20,8 @@ namespace FASTER.devices
     /// </summary>
     public class AzureStorageDevice : StorageDeviceBase
     {
-        private CloudBlobContainer container;
         private readonly ConcurrentDictionary<int, BlobEntry> blobs;
+        private readonly CloudBlobDirectory blobDirectory;
         private readonly string blobName;
         private readonly bool deleteOnClose;
 
@@ -32,22 +33,18 @@ namespace FASTER.devices
         /// <summary>
         /// Constructs a new AzureStorageDevice instance, backed by Azure Page Blobs
         /// </summary>
-        /// <param name="connectionString"> The connection string to use when estblishing connection to Azure Blobs</param>
-        /// <param name="containerName">Name of the Azure Blob container to use. If there does not exist a container with the supplied name, one is created</param>
-        /// <param name="blobName">A descriptive name that will be the prefix of all blobs created with this device</param>
+        /// <param name="blobName">A descriptive name that will be the prefix of all segments created</param>
+        /// <param name="blobDirectory">the directory containing the blob</param>
         /// <param name="deleteOnClose">
         /// True if the program should delete all blobs created on call to <see cref="Close">Close</see>. False otherwise. 
         /// The container is not deleted even if it was created in this constructor
         /// </param>
         /// <param name="capacity">The maximum number of bytes this storage device can accommondate, or CAPACITY_UNSPECIFIED if there is no such limit </param>
-        public AzureStorageDevice(string connectionString, string containerName, string blobName, bool deleteOnClose = false, long capacity = Devices.CAPACITY_UNSPECIFIED)
-            : base(connectionString + "/" + containerName + "/" + blobName, PAGE_BLOB_SECTOR_SIZE, capacity)
+        public AzureStorageDevice(string blobName, CloudBlobDirectory blobDirectory, bool deleteOnClose = false, long capacity = Devices.CAPACITY_UNSPECIFIED)
+            : base($"{blobDirectory}\\{blobName}", PAGE_BLOB_SECTOR_SIZE, capacity)
         {
-            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(connectionString);
-            CloudBlobClient client = storageAccount.CreateCloudBlobClient();
-            container = client.GetContainerReference(containerName);
-            container.CreateIfNotExists();
-            blobs = new ConcurrentDictionary<int, BlobEntry>();
+            this.blobs = new ConcurrentDictionary<int, BlobEntry>();
+            this.blobDirectory = blobDirectory;
             this.blobName = blobName;
             this.deleteOnClose = deleteOnClose;
             RecoverBlobs();
@@ -58,14 +55,20 @@ namespace FASTER.devices
         /// </summary>
         public Action<string, Exception> ExceptionTracer { get; set; }
 
+        private string GetSegmentBlobName(int segmentId)
+        {
+            return $"{blobName}.{segmentId}";
+        }
+
         private void RecoverBlobs()
         {
             int prevSegmentId = -1;
-            foreach (IListBlobItem item in container.ListBlobs(blobName))
+            var prefix = $"{blobDirectory.Prefix}{blobName}.";
+            foreach (IListBlobItem item in blobDirectory.ListBlobs())
             {
                 if (item is CloudPageBlob pageBlob)
                 {
-                    if (Int32.TryParse(pageBlob.Name.Replace(blobName + ".", ""), out int segmentId))
+                    if (Int32.TryParse(pageBlob.Name.Replace(prefix, ""), out int segmentId))
                     {
                         if (segmentId != prevSegmentId + 1)
                         {
@@ -83,7 +86,7 @@ namespace FASTER.devices
 
             for (int i = startSegment; i <= endSegment; i++)
             {
-                bool ret = blobs.TryAdd(i, new BlobEntry(container.GetPageBlobReference(GetSegmentBlobName(i))));
+                bool ret = blobs.TryAdd(i, new BlobEntry(this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(i))));
                 Debug.Assert(ret, "Recovery of blobs is single-threaded and should not yield any failure due to concurrency");
             }
         }
@@ -174,7 +177,7 @@ namespace FASTER.devices
                 BlobEntry entry = new BlobEntry();
                 if (blobs.TryAdd(segmentId, entry))
                 {
-                    CloudPageBlob pageBlob = container.GetPageBlobReference(GetSegmentBlobName(segmentId));
+                    CloudPageBlob pageBlob = this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
                     // If segment size is -1, which denotes absence, we request the largest possible blob. This is okay because
                     // page blobs are not backed by real pages on creation, and the given size is only a the physical limit of 
                     // how large it can grow to.
@@ -195,7 +198,10 @@ namespace FASTER.devices
             CloudPageBlob pageBlob = blobEntry.GetPageBlob();
             // If pageBlob is null, it is being created. Attempt to queue the write for the creator to complete after it is done
             if (pageBlob == null
-                && blobEntry.TryQueueAction(p => WriteToBlobAsync(p, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult))) return;
+                && blobEntry.TryQueueAction(p => WriteToBlobAsync(p, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult)))
+            {
+                return;
+            }
 
             // Otherwise, invoke directly.
             WriteToBlobAsync(pageBlob, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
@@ -224,11 +230,6 @@ namespace FASTER.devices
                 }
                 callback(0, numBytesToWrite, ovNative);
             }, asyncResult);
-        }
-
-        private string GetSegmentBlobName(int segmentId)
-        {
-            return $"{blobName}.{segmentId}";
         }
     }
 }

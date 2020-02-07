@@ -64,6 +64,8 @@ namespace DurableTask.EventSourced.Tests
             return "C:\\faster";
         }
 
+        public static bool DeleteStorageBeforeRunningTests => true;
+
         public static string GetEventHubsConnectionString()
         {
             // return "Memory:1";
@@ -71,8 +73,8 @@ namespace DurableTask.EventSourced.Tests
             // return "Memory:32";
             // return "MemoryF:1";
             // return "MemoryF:4";
-            // return "MemoryF:32";
-            return GetTestSetting("EventHubsConnectionString", false);
+            return "MemoryF:32";
+            // return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)
