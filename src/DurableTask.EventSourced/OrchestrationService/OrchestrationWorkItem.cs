@@ -50,7 +50,7 @@ namespace DurableTask.EventSourced
                 NewMessages = session.Batch.ToList(), // make a copy
             };
 
-            partition.DiagnosticsTrace($"Prefetching {workItem.WorkItemId}");
+            partition.TraceDetail($"Prefetching {workItem.WorkItemId}");
 
             // continue once we have the history state loaded
             partition.State.ScheduleRead(workItem);
@@ -63,18 +63,18 @@ namespace DurableTask.EventSourced
             // load the previous runtime state if it exists, or create a new one
             if (historyState == null || this.ForceNewExecution)
             {
-                this.Partition.DiagnosticsTrace($"Starting fresh orchestration {this.WorkItemId}");
+                this.Partition.TraceDetail($"Starting fresh orchestration {this.WorkItemId}");
                 this.OrchestrationRuntimeState = new OrchestrationRuntimeState();
             }
             else
             {
-                this.Partition.DiagnosticsTrace($"Continuing orchestration {this.WorkItemId}");
+                this.Partition.TraceDetail($"Continuing orchestration {this.WorkItemId}");
                 this.OrchestrationRuntimeState = ((HistoryState)historyState)?.GetRuntimeState();
             }
 
             if (!this.IsExecutableInstance(out var warningMessage))
             {
-                this.Partition.DiagnosticsTrace($"Discarding non-executable orchestration {this.WorkItemId}: {warningMessage}");
+                this.Partition.TraceDetail($"Discarding non-executable orchestration {this.WorkItemId}: {warningMessage}");
 
                 // discard the messages, by marking the batch as processed without updating the state
                 this.Partition.Submit(new BatchProcessed()

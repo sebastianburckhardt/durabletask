@@ -35,11 +35,18 @@ namespace DurableTask.EventSourced
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing {evt} {evt.WorkItem}");
+                if (evt.InputQueuePosition.HasValue)
+                {
+                    System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing external {evt} {evt.InputQueuePosition} {evt.WorkItem}");
+                }
+                else
+                {
+                    System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing internal {evt} {evt.WorkItem}");
+                }
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.CommitLogPosition ?? 0UL, evt.InputQueuePosition ?? 0UL, evt.WorkItem, evt.ToString());
             }
         }
 
@@ -66,6 +73,20 @@ namespace DurableTask.EventSourced
                 EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
             }
         }
+
+        public void TraceDetail(string msg)
+        {
+            if (EtwSource.EmitDiagnosticsTrace)
+            {
+                this.DiagnosticsTrace(msg);
+             
+                if (EtwSource.Log.IsVerboseEnabled)
+                {
+                    EtwSource.Log.PartitionDetail((int)this.PartitionId, Partition.TraceContext ?? "", msg);
+                }
+            }
+        }
+
 
         public void DiagnosticsTrace(string msg)
         {

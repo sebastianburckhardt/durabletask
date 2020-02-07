@@ -92,6 +92,21 @@ namespace DurableTask.EventSourced
             }
         }
 
+        Task TransportAbstraction.IHost.DeleteAllPartitionStatesAsync()
+        {
+            switch (this.settings.StorageComponent)
+            {
+                case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
+                    return Task.Delay(10);
+
+                case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
+                    return Faster.FasterStorage.DeleteTaskhubStorageAsync(settings.StorageConnectionString, this.settings.TaskHubName);
+
+                default:
+                    throw new NotImplementedException("no such storage choice");
+            }
+        }
+
         /******************************/
         // management methods
         /******************************/

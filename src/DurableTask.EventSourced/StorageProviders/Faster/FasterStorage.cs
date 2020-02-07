@@ -41,6 +41,11 @@ namespace DurableTask.EventSourced.Faster
             this.taskHubName = taskHubName;
         }
 
+        public static Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
+        {
+            return BlobManager.DeleteTaskhubStorageAsync(connectionString, taskHubName);
+        }
+
         public async Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
         {
             this.partition = partition;
@@ -124,7 +129,7 @@ namespace DurableTask.EventSourced.Faster
                     target.OnRecoveryCompleted();
                 }
 
-                this.partition.DiagnosticsTrace($"Recovery complete.");
+                this.partition.TraceDetail($"Recovery complete.");
             }
 
             return storeWorker.InputQueuePosition;

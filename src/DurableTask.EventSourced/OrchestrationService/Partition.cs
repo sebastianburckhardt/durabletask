@@ -155,7 +155,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"Creating ActivityWorkItem {item.WorkItemId}");
+                this.TraceDetail($"Creating ActivityWorkItem {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -169,7 +169,7 @@ namespace DurableTask.EventSourced
         {
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                this.DiagnosticsTrace($"Creating OrchestrationWorkItem {item.WorkItemId}");
+                this.TraceDetail($"Creating OrchestrationWorkItem {item.WorkItemId}");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {

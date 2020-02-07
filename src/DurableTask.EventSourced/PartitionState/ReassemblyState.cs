@@ -42,7 +42,7 @@ namespace DurableTask.EventSourced
                 
                 if (EtwSource.EmitDiagnosticsTrace)
                 {
-                    this.Partition.DiagnosticsTrace($"Reassembled {evt.ReassembledEvent}");
+                    this.Partition.TraceDetail($"Reassembled {evt.ReassembledEvent}");
                 }
 
                 this.Fragments.Remove(evt.CohortId);

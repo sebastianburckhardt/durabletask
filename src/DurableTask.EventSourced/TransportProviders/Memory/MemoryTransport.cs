@@ -51,12 +51,14 @@ namespace DurableTask.EventSourced.Emulated
             this.partitions = new TransportAbstraction.IPartition[numberPartitions];
         }
 
-        async Task TransportAbstraction.ITaskHub.DeleteAsync()
+        Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
-            await Task.Delay(simulatedDelay);
             this.clientQueues = null;
             this.partitionQueues = null;
-        }
+            this.partitionStates = null;
+
+            return this.host.DeleteAllPartitionStatesAsync();
+       }
 
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {

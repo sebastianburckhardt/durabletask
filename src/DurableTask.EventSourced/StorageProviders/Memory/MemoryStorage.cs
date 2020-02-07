@@ -118,7 +118,7 @@ namespace DurableTask.EventSourced
                         }
 
                         effects.Effect = null;
-                        partition.DiagnosticsTrace("Processing complete");
+                        partition.TraceDetail("Processing complete");
                         Partition.TraceContext = null;
 
                         AckListeners.Acknowledge(partitionEvent);
@@ -137,7 +137,7 @@ namespace DurableTask.EventSourced
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                partition.DiagnosticsTrace($"Process on [{key}]");
+                partition.TraceDetail($"Process on [{key}]");
             }
 
             // start with processing the event on this object, which

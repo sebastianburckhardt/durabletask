@@ -19,6 +19,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
+using Microsoft.Azure.Storage.Blob.Protocol;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Newtonsoft.Json;
@@ -38,6 +39,8 @@ namespace DurableTask.EventSourced.EventHubs
 
         private EventProcessorHost eventProcessorHost;
         private TransportAbstraction.IClient client;
+
+        private TaskhubParameters parameters;
 
         private CancellationTokenSource shutdownSource;
 
@@ -62,14 +65,34 @@ namespace DurableTask.EventSourced.EventHubs
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
         }
 
-        Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
+        private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
         {
-            return this.taskhubParameters.ExistsAsync();
+            // try load the taskhub parameters
+            try
+            {
+                var jsonText = await this.taskhubParameters.DownloadTextAsync();
+                return  JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
+            }
+            catch (StorageException ex) when (ex.RequestInformation.HttpStatusCode == 404)
+            {
+                return null;
+            }
+        }
+
+        async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
+        {
+            var parameters = await TryLoadExistingTaskhubAsync();
+            return (parameters != null && parameters.TaskhubName == this.settings.TaskHubName);
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
             await this.cloudBlobContainer.CreateIfNotExistsAsync();
+
+            if (await TryLoadExistingTaskhubAsync() != null)
+            {
+                throw new InvalidOperationException("Cannot create TaskHub: Only one TaskHub is allowed per EventHub");
+            }
 
             // get runtime information from the eventhubs
             var partitionEventHubsClient = this.connections.GetPartitionEventHubsClient();
@@ -91,6 +114,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             var taskHubParameters = new
             {
+                TaskhubName = settings.TaskHubName,
                 CreationTimestamp = DateTime.UtcNow,
                 StartPositions = startPositions
             };
@@ -107,15 +131,20 @@ namespace DurableTask.EventSourced.EventHubs
         public class TaskhubParameters
         {
             [DataMember]
+            public string TaskhubName { get; set; }
+
+            [DataMember]
             public DateTime CreationTimestamp { get; set; }
 
             [DataMember]
             public long[] StartPositions { get; set; }
         }
 
-        Task TransportAbstraction.ITaskHub.DeleteAsync()
+        async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
-            return this.taskhubParameters.DeleteIfExistsAsync();
+            await this.taskhubParameters.DeleteIfExistsAsync();
+            // todo delete consumption checkpoints
+            await this.host.DeleteAllPartitionStatesAsync();
         }
 
         async Task TransportAbstraction.ITaskHub.StartAsync()
@@ -124,9 +153,15 @@ namespace DurableTask.EventSourced.EventHubs
 
             // load the taskhub parameters
             var jsonText = await this.taskhubParameters.DownloadTextAsync();
-            var parameters = JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
+            this.parameters = JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
 
-            this.host.NumberPartitions = (uint) parameters.StartPositions.Length;
+            // check that we are the correct taskhub!
+            if (this.parameters.TaskhubName != this.settings.TaskHubName)
+            {
+                throw new InvalidOperationException("Only one taskhub is allowed per EventHub");
+            }
+
+            this.host.NumberPartitions = (uint) this.parameters.StartPositions.Length;
 
             this.client = host.AddClient(this.ClientId, this);
 
@@ -141,7 +176,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             var processorOptions = new EventProcessorOptions()
             {
-                InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(parameters.StartPositions[int.Parse(s)] - 1),
+                InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(this.parameters.StartPositions[int.Parse(s)] - 1),
                 MaxBatchSize = MaxReceiveBatchSize,
             };
 
@@ -159,7 +194,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext context)
         {
-            var processor = new EventProcessor(this.host, this, this.settings);
+            var processor = new EventProcessor(this.host, this, this.settings, this.parameters);
             return processor;
         }
 

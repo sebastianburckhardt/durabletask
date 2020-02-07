@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
             // resend all pending
             foreach (var kvp in Outbox)
             {
-                Partition.DiagnosticsTrace($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
+                Partition.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 Send(kvp.Key, kvp.Value);
             }
         }

@@ -51,6 +51,8 @@ namespace DurableTask.EventSourced
 
             StorageAbstraction.IPartitionState CreatePartitionState();
 
+            Task DeleteAllPartitionStatesAsync();
+
             IClient AddClient(Guid clientId, ISender batchSender);
 
             IPartition AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, ISender batchSender);

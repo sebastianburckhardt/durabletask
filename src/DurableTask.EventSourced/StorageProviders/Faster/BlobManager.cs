@@ -14,19 +14,12 @@
 
 using FASTER.core;
 using FASTER.devices;
-using Microsoft.Azure.Services.AppAuthentication;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.Storage.Blob.Protocol;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Data.Common;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -58,7 +51,7 @@ namespace DurableTask.EventSourced.Faster
         public FasterLogSettings EventLogSettings => new FasterLogSettings
         {
             LogDevice = this.EventLogDevice,
-            LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
+            LogCommitManager = UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.CommitBlobName}") : (ILogCommitManager)this,
         };
 
@@ -71,7 +64,7 @@ namespace DurableTask.EventSourced.Faster
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {
-            CheckpointManager = this.UseLocalFilesForTestingAndDebugging ?
+            CheckpointManager = UseLocalFilesForTestingAndDebugging ?
                 new LocalCheckpointManager($"{LocalDirectoryPath}\\checkpoints{this.partitionId:D2}") : (ICheckpointManager)this,
             CheckPointType = CheckpointType.FoldOver,
         };
@@ -85,7 +78,7 @@ namespace DurableTask.EventSourced.Faster
         public BlobManager(string connectionString, string taskHubName, uint partitionId)
         {
             this.connectionString = connectionString;
-            this.containerName = taskHubName.ToLowerInvariant() + "-data";
+            this.containerName = GetContainerName(taskHubName);
             this.partitionId = partitionId;
 
             CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
@@ -93,12 +86,11 @@ namespace DurableTask.EventSourced.Faster
             this.blobContainer = serviceClient.GetContainerReference(containerName);
         }
 
-        public string LocalFileDirectoryForTestingAndDebugging { get; set; } = null;
-        private bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
+        public static string LocalFileDirectoryForTestingAndDebugging { get; set; } = null;
+        private static bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.containerName}";
         private string SnapshotFolder => $"partition{this.partitionId:D2}";
-
         private string EventLogBlobName => $"events{this.partitionId:D2}.segment";
         private string CommitBlobName => $"events{this.partitionId:D2}.commit";
         private string HybridLogBlobName => $"store{this.partitionId:D2}.segment";
@@ -106,6 +98,11 @@ namespace DurableTask.EventSourced.Faster
 
         private Task LeaseRenewalLoopTask = Task.CompletedTask;
         private volatile Task NextLeaseRenewalTask = Task.CompletedTask;
+
+        private static string GetContainerName(string taskHubName)
+        {
+            return taskHubName.ToLowerInvariant() + "-storage";
+        }
 
         public async Task StartAsync()
         {
@@ -143,25 +140,40 @@ namespace DurableTask.EventSourced.Faster
             await this.LeaseRenewalLoopTask;
         }
 
-        private static bool LeaseConflictOrExpired(StorageException e)
+        public static async Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
         {
-            return (e.RequestInformation.HttpStatusCode == 409) || (e.RequestInformation.HttpStatusCode == 412);
-        }
+            var containerName = GetContainerName(taskHubName);
 
-        private static bool LeaseConflict(StorageException e)
-        {
-            return (e.RequestInformation.HttpStatusCode == 409);
-        }
+            if (UseLocalFilesForTestingAndDebugging)
+            {
+                System.IO.DirectoryInfo di = new DirectoryInfo($"{LocalFileDirectoryForTestingAndDebugging}\\{containerName}");
+                if (di.Exists)
+                {
+                    di.Delete(true);
+                }
+            }
+            else
+            {
+                CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
+                CloudBlobClient serviceClient = account.CreateCloudBlobClient();
+                var blobContainer = serviceClient.GetContainerReference(containerName);
 
-        private static bool LeaseExpired(StorageException e)
-        {
-            return (e.RequestInformation.HttpStatusCode == 412);
-        }
+                if (await blobContainer.ExistsAsync())
+                {
+                    var allBlobsInContainer = blobContainer.ListBlobs(null, true).ToList();
+                    Parallel.ForEach(allBlobsInContainer, async (IListBlobItem blob) =>
+                    {
+                        if (blob.GetType() == typeof(CloudBlob) || blob.GetType().BaseType == typeof(CloudBlob))
+                        {
+                            await ((CloudBlob)blob).DeleteIfExistsAsync();
+                        }
+                    });
+                }
 
-        private static bool BlobDoesNotExist(StorageException e)
-        {
-            var information = e.RequestInformation.ExtendedErrorInformation;
-            return (e.RequestInformation.HttpStatusCode == 404) && (information.ErrorCode.Equals(BlobErrorCodeStrings.BlobNotFound));
+                // we are not deleting the container itself because it creates problems
+                // when trying to recreate the same container soon afterwards
+                // so we leave an empty container behind. Oh well.
+            }
         }
 
         public async Task<CancellationToken> AcquireOwnership(CancellationToken token)
@@ -273,7 +285,6 @@ namespace DurableTask.EventSourced.Faster
             catch (OperationCanceledException)
             {
                 // we are shutting down
-                throw;
             }
             catch (StorageException ex) when (LeaseConflict(ex))
             {
@@ -288,31 +299,25 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public async Task DeleteTaskhubDataAsync()
+        private static bool LeaseConflictOrExpired(StorageException e)
         {
-            if (UseLocalFilesForTestingAndDebugging)
-            {
-                System.IO.DirectoryInfo di = new DirectoryInfo(LocalDirectoryPath);
-                if (di.Exists)
-                {
-                    di.Delete(true);
-                }
-            }
-            else
-            {
-                if (await this.blobContainer.ExistsAsync())
-                {
-                    foreach (IListBlobItem blob in this.blobContainer.ListBlobs())
-                    {
-                        if (blob.GetType() == typeof(CloudBlob) || blob.GetType().BaseType == typeof(CloudBlob))
-                        {
-                            await ((CloudBlob)blob).DeleteIfExistsAsync();
-                        }
-                    }
-                }
-                // we are not deleting the container itself because it creates problems
-                // when trying to recreate the same container soon afterwards
-            }
+            return (e.RequestInformation.HttpStatusCode == 409) || (e.RequestInformation.HttpStatusCode == 412);
+        }
+
+        private static bool LeaseConflict(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 409);
+        }
+
+        private static bool LeaseExpired(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 412);
+        }
+
+        private static bool BlobDoesNotExist(StorageException e)
+        {
+            var information = e.RequestInformation.ExtendedErrorInformation;
+            return (e.RequestInformation.HttpStatusCode == 404) && (information.ErrorCode.Equals(BlobErrorCodeStrings.BlobNotFound));
         }
 
         #region ILogCommitManager

@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced
                     TimerFiredMessage = kvp.Value,
                 };
 
-                Partition.DiagnosticsTrace($"Rescheduled {kvp.Value}");
+                Partition.TraceDetail($"Rescheduled {kvp.Value}");
                 Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
             }
         }

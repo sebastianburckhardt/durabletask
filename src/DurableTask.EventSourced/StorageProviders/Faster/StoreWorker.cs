@@ -97,6 +97,11 @@ namespace DurableTask.EventSourced.Faster
 
                 if (o is StorageAbstraction.IReadContinuation readContinuation)
                 {
+                    if (readContinuation is PartitionEvent partitionEvent)
+                    {
+                        this.partition.TraceProcess(partitionEvent);
+                    }
+
                     try
                     {
                         store.Read(readContinuation, this.partition);
@@ -129,7 +134,7 @@ namespace DurableTask.EventSourced.Faster
             this.effects.InRecovery = true;
             await ReplayCommitLog(startPosition, log.TailAddress);
             stopwatch.Stop();
-            this.partition.DiagnosticsTrace($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
+            this.partition.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
             this.effects.InRecovery = false;
 
             async Task ReplayCommitLog(ulong from, long to)
@@ -165,7 +170,7 @@ namespace DurableTask.EventSourced.Faster
         {
             if (partitionEvent.InputQueuePosition.HasValue && partitionEvent.InputQueuePosition.Value <= this.InputQueuePosition)
             {
-                partition.DiagnosticsTrace($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
+                partition.TraceDetail($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
                 return;
             }
 
@@ -196,7 +201,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 this.effects.Effect = null;
-                partition.DiagnosticsTrace($"Processing complete {partitionEvent.InputQueuePosition}");
+                partition.TraceDetail($"Processing complete {partitionEvent.InputQueuePosition}");
                 Partition.TraceContext = null;
             }
             catch (Exception updateException)
@@ -213,7 +218,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (EtwSource.EmitDiagnosticsTrace)
             {
-                partition.DiagnosticsTrace($"Process on [{key}]");
+                partition.TraceDetail($"Process on [{key}]");
             }
 
             // start with processing the event on this object 
