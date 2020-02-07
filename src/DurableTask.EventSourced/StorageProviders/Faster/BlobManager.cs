@@ -41,8 +41,8 @@ namespace DurableTask.EventSourced.Faster
         private CancellationTokenSource shutdownCancellation;
 
         private string LeaseId;
-        private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(30);
-        private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(55) : TimeSpan.FromSeconds(25);
+        private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(35);
+        private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(55) : TimeSpan.FromSeconds(30);
 
         public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
