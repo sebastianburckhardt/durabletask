@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced.EventHubs
         async Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             uint partitionId = uint.Parse(context.PartitionId);
-            this.partitionState = this.host.CreatePartitionState();
+            this.partitionState = this.host.StorageProvider.CreatePartitionState();
             this.partition = host.AddPartition(partitionId, this.partitionState, this.sender);
             
             this.inputQueuePosition = await this.partition.StartAsync(CancellationToken.None);

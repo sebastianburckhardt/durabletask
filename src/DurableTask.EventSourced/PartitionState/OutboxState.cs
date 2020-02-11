@@ -102,7 +102,7 @@ namespace DurableTask.EventSourced
         {
             this.Outbox[(long) evt.CommitLogPosition.Value] = evt.RemoteMessages;
 
-            if (evt.RemoteMessages?.Count > 0 && !effects.InRecovery)
+            if (evt.RemoteMessages?.Count > 0 && !effects.IsReplaying)
             {
                 AckListeners.Register(evt, this); // we need to notified when this event is durable
             }

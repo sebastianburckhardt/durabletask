@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
     internal interface IPartitionEventWithSideEffects
     {
           // determines the set of tracked objects on which to process this event
-        void DetermineEffects(TrackedObject.EffectTracker effects);
+        void DetermineEffects(EffectTracker effects);
     }
 
     internal interface IReadonlyPartitionEvent : StorageAbstraction.IReadContinuation

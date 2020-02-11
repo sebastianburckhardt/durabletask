@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Emulated
             this.partitionQueues = null;
             this.partitionStates = null;
 
-            return this.host.DeleteAllPartitionStatesAsync();
+            return this.host.StorageProvider.DeleteAllPartitionStatesAsync();
        }
 
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
@@ -89,7 +89,7 @@ namespace DurableTask.EventSourced.Emulated
                 int i = (int) iteration;
                 uint partitionId = (uint) iteration;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partitionState = partitionStates[i] = this.host.CreatePartitionState();
+                var partitionState = partitionStates[i] = this.host.StorageProvider.CreatePartitionState();
                 var partition = this.host.AddPartition(partitionId, partitionState, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);

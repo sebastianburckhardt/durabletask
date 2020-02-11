@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced.EventHubs
         {
             await this.taskhubParameters.DeleteIfExistsAsync();
             // todo delete consumption checkpoints
-            await this.host.DeleteAllPartitionStatesAsync();
+            await this.host.StorageProvider.DeleteAllPartitionStatesAsync();
         }
 
         async Task TransportAbstraction.ITaskHub.StartAsync()

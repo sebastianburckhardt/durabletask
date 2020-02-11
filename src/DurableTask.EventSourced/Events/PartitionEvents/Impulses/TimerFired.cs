@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
 
-        public void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);
             effects.Add(TrackedObjectKey.Timers);

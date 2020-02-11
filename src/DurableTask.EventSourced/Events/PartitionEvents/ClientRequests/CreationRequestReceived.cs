@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
-        public void DetermineEffects(TrackedObject.EffectTracker effects)
+        public void DetermineEffects(EffectTracker effects)
         {
             // the creation request first checks the state of the instance;
             // it then decides how to proceed from there

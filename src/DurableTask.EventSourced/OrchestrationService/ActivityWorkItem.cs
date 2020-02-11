@@ -34,6 +34,5 @@ namespace DurableTask.EventSourced
         }
 
         public string WorkItemId => $"A{ActivityId:D6}";
-
     }
 }

@@ -73,7 +73,7 @@ namespace DurableTask.EventSourced
                 var timerId = SequenceNumber++;
                 PendingTimers.Add(timerId, t);
 
-                if (!effects.InRecovery)
+                if (!effects.IsReplaying)
                 {
                     var expirationEvent = new TimerFired()
                     {

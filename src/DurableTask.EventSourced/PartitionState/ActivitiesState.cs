@@ -67,7 +67,7 @@ namespace DurableTask.EventSourced
                 var activityId = SequenceNumber++;
                 PendingActivities.Add(activityId, msg);
 
-                if (!effect.InRecovery)
+                if (!effect.IsReplaying)
                 {
                     Partition.EnqueueActivityWorkItem(new ActivityWorkItem(this.Partition, activityId, msg));
                 }

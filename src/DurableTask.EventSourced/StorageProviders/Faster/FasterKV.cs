@@ -12,12 +12,12 @@ using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>, IDisposable
+    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>, IDisposable
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
         private readonly CancellationTokenSource shutdown;
-        private readonly ClientSession<Key, Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> mainSession;
+        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> mainSession;
 
         public FasterKV(Partition partition, BlobManager blobManager)
             : base(
@@ -142,7 +142,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public TrackedObject.EffectTracker NoInput = null; 
+        public EffectTracker NoInput = null; 
 
         // fast path read, synchronous, on the main session
         public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
@@ -228,7 +228,7 @@ namespace DurableTask.EventSourced.Faster
             return target;
         }
 
-        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, TrackedObject.EffectTracker tracker)
+        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
         {
             return this.mainSession.RMWAsync(k, tracker, false, this.shutdown.Token);
         }
@@ -263,7 +263,7 @@ namespace DurableTask.EventSourced.Faster
             return result;
         }
 
-        public class Functions : IFunctions<Key, Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation>
+        public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation>
         {
             private readonly Partition partition;
 
@@ -272,7 +272,7 @@ namespace DurableTask.EventSourced.Faster
                 this.partition = partition;
             }
 
-            public void InitialUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
+            public void InitialUpdater(ref Key key, ref EffectTracker tracker, ref Value value)
             {
                 var trackedObject = TrackedObjectKey.Factory(key.Val);
                 trackedObject.Partition = partition;
@@ -280,7 +280,7 @@ namespace DurableTask.EventSourced.Faster
                 tracker.ProcessEffectOn(trackedObject);
             }
 
-            public bool InPlaceUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value value)
+            public bool InPlaceUpdater(ref Key key, ref EffectTracker tracker, ref Value value)
             {
                 partition.Assert(value.Val is TrackedObject);
                 TrackedObject trackedObject = value;
@@ -290,7 +290,7 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-            public void CopyUpdater(ref Key key, ref TrackedObject.EffectTracker tracker, ref Value oldValue, ref Value newValue)
+            public void CopyUpdater(ref Key key, ref EffectTracker tracker, ref Value oldValue, ref Value newValue)
             {
                 // replace old object with its serialized snapshot
                 partition.Assert(oldValue.Val is TrackedObject);
@@ -305,7 +305,7 @@ namespace DurableTask.EventSourced.Faster
                 tracker.ProcessEffectOn(trackedObject);
             }
 
-            public void SingleReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
+            public void SingleReader(ref Key key, ref EffectTracker _, ref Value value, ref TrackedObject dst)
             {
                 var trackedObject = value.Val as TrackedObject;
                 partition.Assert(trackedObject != null);
@@ -313,7 +313,7 @@ namespace DurableTask.EventSourced.Faster
                 dst = value;
             }
 
-            public void ConcurrentReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
+            public void ConcurrentReader(ref Key key, ref EffectTracker _, ref Value value, ref TrackedObject dst)
             {
                 var trackedObject = value.Val as TrackedObject;
                 partition.Assert(trackedObject != null);
@@ -332,14 +332,14 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-            public void ReadCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, ref TrackedObject output, StorageAbstraction.IReadContinuation ctx, Status status)
+            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, StorageAbstraction.IReadContinuation ctx, Status status)
             {
                 partition.Assert(ctx != null);
                 ctx.OnReadComplete(output);
             }
 
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void RMWCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, StorageAbstraction.IReadContinuation ctx, Status status) { }
+            public void RMWCompletionCallback(ref Key key, ref EffectTracker input, StorageAbstraction.IReadContinuation ctx, Status status) { }
             public void UpsertCompletionCallback(ref Key key, ref Value value, StorageAbstraction.IReadContinuation ctx) { }
             public void DeleteCompletionCallback(ref Key key, StorageAbstraction.IReadContinuation ctx) { }
         }

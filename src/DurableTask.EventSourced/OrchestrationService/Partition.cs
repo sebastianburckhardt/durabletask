@@ -80,7 +80,7 @@ namespace DurableTask.EventSourced
             this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
             this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
-            // create or restore from last snapshot
+            // create or restore partition state from last snapshot
             var inputQueuePosition = await State.CreateOrRestoreAsync(this, token);
 
             this.PendingTimers.Start($"Timer{this.PartitionId:D2}");

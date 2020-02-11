@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced
             foreach (var group in taskMessageReceived.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
             {
-                this.AddMessagesToSession(group.Key, group, effects.InRecovery);
+                this.AddMessagesToSession(group.Key, group, effects.IsReplaying);
             }
         }
 
@@ -132,7 +132,7 @@ namespace DurableTask.EventSourced
         public void Process(ClientTaskMessagesReceived evt, EffectTracker effects)
         {
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
-            this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.InRecovery);
+            this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.IsReplaying);
         }
 
         // CreationMessageReceived
@@ -140,7 +140,7 @@ namespace DurableTask.EventSourced
 
         public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
-            this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.InRecovery);
+            this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.IsReplaying);
         }
 
         // TimerFired
@@ -148,7 +148,7 @@ namespace DurableTask.EventSourced
 
         public void Process(TimerFired timerFired, EffectTracker effects)
         {
-            this.AddMessageToSession(timerFired.TimerFiredMessage, false, effects.InRecovery);
+            this.AddMessageToSession(timerFired.TimerFiredMessage, false, effects.IsReplaying);
         }
 
         // ActivityCompleted
@@ -156,7 +156,7 @@ namespace DurableTask.EventSourced
 
         public void Process(ActivityCompleted activityCompleted, EffectTracker effects)
         {
-            this.AddMessageToSession(activityCompleted.Response, false, effects.InRecovery);
+            this.AddMessageToSession(activityCompleted.Response, false, effects.IsReplaying);
         }
 
         // BatchProcessed
@@ -195,7 +195,7 @@ namespace DurableTask.EventSourced
             {
                 foreach (var group in evt.LocalMessages.GroupBy(tm => tm.OrchestrationInstance.InstanceId))
                 {
-                    this.AddMessagesToSession(group.Key, group, effects.InRecovery);
+                    this.AddMessagesToSession(group.Key, group, effects.IsReplaying);
                 }
             }
 
@@ -212,7 +212,7 @@ namespace DurableTask.EventSourced
             session.Batch.RemoveRange(0, evt.BatchLength);
             session.BatchStartPosition += evt.BatchLength;
 
-            this.StartNewBatchIfNeeded(session, effects, evt.InstanceId, effects.InRecovery);
+            this.StartNewBatchIfNeeded(session, effects, evt.InstanceId, effects.IsReplaying);
         }
 
         private void StartNewBatchIfNeeded(Session session, EffectTracker effects, string instanceId, bool inRecovery)

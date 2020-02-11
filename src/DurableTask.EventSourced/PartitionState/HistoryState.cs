@@ -69,7 +69,7 @@ namespace DurableTask.EventSourced
                 this.History.AddRange(evt.NewEvents);
             }
 
-            if (!effects.InRecovery)
+            if (!effects.IsReplaying)
             {
                 // update the in-memory runtime state
                 this.inMemoryRuntimeState = evt.InMemoryRuntimeState;

@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterKV store;
         private readonly Partition partition;
 
-        private readonly TrackedObject.EffectTracker effects;
+        private readonly EffectTracker effects;
 
         private volatile TaskCompletionSource<bool> cancellationWaiter;
 
@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
 
             // we are reusing the same effect tracker for all calls to reduce allocations
-            this.effects = new TrackedObject.EffectTracker(this.partition);
+            this.effects = new EffectTracker(this.partition);
         }
 
         public async Task Initialize()
@@ -139,11 +139,11 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Start();
 
             var startPosition = this.CommitLogPosition;
-            this.effects.InRecovery = true;
+            this.effects.IsReplaying = true;
             await ReplayCommitLog(startPosition, log.TailAddress);
             stopwatch.Stop();
             this.partition.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
-            this.effects.InRecovery = false;
+            this.effects.IsReplaying = false;
 
             async Task ReplayCommitLog(ulong from, long to)
             {
@@ -155,8 +155,6 @@ namespace DurableTask.EventSourced.Faster
 
                     while (true)
                     {
-                        var next = (ulong) iter.NextAddress;
-
                         while (!iter.GetNext(out result, out entryLength, out currentAddress))
                         {
                             if (currentAddress >= to)
@@ -167,7 +165,7 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         var partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 0, entryLength));
-                        partitionEvent.CommitLogPosition = next;
+                        partitionEvent.CommitLogPosition = (ulong) iter.NextAddress;
                         await this.ProcessEvent(partitionEvent);
                     }
                 }

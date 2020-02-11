@@ -90,7 +90,7 @@ namespace DurableTask.EventSourced
 
         protected override Task Process(IList<object> batch)
         {
-            var effects = new TrackedObject.EffectTracker(this.partition);
+            var effects = new EffectTracker(this.partition);
 
             if (batch.Count != 0)
             {
@@ -136,7 +136,7 @@ namespace DurableTask.EventSourced
             return Task.CompletedTask;
         }
 
-        public void ProcessRecursively(PartitionEvent evt, TrackedObject.EffectTracker effects)
+        public void ProcessRecursively(PartitionEvent evt, EffectTracker effects)
         {
             // process the last effect in the list, and recursively any effects it adds
             var startPos = effects.Count - 1;

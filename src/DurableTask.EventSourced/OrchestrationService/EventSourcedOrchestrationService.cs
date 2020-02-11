@@ -28,6 +28,7 @@ namespace DurableTask.EventSourced
         IOrchestrationService, 
         IOrchestrationServiceClient, 
         TransportAbstraction.IHost,
+        StorageAbstraction.IStorageProvider,
         IDisposable
     {
         private readonly TransportAbstraction.ITaskHub taskHub;
@@ -77,7 +78,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        StorageAbstraction.IPartitionState TransportAbstraction.IHost.CreatePartitionState()
+        /******************************/
+        // storage provider
+        /******************************/
+
+        StorageAbstraction.IPartitionState StorageAbstraction.IStorageProvider.CreatePartitionState()
         {
             switch (this.settings.StorageComponent)
             {
@@ -92,7 +97,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        Task TransportAbstraction.IHost.DeleteAllPartitionStatesAsync()
+        Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
             switch (this.settings.StorageComponent)
             {
@@ -107,6 +112,7 @@ namespace DurableTask.EventSourced
             }
         }
 
+       
         /******************************/
         // management methods
         /******************************/
@@ -223,6 +229,8 @@ namespace DurableTask.EventSourced
 
         void TransportAbstraction.IHost.ReportError(string msg, Exception e)
             => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
+
+        StorageAbstraction.IStorageProvider TransportAbstraction.IHost.StorageProvider => this;
 
         /******************************/
         // client methods
@@ -461,5 +469,6 @@ namespace DurableTask.EventSourced
         int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => settings.MaxConcurrentTaskActivityWorkItems;
 
         int IOrchestrationService.TaskActivityDispatcherCount => 1;
+
     }
 }

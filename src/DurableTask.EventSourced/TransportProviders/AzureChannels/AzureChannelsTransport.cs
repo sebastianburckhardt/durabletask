@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced.AzureChannels
             // create all partitions
             for (uint i = 0; i < this.settings.MemoryPartitions; i++)
             {
-                var partitionState = partitionStates[i] = this.host.CreatePartitionState();
+                var partitionState = partitionStates[i] = this.host.StorageProvider.CreatePartitionState();
 
                 var partitionTransport = this.partitionTransports[i] = new Transport(
                     this.settings, 

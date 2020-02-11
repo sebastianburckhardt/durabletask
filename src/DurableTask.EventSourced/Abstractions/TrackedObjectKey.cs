@@ -7,6 +7,9 @@ using System.Text;
 
 namespace DurableTask.EventSourced
 {
+    /// <summary>
+    /// Represents a key used to identify <see cref="TrackedObject"/> instances.
+    /// </summary>
     internal struct TrackedObjectKey 
     {
         public TrackedObjectType ObjectType;
@@ -17,30 +20,32 @@ namespace DurableTask.EventSourced
 
         public enum TrackedObjectType
         {
+            // singletons
             Activities,
             Dedup,
-            History,
-            Instance,
             Outbox,
             Reassembly,
             Sessions,
-            Timers
+            Timers,
+
+            // non-singletons
+            History,
+            Instance,
         }
 
         public static Dictionary<TrackedObjectType, Type> TypeMap = new Dictionary<TrackedObjectType, Type>()
         {
             { TrackedObjectType.Activities, typeof(ActivitiesState) },
             { TrackedObjectType.Dedup, typeof(DedupState) },
-            { TrackedObjectType.History, typeof(HistoryState) },
-            { TrackedObjectType.Instance, typeof(InstanceState) },
             { TrackedObjectType.Outbox, typeof(OutboxState) },
             { TrackedObjectType.Reassembly, typeof(ReassemblyState) },
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
+            { TrackedObjectType.History, typeof(HistoryState) },
+            { TrackedObjectType.Instance, typeof(InstanceState) },
         };
 
-        public static bool IsSingletonType(TrackedObjectType t) => 
-            t != TrackedObjectType.Instance && t != TrackedObjectType.History;
+        public static bool IsSingletonType(TrackedObjectType t) => (int) t < (int) TrackedObjectType.History;
 
         public static int Compare(ref TrackedObjectKey key1, ref TrackedObjectKey key2)
         {

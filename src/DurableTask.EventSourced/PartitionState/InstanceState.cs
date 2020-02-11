@@ -52,7 +52,7 @@ namespace DurableTask.EventSourced
                 // An instance already exists and has a state for which we want to dedup.
                 // Therefore, we do nothing other than responding to the client so they
                 // know that creation failed.
-                if (!effects.InRecovery)
+                if (!effects.IsReplaying)
                 {
                     this.Partition.Send(new CreationResponseReceived()
                     {
@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced
                 // so it can be added to the queue for workitems
                 effects.Add(TrackedObjectKey.Sessions);
 
-                if (!effects.InRecovery)
+                if (!effects.IsReplaying)
                 {
                     this.Partition.Send(new CreationResponseReceived()
                     {
@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced
             this.OrchestrationState = evt.State;
 
             // notify observers that this orchestration state has changed
-            if (!effects.InRecovery)
+            if (!effects.IsReplaying)
             {
                 this.Partition.InstanceStatePubSub.Notify(InstanceId, OrchestrationState);
             }

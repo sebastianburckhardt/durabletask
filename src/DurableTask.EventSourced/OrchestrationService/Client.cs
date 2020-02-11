@@ -93,7 +93,6 @@ namespace DurableTask.EventSourced
             {
                 waiter.TrySetResult(clientEvent);
             }
-            AckListeners.Acknowledge(clientEvent);
         }
 
         public void Send(Event evt)
