@@ -49,6 +49,12 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override string ToString()
+        {
+            return $"Timers ({PendingTimers.Count} pending) next={SequenceNumber:D6}";
+        }
+
+
         // TimerFired
         // removes the entry for the pending timer, and then adds it to the sessions queue
 

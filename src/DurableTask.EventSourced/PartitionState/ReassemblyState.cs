@@ -29,7 +29,10 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Reassembly);
-
+        public override string ToString()
+        {
+            return $"Reassembly ({Fragments.Count} pending)";
+        }
 
         // PartitionEventFragment 
         // stores fragments until the last one is received

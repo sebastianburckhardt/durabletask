@@ -96,32 +96,39 @@ namespace DurableTask.EventSourced
             {
                 foreach (var o in batch)
                 {
-                    if (o is StorageAbstraction.IReadContinuation readContinuation)
+                    try
                     {
-                        var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
-                        readContinuation.OnReadComplete(readTarget);
-                    }
-                    else
-                    {
-                        partition.Assert(o is IPartitionEventWithSideEffects);
-                        var partitionEvent = (PartitionEvent)o;
-
-                        partitionEvent.CommitLogPosition = nextCommitPosition++;
-                        partition.TraceProcess(partitionEvent);
-                        effects.Effect = partitionEvent;
-
-                        // determine the effects and apply all the updates
-                        ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(effects);
-                        while (effects.Count > 0)
+                        if (o is StorageAbstraction.IReadContinuation readContinuation)
                         {
-                            this.ProcessRecursively(partitionEvent, effects);
+                            var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
+                            readContinuation.OnReadComplete(readTarget);
                         }
+                        else
+                        {
+                            partition.Assert(o is IPartitionEventWithSideEffects);
+                            var partitionEvent = (PartitionEvent)o;
 
-                        effects.Effect = null;
-                        partition.TraceDetail("Processing complete");
-                        Partition.TraceContext = null;
+                            partitionEvent.CommitLogPosition = nextCommitPosition++;
+                            partition.TraceProcess(partitionEvent);
+                            effects.Effect = partitionEvent;
 
-                        AckListeners.Acknowledge(partitionEvent);
+                            // determine the effects and apply all the updates
+                            ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(effects);
+                            while (effects.Count > 0)
+                            {
+                                this.ProcessRecursively(partitionEvent, effects);
+                            }
+
+                            effects.Effect = null;
+                            partition.TraceDetail("Processing complete");
+                            Partition.TraceContext = null;
+
+                            AckListeners.Acknowledge(partitionEvent);
+                        }
+                    }
+                    catch(Exception e)
+                    {
+                        partition.ReportError($"error while processing event {o}", e);
                     }
                 }
             }

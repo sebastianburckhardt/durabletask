@@ -34,6 +34,11 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
 
+        public override string ToString()
+        {
+            return $"History InstanceId={InstanceId} Status={OrchestrationState?.OrchestrationStatus}";
+        }
+
         // CreationRequestReceived
         // can create or replace an instance and return a success response, or 
         // return an error response

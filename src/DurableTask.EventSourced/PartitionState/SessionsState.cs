@@ -62,6 +62,11 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override string ToString()
+        {
+            return $"Sessions ({Sessions.Count} pending) next={SequenceNumber:D6}";
+        }
+
         private void AddMessageToSession(TaskMessage message, bool createNewExecution, bool inRecovery)
         {
             var instanceId = message.OrchestrationInstance.InstanceId;

@@ -7,7 +7,7 @@ using System.Text;
 
 namespace DurableTask.EventSourced
 {
-    internal struct TrackedObjectKey
+    internal struct TrackedObjectKey 
     {
         public TrackedObjectType ObjectType;
         public string InstanceId;
@@ -41,6 +41,16 @@ namespace DurableTask.EventSourced
 
         public static bool IsSingletonType(TrackedObjectType t) => 
             t != TrackedObjectType.Instance && t != TrackedObjectType.History;
+
+        public static int Compare(ref TrackedObjectKey key1, ref TrackedObjectKey key2)
+        {
+            int result = key1.ObjectType.CompareTo(key2.ObjectType);
+            if (result == 0)
+            {
+                result = key1.InstanceId.CompareTo(key2.InstanceId);
+            }
+            return result;
+        }
 
         // convenient constructors for singletons
 

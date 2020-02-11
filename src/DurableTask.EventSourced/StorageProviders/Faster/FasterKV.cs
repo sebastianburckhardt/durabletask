@@ -12,12 +12,12 @@ using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, TrackedObject.EffectTracker, TrackedObject, Empty, FasterKV.Functions>, IDisposable
+    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>, IDisposable
     {
         private readonly Partition partition;
         private readonly BlobManager blobManager;
         private readonly CancellationTokenSource shutdown;
-        private readonly ClientSession<Key, Value, TrackedObject.EffectTracker, TrackedObject, Empty, Functions> mainSession;
+        private readonly ClientSession<Key, Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> mainSession;
 
         public FasterKV(Partition partition, BlobManager blobManager)
             : base(
@@ -151,7 +151,7 @@ namespace DurableTask.EventSourced.Faster
             TrackedObject target = null;
 
             // try to read directly (fast path)
-            var status = this.mainSession.Read(ref key, ref NoInput, ref target, Empty.Default, 0);
+            var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
 
             switch (status)
             {
@@ -166,7 +166,7 @@ namespace DurableTask.EventSourced.Faster
                 case Status.PENDING:
                     // we missed in memory. Go into the slow path, 
                     // which handles the request asynchronosly in a fresh session.
-                    _ = this.AsynchronousReadTask(key, readContinuation, partition);
+                    // _ = this.AsynchronousReadTask(key, readContinuation, partition);
                     break;
 
                 case Status.ERROR:
@@ -175,34 +175,39 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // slow path read (taken on miss), one its own session. This is not awaited.
-        private async ValueTask AsynchronousReadTask(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        //private async ValueTask AsynchronousReadTask(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        //{
+        //    try
+        //    {
+        //        using (var session = this.NewSession())
+        //        {
+        //            var (status, target) = await session.ReadAsync(key, NoInput, false, this.shutdown.Token);
+
+        //            switch (status)
+        //            {
+        //                case Status.NOTFOUND:
+        //                    readContinuation.OnReadComplete(null);
+        //                    break;
+
+        //                case Status.OK:
+        //                    // now that we have loaded the object into memory, resubmit
+        //                    partition.State.ScheduleRead(readContinuation);
+        //                    break;
+
+        //                default:
+        //                    throw new Exception("Faster"); //TODO
+        //            }
+        //        }
+        //    } 
+        //    catch(Exception e)
+        //    {
+        //        partition.ReportError(nameof(AsynchronousReadTask), e);
+        //    }
+        //}
+
+        public void CompletePending()
         {
-            try
-            {
-                using (var session = this.NewSession())
-                {
-                    var (status, target) = await session.ReadAsync(key, NoInput, false, this.shutdown.Token);
-
-                    switch (status)
-                    {
-                        case Status.NOTFOUND:
-                            readContinuation.OnReadComplete(null);
-                            break;
-
-                        case Status.OK:
-                            // now that we have loaded the object into memory, resubmit
-                            partition.State.ScheduleRead(readContinuation);
-                            break;
-
-                        default:
-                            throw new Exception("Faster"); //TODO
-                    }
-                }
-            } 
-            catch(Exception e)
-            {
-                partition.ReportError(nameof(AsynchronousReadTask), e);
-            }
+            this.mainSession.CompletePending(false);
         }
 
         // retrieve or create the tracked object, asynchronously if necessary, on the one session
@@ -228,7 +233,37 @@ namespace DurableTask.EventSourced.Faster
             return this.mainSession.RMWAsync(k, tracker, false, this.shutdown.Token);
         }
 
-        public class Functions : IFunctions<Key, Value, TrackedObject.EffectTracker, TrackedObject, Empty>
+        public async Task<StateDump> DumpCurrentState()
+        {
+            var result = new StateDump();
+            var keysToLookup = new HashSet<TrackedObjectKey>();
+
+            // get the set of keys appearing in the log
+            using (var iter1 = this.Log.Scan(this.Log.BeginAddress, this.Log.TailAddress))
+            {
+                while (iter1.GetNext(out RecordInfo recordInfo))
+                {
+                    keysToLookup.Add(iter1.GetKey().Val);
+                }
+            }
+
+            // read the current value of each
+            foreach (var k in keysToLookup)
+            {
+                Key key = k;
+                TrackedObject target = null;
+                var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
+                if (status == Status.OK)
+                {
+                    result.OnReadComplete(target);
+                }
+            }
+
+            await this.mainSession.CompletePendingAsync();
+            return result;
+        }
+
+        public class Functions : IFunctions<Key, Value, TrackedObject.EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation>
         {
             private readonly Partition partition;
 
@@ -272,13 +307,17 @@ namespace DurableTask.EventSourced.Faster
 
             public void SingleReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
-                partition.Assert(value.Val is TrackedObject);
+                var trackedObject = value.Val as TrackedObject;
+                partition.Assert(trackedObject != null);
+                trackedObject.Partition = partition;
                 dst = value;
             }
 
             public void ConcurrentReader(ref Key key, ref TrackedObject.EffectTracker _, ref Value value, ref TrackedObject dst)
             {
-                partition.Assert(value.Val is TrackedObject);
+                var trackedObject = value.Val as TrackedObject;
+                partition.Assert(trackedObject != null);
+                trackedObject.Partition = partition;
                 dst = value;
             }
 
@@ -293,11 +332,16 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
+            public void ReadCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, ref TrackedObject output, StorageAbstraction.IReadContinuation ctx, Status status)
+            {
+                partition.Assert(ctx != null);
+                ctx.OnReadComplete(output);
+            }
+
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void ReadCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, ref TrackedObject output, Empty ctx, Status status) { }
-            public void RMWCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, Empty ctx, Status status) { }
-            public void UpsertCompletionCallback(ref Key key, ref Value value, Empty ctx) { }
-            public void DeleteCompletionCallback(ref Key key, Empty ctx) { }
+            public void RMWCompletionCallback(ref Key key, ref TrackedObject.EffectTracker input, StorageAbstraction.IReadContinuation ctx, Status status) { }
+            public void UpsertCompletionCallback(ref Key key, ref Value value, StorageAbstraction.IReadContinuation ctx) { }
+            public void DeleteCompletionCallback(ref Key key, StorageAbstraction.IReadContinuation ctx) { }
         }
     }
 }

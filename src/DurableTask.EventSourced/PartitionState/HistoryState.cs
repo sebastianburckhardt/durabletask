@@ -45,6 +45,11 @@ namespace DurableTask.EventSourced
             return this.inMemoryRuntimeState ?? (this.inMemoryRuntimeState = new OrchestrationRuntimeState(this.History));
         }
 
+        public override string ToString()
+        {
+            return $"History InstanceId={InstanceId} ExecutionId={ExecutionId} Events={History.Count}";
+        }
+
         // BatchProcessed
         // can add events to the history, or replace it with a new history
 

@@ -64,7 +64,9 @@ namespace DurableTask.EventSourced.Faster
 
             this.InputQueuePosition = dedupState.InputQueuePosition;
             this.CommitLogPosition = dedupState.CommitLogPosition;
-         }
+
+            //var dump = await this.store.DumpCurrentState();
+        }
 
         public async Task CancelAndShutdown()
         {
@@ -83,6 +85,8 @@ namespace DurableTask.EventSourced.Faster
             this.effects.Effect = this;
             await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
 
+            //var dump = await this.store.DumpCurrentState();
+
             EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopped StoreWorker");
         }
 
@@ -94,6 +98,9 @@ namespace DurableTask.EventSourced.Faster
                 {
                     break; // stop processing sooner rather than later
                 }
+
+                // if there are IO responses ready to process, do that first
+                this.store.CompletePending();
 
                 if (o is StorageAbstraction.IReadContinuation readContinuation)
                 {
@@ -114,7 +121,7 @@ namespace DurableTask.EventSourced.Faster
                 else
                 {
                     partition.Assert(o is IPartitionEventWithSideEffects);
-                    await this.ProcessEvent((PartitionEvent) o);
+                    await this.ProcessEvent((PartitionEvent)o);
                 }
             }
 
@@ -124,6 +131,7 @@ namespace DurableTask.EventSourced.Faster
                 this.cancellationWaiter.TrySetResult(true);
             }
         }
+        
 
         public async Task ReplayCommitLog(FasterLog log)
         {

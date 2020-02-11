@@ -44,6 +44,10 @@ namespace DurableTask.EventSourced
                 Partition.EnqueueActivityWorkItem(new ActivityWorkItem(this.Partition, pending.Key, pending.Value));
             }
         }
+        public override string ToString()
+        {
+            return $"Activities ({PendingActivities.Count} pending) next={SequenceNumber:D6}";
+        }
 
         // ActivityCompleted
         // records the result of a finished activity

@@ -41,6 +41,11 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override string ToString()
+        {
+            return $"Outbox ({Outbox.Count} pending)";
+        }
+
         private void Send(long position, List<TaskMessage> messages)
         {
             var batch = new Batch() { Position = position, Partition = this.Partition } ;
