@@ -42,11 +42,10 @@ namespace DurableTask.EventSourced.Faster
 
         public void EnsureSerialized(PartitionEvent evt)
         {
-            if (evt.Serialized.Count == 0)
-            {
-                byte[] bytes = Serializer.SerializeEvent(evt);
-                evt.Serialized = new ArraySegment<byte>(bytes, 0, bytes.Length);
-            }
+            // serialize the entire event 
+            // TODO optimize for reusing already-serialized data coming in, but must add input position
+            byte[] bytes = Serializer.SerializeEvent(evt);
+            evt.Serialized = new ArraySegment<byte>(bytes, 0, bytes.Length);
         }
 
         public override void Submit(PartitionEvent evt)

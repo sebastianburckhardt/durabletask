@@ -75,17 +75,25 @@ namespace DurableTask.EventSourced
 
         public async Task<ulong> StartAsync(CancellationToken token)
         {
-            // initialize collections for pending work
-            this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
-            this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
-            this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
-
             // create or restore partition state from last snapshot
-            var inputQueuePosition = await State.CreateOrRestoreAsync(this, token);
+            try
+            {
+                // initialize collections for pending work
+                this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
+                this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
+                this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
-            this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
+                var inputQueuePosition = await State.CreateOrRestoreAsync(this, token);
+                
+                this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
-            return inputQueuePosition;
+                return inputQueuePosition;
+            }
+            catch (Exception e)
+            {
+                this.ReportError("could not start partition", e);
+                throw;
+            }
         }
 
         public void ProcessAsync(PartitionEvent partitionEvent)
@@ -95,13 +103,25 @@ namespace DurableTask.EventSourced
 
         public async Task StopAsync()
         {
-            // stop all in-progress activities (timers, work items etc.)
-            this.partitionShutdown.Cancel();
+            // create or restore partition state from last snapshot
+            try
+            {
+                // stop all in-progress activities (timers, work items etc.)
+                this.partitionShutdown.Cancel();
 
-            // wait for current state (log and store) to be persisted
-            await this.State.PersistAndShutdownAsync();
+                // wait for current state (log and store) to be persisted
+                await this.State.PersistAndShutdownAsync();
 
-            EtwSource.Log.PartitionStopped((int)this.PartitionId);
+            }
+            catch (Exception e)
+            {
+                this.ReportError("could not stop partition", e);
+                throw;
+            }
+            finally
+            {
+                EtwSource.Log.PartitionStopped((int)this.PartitionId);
+            }
         }
 
         private void TimersFired(List<PartitionEvent> timersFired)
