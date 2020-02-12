@@ -11,14 +11,8 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.Serialization;
-using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
@@ -26,26 +20,21 @@ namespace DurableTask.EventSourced
     internal class IndexState : TrackedObject
     {
         [DataMember]
-        public HashSet<string> Instances { get; set; }
+        public HashSet<string> InstanceIds { get; set; } = new HashSet<string>();
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => TrackedObjectKey.Index;
 
-        // CreationRequestReceived
-        // can create or replace an instance and return a success response, or 
-        // return an error response
-
-        public void Process(CreationRequestReceived evt, EffectList effects)
+        public void Process(CreationRequestReceived evt, EffectTracker _)
         {
-            Instances.Add(evt.InstanceId);
+            // Track the instanceId of the created object.
+            InstanceIds.Add(evt.InstanceId);
         }
 
-        // BatchProcessed
-        // updates the state of an orchestration and notifies observers
-
-        public void Process(BatchProcessed evt, EffectList effects)
+        public void Process(BatchProcessed evt, EffectTracker _)
         {
-            Instances.Add(evt.InstanceId);
+            // Track the instanceId of the processed object.
+            InstanceIds.Add(evt.InstanceId);
         }
     }
 }

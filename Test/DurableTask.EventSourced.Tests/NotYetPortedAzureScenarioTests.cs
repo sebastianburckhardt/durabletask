@@ -39,7 +39,6 @@ namespace DurableTask.EventSourced.Tests
 
     public partial class PortedAzureScenarioTests
     {
- 
         /// <summary>
         /// End-to-end test which validates function chaining by implementing a naive factorial function orchestration.
         /// </summary>
@@ -57,27 +56,6 @@ namespace DurableTask.EventSourced.Tests
         //        Assert.AreEqual(OrchestrationStatus.Completed, status?.OrchestrationStatus);
         //        Assert.AreEqual(10, JToken.Parse(status?.Input));
         //        Assert.AreEqual(3628800, JToken.Parse(status?.Output));
-
-        //        await host.StopAsync();
-        //    }
-        //}
-
-        //[TestMethod]
-        //public async Task GetAllOrchestrationStatuses()
-        //{
-        //    using (TestOrchestrationHost host = TestHelpers.GetTestOrchestrationHost(enableExtendedSessions: false))
-        //    {
-        //        // Execute the orchestrator twice. Orchestrator will be replied. However instances might be two.
-        //        await host.StartAsync();
-        //        var client = await host.StartOrchestrationAsync(typeof(Orchestrations.SayHelloInline), "world one");
-        //        await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
-        //        client = await host.StartOrchestrationAsync(typeof(Orchestrations.SayHelloInline), "world two");
-        //        await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
-
-        //        var results = await host.GetAllOrchestrationInstancesAsync();
-        //        Assert.AreEqual(2, results.Count);
-        //        Assert.IsNotNull(results.SingleOrDefault(r => r.Output == "\"Hello, world one!\""));
-        //        Assert.IsNotNull(results.SingleOrDefault(r => r.Output == "\"Hello, world two!\""));
 
         //        await host.StopAsync();
         //    }

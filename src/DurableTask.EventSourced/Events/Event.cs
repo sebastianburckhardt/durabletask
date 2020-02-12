@@ -54,10 +54,12 @@ namespace DurableTask.EventSourced
         {
             yield return typeof(ClientEventFragment);
             yield return typeof(CreationResponseReceived);
+            yield return typeof(QueryResponseReceived);
             yield return typeof(StateResponseReceived);
             yield return typeof(WaitResponseReceived);
             yield return typeof(ClientTaskMessagesReceived);
             yield return typeof(CreationRequestReceived);
+            yield return typeof(InstanceQueryReceived);
             yield return typeof(StateRequestReceived);
             yield return typeof(WaitRequestReceived);
             yield return typeof(ActivityCompleted);

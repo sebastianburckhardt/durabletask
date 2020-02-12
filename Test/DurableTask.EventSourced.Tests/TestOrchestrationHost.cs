@@ -17,6 +17,7 @@ namespace DurableTask.EventSourced.Tests
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Runtime.Serialization;
+    using System.Threading;
     using System.Threading.Tasks;
     using DurableTask.Core;
 
@@ -32,7 +33,7 @@ namespace DurableTask.EventSourced.Tests
         public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings)
         {
             this.orchestrationService = new EventSourced.EventSourcedOrchestrationService(settings);
-            ((IOrchestrationService)this.orchestrationService).CreateAsync(TestHelpers.DeleteStorageBeforeRunningTests).GetAwaiter().GetResult();
+            orchestrationService.CreateAsync(TestHelpers.DeleteStorageBeforeRunningTests).GetAwaiter().GetResult();
 
             this.settings = settings;
 
@@ -110,14 +111,24 @@ namespace DurableTask.EventSourced.Tests
             return new TestOrchestrationClient(this.client, orchestrationType, instance.InstanceId, creationTime);
         }
 
-        public Task<IList<OrchestrationState>> GetAllOrchestrationInstancesAsync()
+        public async Task<IList<OrchestrationState>> GetAllOrchestrationInstancesAsync()
         {
-            throw new NotImplementedException();
-            //// This API currently only exists in the service object and is not yet exposed on the TaskHubClient
-            //AzureStorageOrchestrationService service = (AzureStorageOrchestrationService)this.client.ServiceClient;
-            //IList<OrchestrationState> instances = await service.GetOrchestrationStateAsync();
-            //Trace.TraceInformation($"Found {instances.Count} in the task hub instance store.");
-            //return instances;
+            // This API currently only exists in the service object and is not yet exposed on the TaskHubClient
+            var instances = await this.orchestrationService.GetOrchestrationStateAsync(CancellationToken.None);
+            Trace.TraceInformation($"Found {instances.Count} in the task hub instance store.");
+            return instances;
+        }
+
+        public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? CreatedTimeFrom = default,
+                                                                                DateTime? CreatedTimeTo = default,
+                                                                                IEnumerable<OrchestrationStatus> RuntimeStatus = default,
+                                                                                string InstanceIdPrefix = default,
+                                                                                CancellationToken CancellationToken = default)
+        {
+            // This API currently only exists in the service object and is not yet exposed on the TaskHubClient
+            var instances = await this.orchestrationService.GetOrchestrationStateAsync(CreatedTimeFrom, CreatedTimeTo, RuntimeStatus, InstanceIdPrefix, CancellationToken);
+            Trace.TraceInformation($"Found {instances.Count} in the task hub instance store.");
+            return instances;
         }
     }
 }

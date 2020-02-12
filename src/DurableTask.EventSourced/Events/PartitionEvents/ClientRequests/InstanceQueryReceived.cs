@@ -13,16 +13,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
-using System.Text;
 using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class InstanceQueryReceived : ClientRequestEvent
+    internal class InstanceQueryReceived : ClientRequestEvent, IPartitionEventWithSideEffects
     {   
         /// <summary>
         /// The subset of runtime statuses to return, or null if all
@@ -48,45 +46,109 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string InstanceIdPrefix { get; set; }
 
-        [IgnoreDataMember]
-        public override bool AtMostOnce => false;
+        internal bool Matches(OrchestrationState targetState) 
+            => (this.RuntimeStatus is null || this.RuntimeStatus.Contains(targetState.OrchestrationStatus))
+                 && (string.IsNullOrWhiteSpace(this.InstanceIdPrefix) || targetState.OrchestrationInstance.InstanceId.StartsWith(this.InstanceIdPrefix))
+                 && (this.CreatedTimeFrom is null || targetState.CreatedTime >= this.CreatedTimeFrom)
+                 && (this.CreatedTimeTo is null || targetState.CreatedTime <= this.CreatedTimeTo);
 
-        [IgnoreDataMember]
-        public override bool PersistInLog => false;
-
-        public override void DetermineEffects(TrackedObject.EffectList effects)
+        public void DetermineEffects(EffectTracker effects)
         {
-            effects.Partition.Assert(!effects.InRecovery);
-            effects.Partition.State.ScheduleRead(new Waiter(effects.Partition, this));
+            effects.Partition.Assert(!effects.IsReplaying);
+            var response = new QueryResponseReceived
+            {
+                ClientId = this.ClientId,
+                RequestId = this.RequestId
+            };
+            effects.Partition.State.ScheduleRead(new QueryWaiter(effects.Partition, this, response));
         }
 
-        private class Waiter : StorageAbstraction.IReadContinuation
+        private class QueryWaiter : StorageAbstraction.IReadContinuation
         {
             private readonly Partition partition;
             private readonly InstanceQueryReceived query;
+            private readonly QueryResponseReceived response;
 
-            public Waiter(Partition partition, InstanceQueryReceived query)
+            public QueryWaiter(Partition partition, InstanceQueryReceived query, QueryResponseReceived response)
             { 
                 this.partition = partition;
                 this.query = query;
+                this.response = response;
             }
 
             public TrackedObjectKey ReadTarget => TrackedObjectKey.Index;
 
             public void OnReadComplete(TrackedObject target)
             {
-                var indexState = (IndexState) target;
-
-                // here we have to implement the query
-                // possibly issuing more reads in the process 
-                
-
-                var response = new QueryResponseReceived()
+                if (target is null)
                 {
-                    // put result here
-                };
+                    // Short-circuit if none
+                    this.partition.Send(this.response);
+                }
 
-                this.partition.Send(response);
+                if (!(target is IndexState indexState))
+                {
+                    throw new ArgumentException(nameof(target));
+                }
+
+                if (indexState.InstanceIds.Count == 0)
+                {
+                    // Short-circuit if empty
+                    this.partition.Send(this.response);
+                }
+
+                // We're all on one partition here--the IndexState has only the InstanceIds for its partition.
+                response.ExpectedCount = indexState.InstanceIds.Count;
+                foreach (var instanceId in indexState.InstanceIds)
+                {
+                    // For now the query is implemented as an enumeration over the singleton IndexState's InstanceIds;
+                    // read the InstanceState and compare state fields.
+                    this.partition.State.ScheduleRead(new ResponseWaiter(this.partition, this.query, instanceId, this.response));
+                }
+            }
+        }
+
+        private class ResponseWaiter : StorageAbstraction.IReadContinuation
+        {
+            private readonly Partition partition;
+            private readonly InstanceQueryReceived query;
+            private readonly QueryResponseReceived response;
+
+            public ResponseWaiter(Partition partition, InstanceQueryReceived query, string instanceId, QueryResponseReceived response)
+            {
+                this.partition = partition;
+                this.query = query;
+                this.response = response;
+                this.ReadTarget = TrackedObjectKey.Instance(instanceId);
+            }
+
+            public TrackedObjectKey ReadTarget { get; private set; }
+
+            public void OnReadComplete(TrackedObject target)
+            {
+                if (target is null)
+                {
+                    throw new ArgumentNullException(nameof(target));
+                }
+
+                if (!(target is InstanceState instanceState))
+                {
+                    throw new ArgumentException(nameof(target));
+                }
+
+                if (!query.Matches(instanceState.OrchestrationState))
+                {
+                    this.response.DiscardState();
+                }
+                else
+                {
+                    this.response.OrchestrationStates.Add(instanceState.OrchestrationState);
+                }
+
+                if (this.response.IsDone)
+                {
+                    this.partition.Send(response);
+                }
             }
         }
     }

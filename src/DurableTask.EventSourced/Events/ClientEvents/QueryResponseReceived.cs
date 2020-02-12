@@ -10,10 +10,8 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
-using System.Text;
 using DurableTask.Core;
 
 namespace DurableTask.EventSourced
@@ -21,6 +19,17 @@ namespace DurableTask.EventSourced
     [DataContract]
     internal class QueryResponseReceived : ClientEvent
     {
-         //TODO
+        [DataMember]
+        public int ExpectedCount { get; set; }
+
+        [DataMember]
+        public IList<OrchestrationState> OrchestrationStates { get; set; } = new List<OrchestrationState>();
+
+        internal bool IsDone => this.OrchestrationStates.Count == ExpectedCount;
+
+        public override string ToString() 
+            => $"ExpectedCount: {this.ExpectedCount}, ActualCount: {this.OrchestrationStates.Count}";
+
+        public void DiscardState() => --this.ExpectedCount;
     }
 }

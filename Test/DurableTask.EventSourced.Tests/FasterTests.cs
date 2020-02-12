@@ -13,14 +13,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using DurableTask.Core;
 using DurableTask.EventSourced.Faster;
-using Dynamitey.DynamicObjects;
 using Xunit;
-using Xunit.Sdk;
 
 namespace DurableTask.EventSourced.Tests
 {
@@ -42,9 +38,10 @@ namespace DurableTask.EventSourced.Tests
             var random = new Random(0);
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
-            var blobManager = new BlobManager(TestHelpers.GetStorageConnectionString(), taskHubName, 0);
+            var connectionString = TestHelpers.GetStorageConnectionString();
+            var blobManager = new BlobManager(connectionString, taskHubName, 0);
             BlobManager.LocalFileDirectoryForTestingAndDebugging = useAzure ? null : TestHelpers.GetLocalFileDirectory();
-            await BlobManager.DeleteTaskhubStorageAsync(null, taskHubName);
+            await BlobManager.DeleteTaskhubStorageAsync(useAzure ? connectionString : null, taskHubName);
             await blobManager.StartAsync();
             await blobManager.AcquireOwnership(CancellationToken.None);
 

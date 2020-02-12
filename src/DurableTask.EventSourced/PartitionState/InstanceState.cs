@@ -96,7 +96,6 @@ namespace DurableTask.EventSourced
                         RequestId = evt.RequestId,
                         Succeeded = true,
                     });
-
                 }
             }
         }

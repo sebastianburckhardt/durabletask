@@ -15,7 +15,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
@@ -267,6 +267,42 @@ namespace DurableTask.EventSourced
 
             var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false);
             return ((StateResponseReceived)response)?.OrchestrationState;
+        }
+
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken) 
+            => RunPartitionQueries(partitionId => new InstanceQueryReceived()
+                {
+                    PartitionId = partitionId,
+                    ClientId = this.ClientId,
+                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                    Timeout = DefaultTimeout
+                }, cancellationToken);
+
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo,
+                    IEnumerable<OrchestrationStatus> runtimeStatus, string instanceIdPrefix, CancellationToken cancellationToken = default)
+            => RunPartitionQueries(partitionId => new InstanceQueryReceived()
+               {
+                   PartitionId = partitionId,
+                   ClientId = this.ClientId,
+                   RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                   Timeout = DefaultTimeout,
+                   CreatedTimeFrom = createdTimeFrom,
+                   CreatedTimeTo = createdTimeTo,
+                   RuntimeStatus = runtimeStatus,
+                   InstanceIdPrefix = instanceIdPrefix
+               }, cancellationToken);
+
+        private async Task<IList<OrchestrationState>> RunPartitionQueries(Func<uint, InstanceQueryReceived> requestCreator, CancellationToken cancellationToken)
+        {
+            IEnumerable<Task<ClientEvent>> launchQueries()
+            {
+                for (uint partitionId = 0; partitionId < this.host.NumberPartitions; ++partitionId)
+                {
+                    yield return PerformRequestWithTimeoutAndCancellation(cancellationToken, requestCreator(partitionId), false);
+                }
+            }
+
+            return (await Task.WhenAll(launchQueries())).Cast<QueryResponseReceived>().SelectMany(response => response.OrchestrationStates).ToList();
         }
 
         public Task ForceTerminateTaskOrchestrationAsync(uint partitionId, string instanceId, string message)

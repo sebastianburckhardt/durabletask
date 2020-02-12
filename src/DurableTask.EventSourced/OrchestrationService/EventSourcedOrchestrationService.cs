@@ -283,9 +283,7 @@ namespace DurableTask.EventSourced
             string executionId)
         {
             var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId);
-
-            return state != null
-                    && (executionId == null || executionId == state.OrchestrationInstance.ExecutionId)
+            return state != null && (executionId == null || executionId == state.OrchestrationInstance.ExecutionId)
                 ? state
                 : null;
         }
@@ -295,13 +293,30 @@ namespace DurableTask.EventSourced
             string instanceId, 
             bool allExecutions)
         {
-            var partitionId = this.GetPartitionId(instanceId);
-            var state = await Client.GetOrchestrationStateAsync(partitionId, instanceId);
-
+            // TODO: allExecutions is ignored both here and AzureStorageOrchestrationService?
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId);
             return state != null 
                 ? (new[] { state }) 
                 : (new OrchestrationState[0]);
         }
+
+        /// <summary>
+        /// Gets the state of all orchestration instances.
+        /// </summary>
+        /// <returns>List of <see cref="OrchestrationState"/></returns>
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken = default) 
+            => Client.GetOrchestrationStateAsync(cancellationToken);
+
+        /// <summary>
+        /// Gets the state of selected orchestration instances.
+        /// </summary>
+        /// <returns>List of <see cref="OrchestrationState"/></returns>
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? CreatedTimeFrom = default,
+                                                                          DateTime? CreatedTimeTo = default,
+                                                                          IEnumerable<OrchestrationStatus> RuntimeStatus = default,
+                                                                          string InstanceIdPrefix = default,
+                                                                          CancellationToken CancellationToken = default)
+            => Client.GetOrchestrationStateAsync(CreatedTimeFrom, CreatedTimeTo, RuntimeStatus, InstanceIdPrefix, CancellationToken);
 
         /// <inheritdoc />
         Task IOrchestrationServiceClient.ForceTerminateTaskOrchestrationAsync(
@@ -368,7 +383,6 @@ namespace DurableTask.EventSourced
                     }
                 }
             }
-
 
             partition.Submit(new BatchProcessed()
             {

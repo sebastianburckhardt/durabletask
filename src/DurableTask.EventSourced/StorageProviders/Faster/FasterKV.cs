@@ -165,7 +165,7 @@ namespace DurableTask.EventSourced.Faster
 
                 case Status.PENDING:
                     // we missed in memory. Go into the slow path, 
-                    // which handles the request asynchronosly in a fresh session.
+                    // which handles the request asynchronously in a fresh session.
                     // _ = this.AsynchronousReadTask(key, readContinuation, partition);
                     break;
 
@@ -174,7 +174,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        // slow path read (taken on miss), one its own session. This is not awaited.
+        // slow path read (taken on miss), on its own session. This is not awaited by the caller.
         //private async ValueTask AsynchronousReadTask(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
         //{
         //    try
@@ -210,7 +210,7 @@ namespace DurableTask.EventSourced.Faster
             this.mainSession.CompletePending(false);
         }
 
-        // retrieve or create the tracked object, asynchronously if necessary, on the one session
+        // retrieve or create the tracked object, asynchronously if necessary, on the main session
         public async ValueTask<TrackedObject> GetOrCreate(Key key)
         {
             var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.shutdown.Token);

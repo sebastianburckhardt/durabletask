@@ -11,13 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using System;
+using DurableTask.EventSourced.Faster;
+
 namespace DurableTask.EventSourced.Tests
 {
-    using System;
-    using System.Configuration;
-    using System.Threading.Tasks;
-    using Microsoft.Extensions.Configuration;
-
     internal static class TestHelpers
     {
         public static EventSourcedOrchestrationService GetTestOrchestrationService()
@@ -30,7 +28,6 @@ namespace DurableTask.EventSourced.Tests
             };
             return new EventSourcedOrchestrationService(settings);
         }
-
 
         public static TestOrchestrationHost GetTestOrchestrationHost(
             bool enableExtendedSessions,
@@ -68,12 +65,15 @@ namespace DurableTask.EventSourced.Tests
 
         public static string GetEventHubsConnectionString()
         {
+            // Uncomment if using any of the memory options, to use the local file system.
+            BlobManager.LocalFileDirectoryForTestingAndDebugging = GetLocalFileDirectory();
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";
             // return "MemoryF:1";
             // return "MemoryF:4";
             return "MemoryF:32";
+
             // return GetTestSetting("EventHubsConnectionString", false);
         }
 

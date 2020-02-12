@@ -15,23 +15,19 @@ namespace DurableTask.EventSourced.Tests
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
-    using System.Reflection;
     using System.Runtime.Serialization;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using DurableTask.Core;
     using DurableTask.Core.Exceptions;
-    using DurableTask.Core.History;
+    using DurableTask.Core.Stats;
     //using Microsoft.Practices.EnterpriseLibrary.SemanticLogging.Utility;
     using Microsoft.WindowsAzure.Storage;
-    using Microsoft.WindowsAzure.Storage.Blob;
     using Microsoft.WindowsAzure.Storage.Table;
-    using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
     using Xunit;
     using Xunit.Abstractions;
@@ -50,15 +46,15 @@ namespace DurableTask.EventSourced.Tests
             this.fixture = fixture;
             this.host = fixture.Host;
             this.traceListener = new TestTraceListener(outputHelper);
-            System.Diagnostics.Trace.Listeners.Add(this.traceListener);
+            Trace.Listeners.Add(this.traceListener);
         }
 
         public void Dispose()
         {
-            System.Diagnostics.Trace.Listeners.Remove(this.traceListener);
+            Trace.Listeners.Remove(this.traceListener);
         }
 
-        private class TestTraceListener : TraceListener
+        internal class TestTraceListener : TraceListener
         {
             ITestOutputHelper _output;
             public TestTraceListener(ITestOutputHelper output) { _output = output; }
@@ -201,11 +197,11 @@ namespace DurableTask.EventSourced.Tests
             await client.WaitForStartupAsync(TimeSpan.FromSeconds(10));
 
             // Perform some operations
-            await client.RaiseEventAsync("operation", "incr");
-            await client.RaiseEventAsync("operation", "incr");
-            await client.RaiseEventAsync("operation", "incr");
-            await client.RaiseEventAsync("operation", "decr");
-            await client.RaiseEventAsync("operation", "incr");
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpIncrement);
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpIncrement);
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpIncrement);
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpDecrement);
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpIncrement);
             await Task.Delay(2000);
 
             // Make sure it's still running and didn't complete early (or fail).
@@ -215,7 +211,7 @@ namespace DurableTask.EventSourced.Tests
                 status?.OrchestrationStatus == OrchestrationStatus.ContinuedAsNew);
 
             // The end message will cause the actor to complete itself.
-            await client.RaiseEventAsync("operation", "end");
+            await client.RaiseEventAsync(Orchestrations.Counter.OpEventName, Orchestrations.Counter.OpEnd);
 
             status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(10));
 
@@ -567,9 +563,7 @@ namespace DurableTask.EventSourced.Tests
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
         }
 
-
-
-        static class Orchestrations
+        internal static class Orchestrations
         {
             internal class SayHelloInline : TaskOrchestration<string, string>
             {
@@ -900,6 +894,10 @@ namespace DurableTask.EventSourced.Tests
             internal class Counter : TaskOrchestration<int, int>
             {
                 TaskCompletionSource<string> waitForOperationHandle;
+                internal const string OpEventName = "operation";
+                internal const string OpIncrement = "incr";
+                internal const string OpDecrement = "decr";
+                internal const string OpEnd = "end";
 
                 public override async Task<int> RunTask(OrchestrationContext context, int currentValue)
                 {
@@ -908,13 +906,13 @@ namespace DurableTask.EventSourced.Tests
                     bool done = false;
                     switch (operation?.ToLowerInvariant())
                     {
-                        case "incr":
+                        case OpIncrement:
                             currentValue++;
                             break;
-                        case "decr":
+                        case OpDecrement:
                             currentValue--;
                             break;
-                        case "end":
+                        case OpEnd:
                             done = true;
                             break;
                     }
@@ -923,9 +921,7 @@ namespace DurableTask.EventSourced.Tests
                     {
                         context.ContinueAsNew(currentValue);
                     }
-
                     return currentValue;
-
                 }
 
                 async Task<string> WaitForOperation()
@@ -938,7 +934,7 @@ namespace DurableTask.EventSourced.Tests
 
                 public override void OnEvent(OrchestrationContext context, string name, string input)
                 {
-                    Assert.Equal("operation", name);
+                    Assert.Equal(OpEventName, name);
                     if (this.waitForOperationHandle != null)
                     {
                         this.waitForOperationHandle.SetResult(input);
