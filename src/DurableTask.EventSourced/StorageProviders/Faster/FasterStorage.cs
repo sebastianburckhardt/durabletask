@@ -21,6 +21,7 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterStorage : StorageAbstraction.IPartitionState
     {
+        internal const string UseLocalFileStorage = "UseLocalFileStorage";
         private readonly string connectionString;
         private readonly string taskHubName;
 
@@ -50,7 +51,10 @@ namespace DurableTask.EventSourced.Faster
         {
             this.partition = partition;
 
-            //BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
+            if (this.connectionString == UseLocalFileStorage)
+            {
+                BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
+            }
             this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
             await blobManager.StartAsync();

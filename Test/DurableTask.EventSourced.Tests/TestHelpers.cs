@@ -51,17 +51,19 @@ namespace DurableTask.EventSourced.Tests
 
         public const string DurableTaskTestPrefix = "DurableTaskTest";
 
+        public static bool DeleteStorageBeforeRunningTests => true;
+
         public static string GetStorageConnectionString()
         {
-            return GetTestSetting("StorageConnectionString", true);
-        }
+            // NOTE: If using the local file system, modify GetStorageConnectionString use one of the memory options.
+            return FasterStorage.UseLocalFileStorage;
 
-        public static bool DeleteStorageBeforeRunningTests => true;
+            // return GetTestSetting("StorageConnectionString", true);
+        }
 
         public static string GetEventHubsConnectionString()
         {
-            // Uncomment if using any of the memory options, to use the local file system.
-            BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
+            // NOTE: If using any of the memory options, modify GetStorageConnectionString use the local file system.
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";
