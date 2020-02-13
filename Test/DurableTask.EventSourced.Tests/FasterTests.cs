@@ -39,8 +39,10 @@ namespace DurableTask.EventSourced.Tests
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
             var connectionString = TestHelpers.GetStorageConnectionString();
+
+            BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
             var blobManager = new BlobManager(connectionString, taskHubName, 0);
-            BlobManager.LocalFileDirectoryForTestingAndDebugging = useAzure ? null : TestHelpers.GetLocalFileDirectory();
+
             await BlobManager.DeleteTaskhubStorageAsync(useAzure ? connectionString : null, taskHubName);
             await blobManager.StartAsync();
             await blobManager.AcquireOwnership(CancellationToken.None);

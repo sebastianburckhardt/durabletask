@@ -49,9 +49,9 @@ namespace DurableTask.EventSourced.Faster
         public async Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
         {
             this.partition = partition;
-            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
-            //BlobManager.LocalFileDirectoryForTestingAndDebugging = "C:\\faster";
+            //BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
+            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
 
             await blobManager.StartAsync();
             this.OwnershipCancellationToken = await blobManager.AcquireOwnership(token);

@@ -304,7 +304,7 @@ namespace DurableTask.EventSourced
         /// Gets the state of all orchestration instances.
         /// </summary>
         /// <returns>List of <see cref="OrchestrationState"/></returns>
-        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken = default) 
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken) 
             => Client.GetOrchestrationStateAsync(cancellationToken);
 
         /// <summary>

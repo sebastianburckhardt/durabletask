@@ -49,16 +49,11 @@ namespace DurableTask.EventSourced.Tests
             //return appConfig.AppSettings.Settings["TaskHubName"].Value;
         }
 
-        public const string DurabeTaskTestPrefix = "DurableTaskTest";
+        public const string DurableTaskTestPrefix = "DurableTaskTest";
 
         public static string GetStorageConnectionString()
         {
             return GetTestSetting("StorageConnectionString", true);
-        }
-
-        public static string GetLocalFileDirectory()
-        {
-            return "C:\\faster";
         }
 
         public static bool DeleteStorageBeforeRunningTests => true;
@@ -66,7 +61,7 @@ namespace DurableTask.EventSourced.Tests
         public static string GetEventHubsConnectionString()
         {
             // Uncomment if using any of the memory options, to use the local file system.
-            BlobManager.LocalFileDirectoryForTestingAndDebugging = GetLocalFileDirectory();
+            BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";
@@ -79,11 +74,11 @@ namespace DurableTask.EventSourced.Tests
 
         static string GetTestSetting(string name, bool require)
         {
-            var setting =  Environment.GetEnvironmentVariable(DurabeTaskTestPrefix + name);
+            var setting =  Environment.GetEnvironmentVariable(DurableTaskTestPrefix + name);
 
             if (require && string.IsNullOrEmpty(setting))
             {
-                throw new ArgumentNullException($"The environment variable {DurabeTaskTestPrefix + name} must be defined for the tests to run");
+                throw new ArgumentNullException($"The environment variable {DurableTaskTestPrefix + name} must be defined for the tests to run");
             }
 
             return setting;

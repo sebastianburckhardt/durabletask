@@ -78,15 +78,13 @@ namespace DurableTask.EventSourced.Tests
             assertIsMiddleInstance(await host.GetOrchestrationStateAsync(CreatedTimeFrom: middleInstance.CreatedTime,
                                                                             CreatedTimeTo: middleInstance.CreatedTime.AddMilliseconds(50)));
             assertIsMiddleInstance(await host.GetOrchestrationStateAsync(InstanceIdPrefix: getPrefix(2)));
-
-            await host.StopAsync();
         }
 
         /// <summary>
         /// Validate query functions.
         /// </summary>
         [Fact]
-        public async Task QueryOrchestrationInstancesByRuntimeStatus()
+        public async Task QueryOrchestrationInstanceByRuntimeStatus()
         {
             // Reuse counter as it provides a wait for the actor to complete itself.
             var client = await host.StartOrchestrationAsync(typeof(Orchestrations.Counter), 0);
@@ -124,6 +122,48 @@ namespace DurableTask.EventSourced.Tests
             Assert.NotNull(status);
             Assert.Contains(status.OrchestrationStatus, completedStatus);
             await assertCounts(0, 1);
+        }
+
+        [Fact]
+        public async void NoInstancesCreated()
+        {
+            var instanceStates = await host.GetAllOrchestrationInstancesAsync();
+            Assert.Equal(0, instanceStates.Count);
+        }
+    }
+
+    [Collection("EventSourcedTests")]
+    public partial class NonFixtureQueryTests : IDisposable
+    {
+        private readonly TestTraceListener traceListener;
+
+        public NonFixtureQueryTests(ITestOutputHelper outputHelper)
+        {
+            this.traceListener = new TestTraceListener(outputHelper);
+            Trace.Listeners.Add(this.traceListener);
+        }
+
+        public void Dispose() => Trace.Listeners.Remove(this.traceListener);
+
+        /// <summary>
+        /// This exercises what LinqPAD queries do.
+        /// </summary>
+        [Fact]
+        public async void SingleServiceQuery()
+        {
+            var settings = new EventSourcedOrchestrationServiceSettings()
+            {
+                EventHubsConnectionString = TestHelpers.GetEventHubsConnectionString(),
+                StorageConnectionString = TestHelpers.GetStorageConnectionString(),
+                TaskHubName = TestHelpers.GetTestTaskHubName()
+            };
+
+            var service = new EventSourcedOrchestrationService(settings);
+            await service.CreateAsync(true);
+            await service.StartAsync();
+            var states = await service.GetOrchestrationStateAsync();
+            await service.StopAsync();
+            Assert.Equal(0, states.Count);
         }
     }
 }

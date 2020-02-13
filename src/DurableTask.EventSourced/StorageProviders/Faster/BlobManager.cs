@@ -17,7 +17,6 @@ using FASTER.devices;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.Storage.Blob.Protocol;
-using Newtonsoft.Json;
 using System;
 using System.IO;
 using System.Linq;
@@ -83,12 +82,18 @@ namespace DurableTask.EventSourced.Faster
             this.containerName = GetContainerName(taskHubName);
             this.partitionId = partitionId;
 
-            CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
-            CloudBlobClient serviceClient = account.CreateCloudBlobClient();
-            this.blobContainer = serviceClient.GetContainerReference(containerName);
+            if (!UseLocalFilesForTestingAndDebugging)
+            {
+                CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
+                CloudBlobClient serviceClient = account.CreateCloudBlobClient();
+                this.blobContainer = serviceClient.GetContainerReference(containerName);
+            }
         }
 
-        public static string LocalFileDirectoryForTestingAndDebugging { get; set; } = null;
+        // For testing and debugging with local files, this is the single place the directory name is set.
+        // This must be called before any BlobManager instances are instantiated.
+        internal static void SetLocalFileDirectoryForTestingAndDebugging(bool useLocal) => LocalFileDirectoryForTestingAndDebugging = useLocal ? @"E:\Faster" : null;
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; private set; } = null;
         private static bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
 
 
