@@ -53,12 +53,14 @@ namespace DurableTask.EventSourced.Tests
 
         public static bool DeleteStorageBeforeRunningTests => true;
 
+        public static string GetAzureStorageConnectionString() => GetTestSetting("StorageConnectionString", true);
+
         public static string GetStorageConnectionString()
         {
-            // NOTE: If using the local file system, modify GetStorageConnectionString use one of the memory options.
+            // NOTE: If using the local file system, modify GetEventHubsConnectionString use one of the memory options.
             return FasterStorage.UseLocalFileStorage;
 
-            // return GetTestSetting("StorageConnectionString", true);
+            // return GetAzureStorageConnectionString();
         }
 
         public static string GetEventHubsConnectionString()

@@ -1419,7 +1419,7 @@ namespace DurableTask.EventSourced.Tests
                     {
                         if (cachedTable == null)
                         {
-                            string connectionString = TestHelpers.GetStorageConnectionString();
+                            string connectionString = TestHelpers.GetAzureStorageConnectionString();
                             CloudTable table = CloudStorageAccount.Parse(connectionString).CreateCloudTableClient().GetTableReference("TestTable");
                             table.CreateIfNotExistsAsync().Wait();
                             cachedTable = table;
