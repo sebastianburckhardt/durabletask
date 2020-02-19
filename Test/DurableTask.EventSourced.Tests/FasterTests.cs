@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.Tests
             var random = new Random(0);
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
-            var connectionString = TestHelpers.GetStorageConnectionString();
+            var connectionString = TestHelpers.GetAzureStorageConnectionString();
 
             BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
             var blobManager = new BlobManager(connectionString, taskHubName, 0);
