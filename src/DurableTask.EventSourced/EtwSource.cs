@@ -49,7 +49,7 @@ namespace DurableTask.EventSourced
 
         // we are grouping all events on this host using a single activity id
         // and since we are only using one host per machine, we can save its id in this static field.
-        private static Guid hostId; 
+        private static Guid hostId;
 
         [Event(10, Level = EventLevel.Informational, Opcode = EventOpcode.Start, Version = 1)]
         public void HostStarted(Guid hostId, string machineName)
@@ -117,6 +117,12 @@ namespace DurableTask.EventSourced
             this.WriteEvent(33, partitionId, context, message);
         }
 
+        [Event(34, Level = EventLevel.Verbose, Version = 1)]
+        public void OffloadDecision(int partitionId, int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemoteLoad)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(34, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
+        }
 
         // -----  events observed on a client
 

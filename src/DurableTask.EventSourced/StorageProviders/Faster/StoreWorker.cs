@@ -50,6 +50,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 var target = await store.GetOrCreate(key);
 
+                target.OnFirstInitialization();
+
                 if (target is DedupState dedupState)
                 {
                     this.InputQueuePosition = dedupState.InputQueuePosition = 0;

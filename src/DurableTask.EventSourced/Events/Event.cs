@@ -66,7 +66,10 @@ namespace DurableTask.EventSourced
             yield return typeof(BatchProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
-            yield return typeof(TaskMessageReceived);
+            yield return typeof(ActivityOffloadReceived);
+            yield return typeof(RemoteActivityResultReceived);
+            yield return typeof(TaskMessagesReceived);
+            yield return typeof(OffloadDecision);
             yield return typeof(PartitionEventFragment);
         }
 

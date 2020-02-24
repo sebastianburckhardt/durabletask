@@ -18,27 +18,28 @@ namespace DurableTask.EventSourced.Tests
 {
     internal static class TestHelpers
     {
-        public static EventSourcedOrchestrationService GetTestOrchestrationService()
+
+        public static EventSourcedOrchestrationServiceSettings GetEventSourcedOrchestrationServiceSettings()
         {
-            var settings = new EventSourcedOrchestrationServiceSettings
+            return new EventSourcedOrchestrationServiceSettings
             {
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
                 TaskHubName = GetTestTaskHubName(),
             };
-            return new EventSourcedOrchestrationService(settings);
+        }
+
+        public static EventSourcedOrchestrationService GetTestOrchestrationService()
+        {
+            return new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings());
         }
 
         public static TestOrchestrationHost GetTestOrchestrationHost(
             bool enableExtendedSessions,
             int extendedSessionTimeoutInSeconds = 30)
         {
-            var settings = new EventSourcedOrchestrationServiceSettings
-            {
-                EventHubsConnectionString = GetEventHubsConnectionString(),
-                StorageConnectionString = GetStorageConnectionString(),
-                TaskHubName = GetTestTaskHubName(),
-            };
+            var settings = GetEventSourcedOrchestrationServiceSettings();
+            //settings.ExtendedSessions = enableExtendedSessions;
             return new TestOrchestrationHost(settings);
         }
 

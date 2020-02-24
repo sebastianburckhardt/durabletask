@@ -51,6 +51,8 @@ namespace DurableTask.EventSourced
 
         public static bool IsSingletonType(TrackedObjectType t) => (int) t < (int) TrackedObjectType.History;
 
+        public bool IsSingleton => IsSingletonType(this.ObjectType);
+
         public static int Compare(ref TrackedObjectKey key1, ref TrackedObjectKey key2)
         {
             int result = key1.ObjectType.CompareTo(key2.ObjectType);

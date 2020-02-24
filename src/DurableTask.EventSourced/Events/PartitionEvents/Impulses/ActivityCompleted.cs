@@ -28,9 +28,17 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage Response { get; set; }
 
+        [DataMember]
+        public DateTime Timestamp { get; set; }
+
+        [DataMember]
+        public uint OriginPartitionId { get; set; }
+
+        [IgnoreDataMember]
+        public int ReportedLoad { get; set; }
+
         public void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Sessions);
             effects.Add(TrackedObjectKey.Activities);
         }
 

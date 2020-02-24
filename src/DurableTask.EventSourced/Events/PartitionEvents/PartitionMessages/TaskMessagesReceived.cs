@@ -13,29 +13,34 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class ActivityWorkItem : TaskActivityWorkItem
+    [DataContract]
+    internal class TaskMessagesReceived : PartitionMessageReceived
     {
-        public Partition Partition;
+        [DataMember]
+        public List<TaskMessage> TaskMessages { get; set; }
 
-        public uint OriginPartition;
-
-        public long ActivityId;
-
-        public ActivityWorkItem(Partition partition, long activityId, TaskMessage message)
+        protected override void TraceInformation(StringBuilder s)
         {
-            this.Partition = partition;
-            this.OriginPartition = partition.PartitionFunction(message.OrchestrationInstance.InstanceId);
-            this.ActivityId = activityId;
-            this.Id = activityId.ToString();
-            this.LockedUntilUtc = DateTime.MaxValue;
-            this.TaskMessage = message;
+            s.Append(' ');
+            if (TaskMessages.Count == 1)
+            {
+                s.Append(TaskMessages[0].Event.EventType);
+            }
+            else
+            {
+                s.Append('[');
+                s.Append(TaskMessages.Count);
+                s.Append(']');
+            }
+            s.Append($" from: Part{OriginPartition:D2}.{OriginPosition:D10}");
         }
-
-        public string WorkItemId => $"A{ActivityId:D6}";
     }
 }

@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
             this.AbbreviatedClientId = clientId.ToString("N").Substring(0,7);
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
-            this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, Timeout);
+            this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
             this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
             this.ResponseTimeouts.Start("ClientTimer");
@@ -137,11 +137,18 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private static void Timeout<T>(IEnumerable<CancellableCompletionSource<T>> promises) where T : class
+        private void Timeout<T>(IEnumerable<CancellableCompletionSource<T>> promises) where T : class
         {
             foreach (var promise in promises)
             {
-                promise.TrySetTimeoutException();
+                try
+                {
+                    promise.TrySetTimeoutException();
+                }
+                catch(Exception e)
+                {
+                    this.ReportError("Client Timer", e);
+                }
             }
         }
 

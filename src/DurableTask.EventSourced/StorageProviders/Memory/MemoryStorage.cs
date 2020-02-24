@@ -71,6 +71,11 @@ namespace DurableTask.EventSourced
             foreach (var trackedObject in this.trackedObjects.Values)
             {
                 trackedObject.Partition = partition;
+
+                if (trackedObject.Key.IsSingleton)
+                {
+                    trackedObject.OnFirstInitialization();
+                }
             }
 
             return Task.FromResult(0UL);

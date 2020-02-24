@@ -69,6 +69,13 @@ namespace DurableTask.EventSourced
         }
 
         /// <summary>
+        /// Is called on all singleton objects once at the very beginning
+        /// </summary>
+        public virtual void OnFirstInitialization()
+        {
+        }
+
+        /// <summary>
         /// Is automatically called on all singleton objects after recovery. Typically used to
         /// restart pending activities, timers, tasks and the like.
         /// </summary>

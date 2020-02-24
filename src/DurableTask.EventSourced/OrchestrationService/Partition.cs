@@ -29,13 +29,14 @@ namespace DurableTask.EventSourced
 
         public uint PartitionId { get; private set; }
         public Func<string, uint> PartitionFunction { get; private set; }
+        public Func<uint> NumberPartitions { get; private set; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
 
         public StorageAbstraction.IPartitionState State { get; private set; }
         public TransportAbstraction.ISender BatchSender { get; private set; }
-        public WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
-        public WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        public WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
+        public WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
         public CancellationToken PartitionShutdownToken => this.partitionShutdown.Token;
 
@@ -52,16 +53,18 @@ namespace DurableTask.EventSourced
             EventSourcedOrchestrationService host,
             uint partitionId,
             Func<string, uint> partitionFunction,
+            Func<uint> numberPartitions,
             StorageAbstraction.IPartitionState state,
             TransportAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
-            WorkQueue<TaskActivityWorkItem> activityWorkItemQueue,
-            WorkQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
+            WorkItemQueue<TaskActivityWorkItem> activityWorkItemQueue,
+            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
             CancellationToken serviceShutdownToken)
         {
             this.host = host;
             this.PartitionId = partitionId;
             this.PartitionFunction = partitionFunction;
+            this.NumberPartitions = numberPartitions;
             this.State = state;
             this.BatchSender = batchSender;
             this.Settings = settings;
@@ -126,7 +129,14 @@ namespace DurableTask.EventSourced
 
         private void TimersFired(List<PartitionEvent> timersFired)
         {
-            this.SubmitRange(timersFired);
+            try
+            {
+                this.SubmitRange(timersFired);
+            }
+            catch (Exception e)
+            {
+                this.ReportError("Submitting Partition Timers", e);
+            }
         }
 
         public class ResponseWaiter : CancellableCompletionSource<ClientEvent>

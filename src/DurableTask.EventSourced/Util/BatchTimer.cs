@@ -100,15 +100,9 @@ namespace DurableTask.EventSourced
 
                 if (batch.Count > 0)
                 {
-                    try
-                    {
-                        handler(batch);
-                    }
-                    catch
-                    {
-                        //TODO
-                    }
-
+                    // it is expected that the handler catches 
+                    // all exceptions, since it has more meaningful ways to report errors
+                    handler(batch);
                     batch.Clear();
                 }
             }

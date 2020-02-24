@@ -19,47 +19,52 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class WorkQueue<T>
+    internal class WorkItemQueue<T>
     {
         private readonly CancellationToken cancellationToken;
-        private readonly object thisLock = new object();
+        private readonly object thisLock = new object(); // TODO test and perhaps improve scalability of single lock
 
         private readonly Queue<T> work = new Queue<T>();
         private readonly Queue<CancellableCompletionSource<T>> waiters = new Queue<CancellableCompletionSource<T>>();
 
         private readonly BatchTimer<CancellableCompletionSource<T>> expirationTimer;
 
-        public WorkQueue(CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
+        public WorkItemQueue(CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
         {
             this.cancellationToken = token;
             this.expirationTimer = new BatchTimer<CancellableCompletionSource<T>>(token, onExpiration);
         }
 
+        public int Load { get; private set; }
+
         public void Add(T element)
         {
-            lock (thisLock)
+            lock (this.thisLock)
             {
                 // if there are waiters, hand it to the oldest one in line
-                while (waiters.Count > 0)
+                while (this.waiters.Count > 0)
                 {
-                    var next = waiters.Dequeue();
+                    var next = this.waiters.Dequeue();
+                    this.Load = - this.waiters.Count;
                     if (next.TrySetResult(element))
                     {
                         return;
                     }
                 }
                     
-                work.Enqueue(element);
+                this.work.Enqueue(element);
+                this.Load = this.work.Count;
             }
         }
 
         public Task<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            lock (thisLock)
+            lock (this.thisLock)
             {
-                while (work.Count > 0)
+                if (this.work.Count > 0)
                 {
-                    var next = work.Dequeue();
+                    var next = this.work.Dequeue();
+                    this.Load = this.work.Count;
                     return Task.FromResult(next);
                 }
 
@@ -68,6 +73,7 @@ namespace DurableTask.EventSourced
                 this.expirationTimer.Schedule(DateTime.UtcNow + timeout, tcs);
 
                 this.waiters.Enqueue(tcs);
+                this.Load = -this.waiters.Count;
 
                 return tcs.Task;
             }

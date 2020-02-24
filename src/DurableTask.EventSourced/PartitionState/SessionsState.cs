@@ -114,16 +114,33 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // TaskMessageReceived
+        // TaskMessagesReceived
         // queues task message (from another partition) in a new or existing session
 
-        public void Process(TaskMessageReceived taskMessageReceived, EffectTracker effects)
+        public void Process(TaskMessagesReceived evt, EffectTracker effects)
         {
-            foreach (var group in taskMessageReceived.TaskMessages
+            foreach (var group in evt.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
             {
                 this.AddMessagesToSession(group.Key, group, effects.IsReplaying);
             }
+        }
+
+        // ActivityResultReceived
+        // queues task message (from another partition) in a new or existing session
+
+        public void Process(RemoteActivityResultReceived evt, EffectTracker effects)
+        {
+            this.AddMessageToSession(evt.Result, false, effects.IsReplaying);
+            effects.Add(TrackedObjectKey.Activities);
+        }
+
+        // ActivityOffloadReceived
+        // does not operate on sessions but on activities
+
+        public void Process(ActivityOffloadReceived evt, EffectTracker effects)
+        {
+            effects.Add(TrackedObjectKey.Activities);
         }
 
         // ClientTaskMessagesReceived

@@ -16,42 +16,26 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TaskMessageReceived : PartitionEvent, IPartitionEventWithSideEffects
+    internal class OffloadDecision : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
-        public List<TaskMessage> TaskMessages { get; set; }
+        public DateTime Timestamp { get; set; }
 
-        [DataMember]
-        public uint OriginPartition { get; set; }
+        [IgnoreDataMember]
+        public uint DestinationPartitionId { get; set; }
 
-        [DataMember]
-        public long OriginPosition { get; set; }
+        [IgnoreDataMember]
+        public List<TaskMessage> OffloadedActivities { get; set; }
 
         public void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Dedup);
-        }
-
-        protected override void TraceInformation(StringBuilder s)
-        {
-            s.Append(' ');
-            if (TaskMessages.Count == 1)
-            {
-                s.Append(TaskMessages[0].Event.EventType);
-            }
-            else
-            {
-                s.Append('[');
-                s.Append(TaskMessages.Count);
-                s.Append(']');
-            }
-            s.Append($" from: Part{OriginPartition:D2}.{OriginPosition:D10}");
+            // start processing on activities, which makes the decision, 
+            // and if offloading, fills in the fields, and adds the outbox to the effects
+            effects.Add(TrackedObjectKey.Activities);
         }
     }
 }

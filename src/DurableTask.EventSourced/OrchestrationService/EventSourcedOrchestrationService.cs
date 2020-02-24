@@ -41,8 +41,8 @@ namespace DurableTask.EventSourced
         internal uint NumberPartitions { get; private set; }
         uint TransportAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
 
-        internal WorkQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
-        internal WorkQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        internal WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
+        internal WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
         internal Guid HostId { get; } = Guid.NewGuid();
 
@@ -159,8 +159,8 @@ namespace DurableTask.EventSourced
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
-            this.ActivityWorkItemQueue = new WorkQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
-            this.OrchestrationWorkItemQueue = new WorkQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.ActivityWorkItemQueue = new WorkItemQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.OrchestrationWorkItemQueue = new WorkItemQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
             await taskHub.StartAsync();
 
@@ -203,6 +203,8 @@ namespace DurableTask.EventSourced
         /// <returns>The partition id.</returns>
         public uint GetPartitionId(string instanceId) => Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
 
+        private uint GetNumberPartitions() => this.NumberPartitions;
+
         /******************************/
         // host methods
         /******************************/
@@ -220,7 +222,7 @@ namespace DurableTask.EventSourced
 
         TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, TransportAbstraction.ISender batchSender)
         {
-            var partition = new Partition(this, partitionId, this.GetPartitionId, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+            var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
 
             EtwSource.Log.PartitionStarted((int)partitionId);
 
@@ -469,6 +471,9 @@ namespace DurableTask.EventSourced
             {
                 PartitionId = activityWorkItem.Partition.PartitionId,
                 ActivityId = activityWorkItem.ActivityId,
+                OriginPartitionId = activityWorkItem.OriginPartition,
+                ReportedLoad = this.ActivityWorkItemQueue.Load,
+                Timestamp = DateTime.UtcNow,
                 Response = responseMessage,
             });
             return Task.CompletedTask;

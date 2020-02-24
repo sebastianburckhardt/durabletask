@@ -40,14 +40,17 @@ namespace DurableTask.EventSourced
         // TaskMessageReceived 
         // filters any messages that originated on a partition, and whose origin is marked as processed
 
-        public void Process(TaskMessageReceived evt, EffectTracker effects)
+        public void Process(PartitionMessageReceived evt, EffectTracker effects)
         {
-            long alreadyProcessed = -1;
-            this.ProcessedOrigins.TryGetValue(evt.OriginPartition, out alreadyProcessed);
+            if (!this.ProcessedOrigins.TryGetValue(evt.OriginPartition, out long alreadyProcessed))
+            {
+                alreadyProcessed = -1;
+            }               
             if (evt.OriginPosition > alreadyProcessed)
             {
-                effects.Add(TrackedObjectKey.Sessions);
                 this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
+
+                effects.Add(TrackedObjectKey.Sessions);
             }
         }
 

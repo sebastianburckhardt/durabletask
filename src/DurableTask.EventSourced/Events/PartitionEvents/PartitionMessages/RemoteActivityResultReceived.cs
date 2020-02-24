@@ -13,29 +13,24 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-    internal class ActivityWorkItem : TaskActivityWorkItem
+    [DataContract]
+    internal class RemoteActivityResultReceived : PartitionMessageReceived
     {
-        public Partition Partition;
+        [DataMember]
+        public TaskMessage Result { get; set; }
 
-        public uint OriginPartition;
+        [DataMember]
+        public int ActivitiesQueueSize { get; set; }
 
-        public long ActivityId;
-
-        public ActivityWorkItem(Partition partition, long activityId, TaskMessage message)
-        {
-            this.Partition = partition;
-            this.OriginPartition = partition.PartitionFunction(message.OrchestrationInstance.InstanceId);
-            this.ActivityId = activityId;
-            this.Id = activityId.ToString();
-            this.LockedUntilUtc = DateTime.MaxValue;
-            this.TaskMessage = message;
-        }
-
-        public string WorkItemId => $"A{ActivityId:D6}";
+        [DataMember]
+        public DateTime Timestamp { get; set; }
     }
 }
