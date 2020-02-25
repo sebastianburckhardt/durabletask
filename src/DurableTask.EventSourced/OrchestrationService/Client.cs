@@ -42,8 +42,6 @@ namespace DurableTask.EventSourced
         private BatchTimer<ResponseWaiter> ResponseTimeouts;
         private ConcurrentDictionary<long, ResponseWaiter> ResponseWaiters;
         private Dictionary<Guid, List<ClientEventFragment>> Fragments;
-
-        public string AbbreviatedClientId; // used for tracing
         
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {

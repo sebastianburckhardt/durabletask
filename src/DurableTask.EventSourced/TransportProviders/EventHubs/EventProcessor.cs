@@ -102,9 +102,9 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception error)
+        Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception exception)
         {
-            this.logger.LogError(error, "Error in EventProcessor for partition {partition}", context.PartitionId);
+            this.logger.LogError("Error in EventProcessor for partition {partition}: {exception}", context.PartitionId, exception);
 
             return Task.FromResult<object>(null);
         }
@@ -149,9 +149,9 @@ namespace DurableTask.EventSourced.EventHubs
 
                 return Task.CompletedTask;
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                this.logger.LogError(e, "Error while processing events in EventProcessor for partition {partition}", context.PartitionId);
+                this.logger.LogError("Error while processing events in EventProcessor for partition {partition} : {exception}", context.PartitionId, exception);
                 throw;
             }
         }

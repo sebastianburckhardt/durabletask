@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced.Tests
     {
         private readonly ILoggerFactory loggerFactory;
 
-        public PortedRedisScenarioTests(TestFixture fixture, ITestOutputHelper outputHelper)
+        public PortedRedisScenarioTests(ITestOutputHelper outputHelper)
         {
             loggerFactory = new LoggerFactory();
             var loggerProvider = new XunitLoggerProvider(outputHelper);

@@ -153,13 +153,13 @@ namespace DurableTask.EventSourced.EventHubs
 
                 if (this.logger.IsEnabled(LogLevel.Debug))
                 {
-                    this.logger.LogDebug("Confirmed {confirmed}, Requeued {requeued}, Dropped {dropped} messages for EventHub {eventHubName}, partition {partitionId}", confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                    this.logger.LogDebug("Sender has confirmed {confirmed}, requeued {requeued}, dropped {dropped} messages for EventHub {eventHubName}, partition {partitionId}", confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 }
 
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                this.logger.LogError(e, "Internal error while trying to confirm messages for EventHub {eventHubName}, partition {partitionId}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.logger.LogError("Internal error while trying to confirm messages for EventHub {eventHubName}, partition {partitionId}: {exception}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId, exception);
             }
         }
 

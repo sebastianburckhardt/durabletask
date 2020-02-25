@@ -48,16 +48,16 @@ namespace DurableTask.EventSourced.Faster
             EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, elapsedMs);
         }
 
-        public void FasterStorageError(string operation, Exception e)
+        public void FasterStorageError(string operation, Exception exception)
         {
-            logger.LogError(e, "Part{partition:D2} Faster Storage Error : {operation}", partitionId, operation);
-            EtwSource.Log.FasterStorageError(partitionId, operation, e.ToString());
+            logger.LogError("Part{partition:D2} !!! Faster Storage Error : {operation} {exception}", partitionId, operation, exception);
+            EtwSource.Log.FasterStorageError(partitionId, operation, exception.ToString());
         }
 
-        public void FasterBlobStorageError(string operation, Exception e)
+        public void FasterBlobStorageError(string operation, Exception exception)
         {
-            logger.LogError(e, "Part{partition:D2} Faster Blob Storage error : {operation}", partitionId, operation);
-            EtwSource.Log.FasterBlobStorageError(partitionId, operation, e.ToString());
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} : {exception}", partitionId, operation, exception);
+            EtwSource.Log.FasterBlobStorageError(partitionId, operation, exception.ToString());
         }
 
         public void FasterProgress(string operation)
