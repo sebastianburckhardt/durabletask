@@ -10,6 +10,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -96,11 +97,9 @@ namespace DurableTask.EventSourced
             IPartition AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, ISender batchSender);
 
             /// <summary>
-            /// Indicates an observed error for diagnostic purposes.
+            /// Returns a logger for use by the transport backend.
             /// </summary>
-            /// <param name="msg">A message describing the circumstances.</param>
-            /// <param name="e">The exception that was observed.</param>
-            void ReportError(string msg, Exception e);
+            ILogger TransportLogger { get; }
         }
 
         /// <summary>

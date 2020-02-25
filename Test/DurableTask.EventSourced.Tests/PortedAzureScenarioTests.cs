@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced.Tests
     using DurableTask.Core;
     using DurableTask.Core.Exceptions;
     using DurableTask.Core.Stats;
+    using Microsoft.Extensions.Logging;
     //using Microsoft.Practices.EnterpriseLibrary.SemanticLogging.Utility;
     using Microsoft.WindowsAzure.Storage;
     using Microsoft.WindowsAzure.Storage.Table;
@@ -41,10 +42,12 @@ namespace DurableTask.EventSourced.Tests
         private readonly TestOrchestrationHost host;
         private readonly TestTraceListener traceListener;
 
+
         public PortedAzureScenarioTests(TestFixture fixture, ITestOutputHelper outputHelper)
         {
             this.fixture = fixture;
             this.host = fixture.Host;
+            fixture.LoggerProvider.Output = outputHelper;
             this.traceListener = new TestTraceListener(outputHelper);
             Trace.Listeners.Add(this.traceListener);
         }
@@ -54,12 +57,14 @@ namespace DurableTask.EventSourced.Tests
             Trace.Listeners.Remove(this.traceListener);
         }
 
+        private static bool captureDiagnosticTraces = true;  // creates lots of noise with Faster
+
         internal class TestTraceListener : TraceListener
         {
             ITestOutputHelper _output;
             public TestTraceListener(ITestOutputHelper output) { _output = output; }
             public override void Write(string message) { }
-            public override void WriteLine(string message) { _output.WriteLine(message); }
+            public override void WriteLine(string message) { if (captureDiagnosticTraces) _output.WriteLine(message); }
         }
 
         /// <summary>

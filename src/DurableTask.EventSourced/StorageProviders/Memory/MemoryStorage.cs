@@ -44,7 +44,6 @@ namespace DurableTask.EventSourced
         public void Submit(PartitionEvent entry)
         {
             entry.CommitLogPosition = nextSubmitPosition++;
-            this.partition.TraceSubmit(entry);
             base.Submit(entry);
         }
 
@@ -53,7 +52,6 @@ namespace DurableTask.EventSourced
             foreach (var entry in entries)
             {
                 entry.CommitLogPosition = nextSubmitPosition++;
-                this.partition.TraceSubmit(entry);
             }
 
             base.SubmitRange(entries);
@@ -106,7 +104,20 @@ namespace DurableTask.EventSourced
                         if (o is StorageAbstraction.IReadContinuation readContinuation)
                         {
                             var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
+                            
+                            var partitionEvent = readContinuation as PartitionEvent;
+
+                            if (partitionEvent != null)
+                            {
+                                partition.TraceProcess(partitionEvent);
+                            }
+
                             readContinuation.OnReadComplete(readTarget);
+
+                            if (partitionEvent != null)
+                            {
+                                Partition.ClearTraceContext();
+                            }
                         }
                         else
                         {
@@ -124,9 +135,9 @@ namespace DurableTask.EventSourced
                                 this.ProcessRecursively(partitionEvent, effects);
                             }
 
+                            partition.DetailTracer?.TraceDetail("finished processing event");
                             effects.Effect = null;
-                            partition.TraceDetail("Processing complete");
-                            Partition.TraceContext = null;
+                            Partition.ClearTraceContext();
 
                             AckListeners.Acknowledge(partitionEvent);
                         }
@@ -147,10 +158,7 @@ namespace DurableTask.EventSourced
             var startPos = effects.Count - 1;
             var key = effects[startPos];
 
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                partition.TraceDetail($"Process on [{key}]");
-            }
+            this.partition.DetailTracer?.TraceDetail($"Process on [{key}]");
 
             // start with processing the event on this object, which
             // updates its state and can flag more objects to process on

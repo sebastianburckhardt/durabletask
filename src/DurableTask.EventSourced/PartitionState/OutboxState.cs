@@ -42,7 +42,7 @@ namespace DurableTask.EventSourced
                 kvp.Value.Partition = this.Partition;
 
                 // resend (anything we have recovered is of course persisted)
-                Partition.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
+                Partition.DetailTracer?.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
             }
         }

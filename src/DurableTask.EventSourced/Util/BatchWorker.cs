@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced
 
         private async Task Work()
         {
-            Partition.TraceContext = null;
+            Partition.ClearTraceContext();
 
             lock (this.thisLock)
             {

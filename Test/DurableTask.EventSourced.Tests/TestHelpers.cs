@@ -13,6 +13,7 @@
 
 using System;
 using DurableTask.EventSourced.Faster;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced.Tests
 {
@@ -29,18 +30,19 @@ namespace DurableTask.EventSourced.Tests
             };
         }
 
-        public static EventSourcedOrchestrationService GetTestOrchestrationService()
+        public static EventSourcedOrchestrationService GetTestOrchestrationService(ILoggerFactory loggerFactory)
         {
-            return new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings());
+            return new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings(), loggerFactory);
         }
 
         public static TestOrchestrationHost GetTestOrchestrationHost(
             bool enableExtendedSessions,
+            ILoggerFactory loggerFactory,
             int extendedSessionTimeoutInSeconds = 30)
         {
             var settings = GetEventSourcedOrchestrationServiceSettings();
             //settings.ExtendedSessions = enableExtendedSessions;
-            return new TestOrchestrationHost(settings);
+            return new TestOrchestrationHost(settings, loggerFactory);
         }
 
         public static string GetTestTaskHubName()
@@ -59,9 +61,9 @@ namespace DurableTask.EventSourced.Tests
         public static string GetStorageConnectionString()
         {
             // NOTE: If using the local file system, modify GetEventHubsConnectionString use one of the memory options.
-            return FasterStorage.UseLocalFileStorage;
+            // return FasterStorage.UseLocalFileStorage;
 
-            // return GetAzureStorageConnectionString();
+            return GetAzureStorageConnectionString();
         }
 
         public static string GetEventHubsConnectionString()
@@ -72,9 +74,9 @@ namespace DurableTask.EventSourced.Tests
             // return "Memory:32";
             // return "MemoryF:1";
             // return "MemoryF:4";
-            return "MemoryF:32";
+            // return "MemoryF:32";
 
-            // return GetTestSetting("EventHubsConnectionString", false);
+            return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)

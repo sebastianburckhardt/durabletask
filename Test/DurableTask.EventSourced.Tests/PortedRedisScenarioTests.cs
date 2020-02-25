@@ -16,19 +16,29 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
+using Microsoft.Extensions.Logging;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace DurableTask.EventSourced.Tests
 {
     [Collection("EventSourcedTests")]
     public class PortedRedisScenarioTests
     {
-       
+        private readonly ILoggerFactory loggerFactory;
+
+        public PortedRedisScenarioTests(TestFixture fixture, ITestOutputHelper outputHelper)
+        {
+            loggerFactory = new LoggerFactory();
+            var loggerProvider = new XunitLoggerProvider(outputHelper);
+            loggerFactory.AddProvider(loggerProvider);
+        }
+
         [Fact]
         public async Task StopAsync_IsIdempotent()
         {
             int numStops = 3;
-            IOrchestrationService service = TestHelpers.GetTestOrchestrationService();
+            IOrchestrationService service = TestHelpers.GetTestOrchestrationService(this.loggerFactory);
             for (int i =0; i < numStops; i++)
             {
                 await service.StopAsync();
@@ -38,7 +48,7 @@ namespace DurableTask.EventSourced.Tests
         [Fact]
         public async Task UnstartedService_CanBeSafelyStopped()
         {
-            IOrchestrationService service = TestHelpers.GetTestOrchestrationService();
+            IOrchestrationService service = TestHelpers.GetTestOrchestrationService(this.loggerFactory);
             await service.StopAsync();
         }
 

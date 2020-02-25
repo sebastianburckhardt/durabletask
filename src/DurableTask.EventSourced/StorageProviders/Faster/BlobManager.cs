@@ -17,6 +17,7 @@ using FASTER.devices;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.Storage.Blob.Protocol;
+using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
 using System.Linq;
@@ -44,6 +45,8 @@ namespace DurableTask.EventSourced.Faster
         private string LeaseId;
         private TimeSpan LeaseDuration = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(35);
         private TimeSpan LeaseRenewal = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromSeconds(55) : TimeSpan.FromSeconds(30);
+
+        internal TraceHelper TraceHelper { get; private set; }
 
         public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
@@ -75,12 +78,14 @@ namespace DurableTask.EventSourced.Faster
         /// </summary>
         /// <param name="connectionString">The connection string for the Azure storage account</param>
         /// <param name="taskHubName">The name of the taskhub</param>
+        /// <param name="logger">A logger for logging</param>
         /// <param name="partitionId">The partition id</param>
-        public BlobManager(string connectionString, string taskHubName, uint partitionId)
+        public BlobManager(string connectionString, string taskHubName, ILogger logger, uint partitionId)
         {
             this.connectionString = connectionString;
             this.containerName = GetContainerName(taskHubName);
             this.partitionId = partitionId;
+            this.TraceHelper = new TraceHelper(logger, (int)partitionId);
 
             if (!UseLocalFilesForTestingAndDebugging)
             {
@@ -133,9 +138,9 @@ namespace DurableTask.EventSourced.Faster
                 var hybridLogDevice = new AzureStorageDevice(HybridLogBlobName, this.partitionDirectory);
                 var objectLogDevice = new AzureStorageDevice(ObjectLogBlobName, this.partitionDirectory);
 
-                eventLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{EventLogBlobName}.{method}", e.ToString());
-                hybridLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{HybridLogBlobName}.{method}", e.ToString());
-                objectLogDevice.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"{ObjectLogBlobName}.{method}", e.ToString());
+                eventLogDevice.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"{EventLogBlobName}.{method}", e);
+                hybridLogDevice.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"{HybridLogBlobName}.{method}", e);
+                objectLogDevice.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"{ObjectLogBlobName}.{method}", e);
 
                 this.EventLogDevice = eventLogDevice;
                 this.HybridLogDevice = hybridLogDevice;
@@ -145,7 +150,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task StopAsync()
         {
-            EtwSource.Log.LeaseProgress((int)this.partitionId, "stopping");
+            this.TraceHelper.LeaseProgress("stopping");
             this.shutdownCancellation?.Cancel();
             await this.LeaseRenewalLoopTask;
         }
@@ -215,7 +220,7 @@ namespace DurableTask.EventSourced.Faster
                     {
                         // the previous owner has not released the lease yet, 
                         // try again until it becomes available, should be relatively soon
-                        EtwSource.Log.LeaseProgress((int)this.partitionId, "waiting for lease");
+                        this.TraceHelper.LeaseProgress("waiting for lease");
                         await Task.Delay(TimeSpan.FromSeconds(1), this.shutdownCancellation.Token);
                         continue;
                     }
@@ -224,14 +229,14 @@ namespace DurableTask.EventSourced.Faster
                         try
                         {
                             // Create blob with empty content, then try again
-                            EtwSource.Log.LeaseProgress((int)this.partitionId, "creating commit blob");
+                            this.TraceHelper.LeaseProgress("creating commit blob");
                             await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
                             continue;
                         }
                         catch (StorageException ex2) when (LeaseConflictOrExpired(ex2))
                         {
                             // creation race, try from top
-                            EtwSource.Log.LeaseProgress((int)this.partitionId, "creation race, retrying");
+                            this.TraceHelper.LeaseProgress("creation race, retrying");
                             continue;
                         }
                     }
@@ -240,7 +245,7 @@ namespace DurableTask.EventSourced.Faster
                 // start background loop that renews the lease continuously
                 this.LeaseRenewalLoopTask = this.LeaseRenewalLoopAsync();
 
-                EtwSource.Log.LeaseAcquired((int)this.partitionId);
+                this.TraceHelper.LeaseAcquired();
 
                 return this.ownershipCancellation.Token;
             }
@@ -261,7 +266,7 @@ namespace DurableTask.EventSourced.Faster
                 // We get here as part of normal termination after shutdownCancellation was triggered. 
             }
 
-            EtwSource.Log.LeaseProgress((int)this.partitionId, "shutting down");
+            this.TraceHelper.LeaseProgress("shutting down");
 
             // if we haven't already lost ownership, try to cancel the lease now
             if (!ownershipCancellation.IsCancellationRequested)
@@ -270,11 +275,11 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     await this.eventLogCommitBlob.ReleaseLeaseAsync(acc);
-                    EtwSource.Log.LeaseReleased((int)this.partitionId);
+                    this.TraceHelper.LeaseReleased();
                 }
                 catch (Exception e) // swallow exceptions when releasing a lease
                 {
-                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, "release", e.ToString());
+                    this.TraceHelper.FasterBlobStorageError("release", e);
                 }
             }
         }
@@ -285,12 +290,12 @@ namespace DurableTask.EventSourced.Faster
 
             AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
 
-            EtwSource.Log.LeaseProgress((int)this.partitionId, "renewing lease");
+            this.TraceHelper.LeaseProgress("renewing lease");
 
             try
             {
                 await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.shutdownCancellation.Token);
-                EtwSource.Log.LeaseProgress((int)this.partitionId, "renewed lease");
+                this.TraceHelper.LeaseProgress("renewed lease");
             }
             catch (OperationCanceledException)
             {
@@ -299,12 +304,12 @@ namespace DurableTask.EventSourced.Faster
             catch (StorageException ex) when (LeaseConflict(ex))
             {
                 // We lost the lease to someone else. Terminate ownership immediately.
-                EtwSource.Log.LeaseLost((int)this.partitionId, "renew");
+                this.TraceHelper.LeaseLost("renew");
                 this.ownershipCancellation.Cancel();
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, "renew", e.ToString());
+                this.TraceHelper.FasterBlobStorageError("renew", e);
                 // continue trying to renew at normal intervals, to survive temporary storage unavailability
             }
         }
@@ -352,13 +357,13 @@ namespace DurableTask.EventSourced.Faster
                 catch (StorageException ex) when (LeaseConflict(ex))
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
-                    EtwSource.Log.LeaseLost((int)this.partitionId, nameof(ILogCommitManager.Commit));
+                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
                     this.ownershipCancellation.Cancel();
                     throw;
                 }
                 catch (Exception e)
                 {
-                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ILogCommitManager.Commit), e.ToString());
+                    this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), e);
                     throw;
                 }
             }
@@ -388,13 +393,13 @@ namespace DurableTask.EventSourced.Faster
                 catch (StorageException ex) when (LeaseConflict(ex))
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
-                    EtwSource.Log.LeaseLost((int)this.partitionId, nameof(ILogCommitManager.GetCommitMetadata));
+                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.GetCommitMetadata));
                     this.ownershipCancellation.Cancel();
                     throw;
                 }
                 catch (Exception e)
                 {
-                    EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ILogCommitManager.GetCommitMetadata), e.ToString());
+                    this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.GetCommitMetadata), e);
                     throw;
                 }
             }
@@ -434,7 +439,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.CommitIndexCheckpoint), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.CommitIndexCheckpoint), e);
                 throw;
             }
         }
@@ -459,7 +464,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.CommitLogCheckpoint), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.CommitLogCheckpoint), e);
                 throw;
             }
         }
@@ -480,7 +485,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetIndexCommitMetadata), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCommitMetadata), e);
                 throw;
             }
         }
@@ -501,7 +506,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetLogCommitMetadata), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCommitMetadata), e);
                 throw;
             }
         }
@@ -513,12 +518,12 @@ namespace DurableTask.EventSourced.Faster
                 var (path, blobName) = this.GetPrimaryHashTableBlob(indexToken);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
                 var device = new AzureStorageDevice(blobName, blobDirectory);
-                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"indexDevice.{method}", e.ToString());
+                device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"indexDevice.{method}", e);
                 return device;
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetIndexDevice), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexDevice), e);
                 throw;
             }
         }
@@ -530,12 +535,12 @@ namespace DurableTask.EventSourced.Faster
                 var (path, blobName) = this.GetLogSnapshotBlob(token);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
                 var device = new AzureStorageDevice(blobName, blobDirectory);
-                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"snapshotLogDevice.{method}", e.ToString());
+                device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"snapshotLogDevice.{method}", e);
                 return device;
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetSnapshotLogDevice), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetSnapshotLogDevice), e);
                 throw;
             }
         }
@@ -547,12 +552,12 @@ namespace DurableTask.EventSourced.Faster
                 var (path, blobName) = this.GetObjectLogSnapshotBlob(token);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
                 var device = new AzureStorageDevice(blobName, blobDirectory);
-                device.ExceptionTracer = (method, e) => EtwSource.Log.FasterBlobStorageError((int)this.partitionId, $"snapshotObjectLogDevice.{method}", e.ToString());
+                device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"snapshotObjectLogDevice.{method}", e);
                 return device;
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetSnapshotObjectLogDevice), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetSnapshotObjectLogDevice), e);
                 throw;
             }
         }
@@ -581,7 +586,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterBlobStorageError((int)this.partitionId, nameof(ICheckpointManager.GetLatestCheckpoint), e.ToString());
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLatestCheckpoint), e);
                 throw;
             }
         }

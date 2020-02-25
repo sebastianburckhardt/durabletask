@@ -13,6 +13,7 @@
 
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,6 +34,9 @@ namespace DurableTask.EventSourced
     {
         private readonly TransportAbstraction.ITaskHub taskHub;
         private readonly EventSourcedOrchestrationServiceSettings settings;
+        private readonly ILogger transportLogger;
+        private readonly ILogger storageLogger;
+
         private CancellationTokenSource serviceShutdownSource;
 
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
@@ -46,6 +50,10 @@ namespace DurableTask.EventSourced
 
         internal Guid HostId { get; } = Guid.NewGuid();
 
+        internal ILogger Logger { get; }
+
+        
+
         /// <inheritdoc/>
         public override string ToString()
         {
@@ -55,9 +63,13 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Creates a new instance of the OrchestrationService with default settings
         /// </summary>
-        public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings)
+        public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.settings = settings;
+
+            this.Logger = loggerFactory.CreateLogger("E1");
+            this.transportLogger = loggerFactory.CreateLogger("E1Transport");
+            this.storageLogger = loggerFactory.CreateLogger("E1Storage");
 
             switch (this.settings.TransportComponent)
             {
@@ -90,7 +102,7 @@ namespace DurableTask.EventSourced
                     return new MemoryStorage();
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return new Faster.FasterStorage(settings.StorageConnectionString, this.settings.TaskHubName);
+                    return new Faster.FasterStorage(settings.StorageConnectionString, this.settings.TaskHubName, this.storageLogger);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -229,8 +241,7 @@ namespace DurableTask.EventSourced
             return partition;
         }
 
-        void TransportAbstraction.IHost.ReportError(string msg, Exception e)
-            => System.Diagnostics.Trace.TraceError($"!!! {msg}: {e}");
+        ILogger TransportAbstraction.IHost.TransportLogger => this.transportLogger;
 
         StorageAbstraction.IStorageProvider TransportAbstraction.IHost.StorageProvider => this;
 

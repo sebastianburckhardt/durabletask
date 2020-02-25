@@ -16,13 +16,24 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.EventSourced.Faster;
+using Microsoft.Extensions.Logging;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace DurableTask.EventSourced.Tests
 {
     [Collection("EventSourcedTests")]
     public class FasterTests
     {
+        private readonly ILoggerFactory loggerFactory;
+
+        public FasterTests(ITestOutputHelper outputHelper)
+        {
+            loggerFactory = new LoggerFactory();
+            var loggerProvider = new XunitLoggerProvider(outputHelper);
+            loggerFactory.AddProvider(loggerProvider);
+        }
+
         [Theory]
         [InlineData(false, 3, 5)]
         [InlineData(false, 30, 50)]
@@ -41,7 +52,7 @@ namespace DurableTask.EventSourced.Tests
             var connectionString = TestHelpers.GetAzureStorageConnectionString();
 
             BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
-            var blobManager = new BlobManager(connectionString, taskHubName, 0);
+            var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0);
 
             await BlobManager.DeleteTaskhubStorageAsync(useAzure ? connectionString : null, taskHubName);
             await blobManager.StartAsync();

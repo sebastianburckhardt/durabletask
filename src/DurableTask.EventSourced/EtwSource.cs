@@ -16,6 +16,7 @@ using System.Diagnostics.Tracing;
 using System.Linq;
 using System.Threading;
 using DurableTask.Core;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
@@ -33,17 +34,8 @@ namespace DurableTask.EventSourced
         /// </summary>
         public static readonly EtwSource Log = new EtwSource();
 
-        // global trace emission switches, useful for experimentation and profiling
-#if DEBUG
-        public static bool EmitEtwTrace => true;
-        public static bool EmitDiagnosticsTrace => true;
-#else
-        public static bool EmitEtwTrace => true;
-        public static bool EmitDiagnosticsTrace => false;
-#endif
-
         // we should always check if verbose is enabled before doing extensive string formatting for a verbose event
-        public bool IsVerboseEnabled => EmitEtwTrace && this.IsEnabled();
+        public bool IsVerboseEnabled => this.IsEnabled(EventLevel.Verbose, EventKeywords.None);
 
         // ----- starting/stopping of the host
 
@@ -97,31 +89,24 @@ namespace DurableTask.EventSourced
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventSent(int partitionId, string context, string workItem, string eventInfo)
+        public void PartitionEventSent(int partitionId, ulong context, string workItem, string eventInfo)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(31, partitionId, context, workItem, eventInfo);
         }
 
         [Event(32, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionWorkItemEnqueued(int partitionId, string context, string workItem)
+        public void PartitionDetail(int partitionId, ulong context, string message)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(32, partitionId, context, workItem);
+            this.WriteEvent(32, partitionId, context, message);
         }
 
         [Event(33, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionDetail(int partitionId, string context, string message)
-        {
-            SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(33, partitionId, context, message);
-        }
-
-        [Event(34, Level = EventLevel.Verbose, Version = 1)]
         public void OffloadDecision(int partitionId, int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemoteLoad)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(34, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
+            this.WriteEvent(33, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
         }
 
         // -----  events observed on a client

@@ -27,17 +27,19 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterLog log;
         private readonly Partition partition;
         private readonly StoreWorker storeWorker;
+        private readonly TraceHelper traceHelper;
 
         private volatile TaskCompletionSource<bool> shutdownWaiter;
 
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
-        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker)
+        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker, TraceHelper traceHelper)
             : base(CancellationToken.None)
         {
             this.log = log;
             this.partition = partition;
             this.storeWorker = storeWorker;
+            this.traceHelper = traceHelper;
         }
 
         public void EnsureSerialized(PartitionEvent evt)
@@ -93,7 +95,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task PersistAndShutdownAsync()
         {
-            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping LogWorker");
+            this.traceHelper.FasterProgress("stopping LogWorker");
 
             lock (this.thisLock)
             {
@@ -103,7 +105,7 @@ namespace DurableTask.EventSourced.Faster
 
             await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
 
-            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopped LogWorker");
+            this.traceHelper.FasterProgress("stopped LogWorker");
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -111,7 +113,7 @@ namespace DurableTask.EventSourced.Faster
             try
             {
                 //  checkpoint the log
-                EtwSource.Log.FasterProgress((int)partition.PartitionId, "persisting log");
+                this.traceHelper.FasterProgress("persisting log");
                 var stopwatch = new System.Diagnostics.Stopwatch();
                 stopwatch.Start();
                 long previous = log.CommittedUntilAddress;
@@ -119,11 +121,11 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     await log.CommitAsync();
-                    EtwSource.Log.FasterLogPersisted((int)partition.PartitionId, log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
+                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
                 }
                 catch(Exception e)
                 {
-                    EtwSource.Log.FasterStorageError((int)partition.PartitionId, "persisting log", e.ToString());
+                    this.traceHelper.FasterStorageError("persisting log", e);
                     throw;
                 }
 

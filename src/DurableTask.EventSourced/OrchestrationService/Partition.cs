@@ -20,6 +20,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
@@ -28,6 +29,7 @@ namespace DurableTask.EventSourced
         private readonly EventSourcedOrchestrationService host;
 
         public uint PartitionId { get; private set; }
+        public string TracePrefix { get; private set; }
         public Func<string, uint> PartitionFunction { get; private set; }
         public Func<uint> NumberPartitions { get; private set; }
 
@@ -46,9 +48,6 @@ namespace DurableTask.EventSourced
 
         private readonly CancellationTokenSource partitionShutdown;
 
-        [ThreadStatic]
-        public static string TraceContext;
-
         public Partition(
             EventSourcedOrchestrationService host,
             uint partitionId,
@@ -62,7 +61,9 @@ namespace DurableTask.EventSourced
             CancellationToken serviceShutdownToken)
         {
             this.host = host;
+            this.logger = host.Logger;
             this.PartitionId = partitionId;
+            this.TracePrefix = GetTracePrefix();
             this.PartitionFunction = partitionFunction;
             this.NumberPartitions = numberPartitions;
             this.State = state;
@@ -183,29 +184,15 @@ namespace DurableTask.EventSourced
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.TraceDetail($"Creating ActivityWorkItem {item.WorkItemId}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionWorkItemEnqueued((int)this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
-            }
-
+            this.DetailTracer?.TraceDetail($"Creating ActivityWorkItem {item.WorkItemId}");
+ 
             this.ActivityWorkItemQueue.Add(item);
         }
 
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.TraceDetail($"Creating OrchestrationWorkItem {item.WorkItemId}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionWorkItemEnqueued((int)this.PartitionId, Partition.TraceContext ?? "", item.WorkItemId);
-            }
-
+            this.DetailTracer?.TraceDetail($"Creating OrchestrationWorkItem {item.WorkItemId}");
+ 
             this.OrchestrationWorkItemQueue.Add(item);
         }
     }

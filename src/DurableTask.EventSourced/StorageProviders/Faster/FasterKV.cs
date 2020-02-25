@@ -156,17 +156,12 @@ namespace DurableTask.EventSourced.Faster
             switch (status)
             {
                 case Status.NOTFOUND:
-                    readContinuation.OnReadComplete(null);
-                    break;
-
                 case Status.OK:
-                    readContinuation.OnReadComplete(target);
+                    ExecuteRead(readContinuation, partition, target);
                     break;
 
                 case Status.PENDING:
-                    // we missed in memory. Go into the slow path, 
-                    // which handles the request asynchronously in a fresh session.
-                    // _ = this.AsynchronousReadTask(key, readContinuation, partition);
+                    // read continuation will be called when complete
                     break;
 
                 case Status.ERROR:
@@ -174,36 +169,23 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        // slow path read (taken on miss), on its own session. This is not awaited by the caller.
-        //private async ValueTask AsynchronousReadTask(FasterKV.Key key, StorageAbstraction.IReadContinuation readContinuation, Partition partition)
-        //{
-        //    try
-        //    {
-        //        using (var session = this.NewSession())
-        //        {
-        //            var (status, target) = await session.ReadAsync(key, NoInput, false, this.shutdown.Token);
+        private static void ExecuteRead(StorageAbstraction.IReadContinuation readContinuation, Partition partition, TrackedObject target)
+        {
+            var partitionEvent = readContinuation as PartitionEvent;
 
-        //            switch (status)
-        //            {
-        //                case Status.NOTFOUND:
-        //                    readContinuation.OnReadComplete(null);
-        //                    break;
+            if (partitionEvent != null)
+            {
+                partition.TraceProcess(partitionEvent);
+            }
 
-        //                case Status.OK:
-        //                    // now that we have loaded the object into memory, resubmit
-        //                    partition.State.ScheduleRead(readContinuation);
-        //                    break;
+            readContinuation.OnReadComplete(target);
 
-        //                default:
-        //                    throw new Exception("Faster"); //TODO
-        //            }
-        //        }
-        //    } 
-        //    catch(Exception e)
-        //    {
-        //        partition.ReportError(nameof(AsynchronousReadTask), e);
-        //    }
-        //}
+            if (partitionEvent != null)
+            {
+                partition.DetailTracer?.TraceDetail("finished processing read event");
+                Partition.ClearTraceContext();
+            }
+        }
 
         public void CompletePending()
         {
@@ -335,7 +317,21 @@ namespace DurableTask.EventSourced.Faster
             public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, StorageAbstraction.IReadContinuation ctx, Status status)
             {
                 partition.Assert(ctx != null);
-                ctx.OnReadComplete(output);
+
+                switch (status)
+                {
+                    case Status.NOTFOUND:
+                        ExecuteRead(ctx, partition, null);
+                        break;
+
+                    case Status.OK:
+                        ExecuteRead(ctx, partition, output);
+                        break;
+
+                    case Status.PENDING:
+                    case Status.ERROR:
+                        throw new Exception("Faster"); //TODO
+                }
             }
 
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }

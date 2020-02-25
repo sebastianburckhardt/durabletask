@@ -22,6 +22,7 @@ using System.Collections.Generic;
 
 using TestTraceListener = DurableTask.EventSourced.Tests.PortedAzureScenarioTests.TestTraceListener;
 using Orchestrations = DurableTask.EventSourced.Tests.PortedAzureScenarioTests.Orchestrations;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced.Tests
 {
@@ -37,6 +38,7 @@ namespace DurableTask.EventSourced.Tests
         {
             this.fixture = fixture;
             this.host = fixture.Host;
+            this.fixture.LoggerProvider.Output = outputHelper;
             this.traceListener = new TestTraceListener(outputHelper);
             Trace.Listeners.Add(this.traceListener);
         }
@@ -136,10 +138,14 @@ namespace DurableTask.EventSourced.Tests
     public partial class NonFixtureQueryTests : IDisposable
     {
         private readonly TestTraceListener traceListener;
+        private readonly ILoggerFactory loggerFactory;
 
         public NonFixtureQueryTests(ITestOutputHelper outputHelper)
         {
             this.traceListener = new TestTraceListener(outputHelper);
+            loggerFactory = new LoggerFactory();
+            var loggerProvider = new XunitLoggerProvider(outputHelper);
+            loggerFactory.AddProvider(loggerProvider);
             Trace.Listeners.Add(this.traceListener);
         }
 
@@ -158,7 +164,7 @@ namespace DurableTask.EventSourced.Tests
                 TaskHubName = TestHelpers.GetTestTaskHubName()
             };
 
-            var service = new EventSourcedOrchestrationService(settings);
+            var service = new EventSourcedOrchestrationService(settings, loggerFactory);
             await service.CreateAsync(true);
             await service.StartAsync();
             var states = await service.GetOrchestrationStateAsync();

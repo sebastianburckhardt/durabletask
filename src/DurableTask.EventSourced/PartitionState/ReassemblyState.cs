@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
@@ -43,10 +44,7 @@ namespace DurableTask.EventSourced
             {
                 evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble(this.Fragments[evt.CohortId], evt);
                 
-                if (EtwSource.EmitDiagnosticsTrace)
-                {
-                    this.Partition.TraceDetail($"Reassembled {evt.ReassembledEvent}");
-                }
+                this.Partition.DetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
 
                 this.Fragments.Remove(evt.CohortId);
 

@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterKV store;
         private readonly Partition partition;
+        private readonly TraceHelper traceHelper;
 
         private readonly EffectTracker effects;
 
@@ -35,10 +36,11 @@ namespace DurableTask.EventSourced.Faster
         public ulong InputQueuePosition { get; private set; }
         public ulong CommitLogPosition { get; private set; }
 
-        public StoreWorker(FasterKV store, Partition partition)
+        public StoreWorker(FasterKV store, Partition partition, TraceHelper traceHelper)
         {
             this.store = store;
             this.partition = partition;
+            this.traceHelper = traceHelper;
 
             // we are reusing the same effect tracker for all calls to reduce allocations
             this.effects = new EffectTracker(this.partition);
@@ -72,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task CancelAndShutdown()
         {
-            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping StoreWorker");
+            this.traceHelper.FasterProgress("stopping StoreWorker");
 
             lock (this.thisLock)
             {
@@ -89,7 +91,7 @@ namespace DurableTask.EventSourced.Faster
 
             //var dump = await this.store.DumpCurrentState();
 
-            EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopped StoreWorker");
+            this.traceHelper.FasterProgress("stopped StoreWorker");
         }
 
         protected override async Task Process(IList<object> batch)
@@ -106,11 +108,6 @@ namespace DurableTask.EventSourced.Faster
 
                 if (o is StorageAbstraction.IReadContinuation readContinuation)
                 {
-                    if (readContinuation is PartitionEvent partitionEvent)
-                    {
-                        this.partition.TraceProcess(partitionEvent);
-                    }
-
                     try
                     {
                         store.Read(readContinuation, this.partition);
@@ -144,7 +141,7 @@ namespace DurableTask.EventSourced.Faster
             this.effects.IsReplaying = true;
             await ReplayCommitLog(startPosition, log.TailAddress);
             stopwatch.Stop();
-            this.partition.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
+            this.partition.DetailTracer?.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
             this.effects.IsReplaying = false;
 
             async Task ReplayCommitLog(ulong from, long to)
@@ -178,7 +175,7 @@ namespace DurableTask.EventSourced.Faster
         {
             if (partitionEvent.InputQueuePosition.HasValue && partitionEvent.InputQueuePosition.Value <= this.InputQueuePosition)
             {
-                partition.TraceDetail($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
+                partition.DetailTracer?.TraceDetail($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
                 return;
             }
 
@@ -204,17 +201,17 @@ namespace DurableTask.EventSourced.Faster
                 }
                 if (partitionEvent.InputQueuePosition.HasValue)
                 {
-                    partition.Assert(partitionEvent.InputQueuePosition.Value > this.InputQueuePosition);
+                    this.partition.Assert(partitionEvent.InputQueuePosition.Value > this.InputQueuePosition);
                     this.InputQueuePosition = partitionEvent.InputQueuePosition.Value;
                 }
 
+                partition.DetailTracer?.TraceDetail("finished processing event");
                 this.effects.Effect = null;
-                partition.TraceDetail($"Processing complete {partitionEvent.InputQueuePosition}");
-                Partition.TraceContext = null;
+                Partition.ClearTraceContext();
             }
             catch (Exception updateException)
             {
-                partition.ReportError($"Processing Update", updateException);
+                this.partition.ReportError($"Processing Update", updateException);
                 throw;
             }
         }
@@ -224,10 +221,7 @@ namespace DurableTask.EventSourced.Faster
             var startPos = this.effects.Count - 1;
             var key = this.effects[startPos];
 
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                partition.TraceDetail($"Process on [{key}]");
-            }
+            this.partition.DetailTracer?.TraceDetail($"Process on [{key}]");
 
             // start with processing the event on this object 
             await store.ProcessEffectOnTrackedObject(key, this.effects);

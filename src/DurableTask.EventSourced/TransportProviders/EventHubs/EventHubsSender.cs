@@ -11,9 +11,11 @@
 //  ----------------------------------------------------------------------------------
 
 using Microsoft.Azure.EventHubs;
+using Microsoft.Extensions.Logging;
 //using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
@@ -26,11 +28,13 @@ namespace DurableTask.EventSourced.EventHubs
     {
         private readonly PartitionSender sender;
         private readonly TransportAbstraction.IHost host;
+        private readonly ILogger logger;
 
         public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender)
         {
             this.host = host;
             this.sender = sender;
+            this.logger = host.TransportLogger;
         }
    
         // we reuse the same memory stream t
@@ -101,7 +105,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
             catch (Exception e)
             {
-                host.ReportError("Warning: failure in sender", e);
+                this.logger.LogWarning(e, "Could not send messages to EventHub {eventHubName}, partition {partitionId}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 senderException = e;
             }
 
@@ -110,6 +114,10 @@ namespace DurableTask.EventSourced.EventHubs
 
             try
             {
+                int confirmed = 0;
+                int requeued = 0;
+                int dropped = 0;
+
                 for (int i = 0; i < toSend.Count; i++)
                 {
                     var evt = toSend[i];
@@ -118,17 +126,20 @@ namespace DurableTask.EventSourced.EventHubs
                     {
                         // the event was definitely sent successfully
                         AckListeners.Acknowledge(evt);
+                        confirmed++;
                     }
                     else if (i > maybeSent || evt.SafeToDuplicateInTransport())
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
                         (requeue ?? (requeue = new List<Event>())).Add(evt);
+                        requeued++;
                     }
                     else 
                     {
                         // the event may have been sent or maybe not, report problem to listener
                         // this is used by clients who can give the exception back to the caller
                         AckListeners.ReportException(evt, senderException);
+                        dropped++;
                     }
                 }
 
@@ -139,10 +150,16 @@ namespace DurableTask.EventSourced.EventHubs
 
                     this.Requeue(requeue);
                 }
+
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    this.logger.LogDebug("Confirmed {confirmed}, Requeued {requeued}, Dropped {dropped} messages for EventHub {eventHubName}, partition {partitionId}", confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                }
+
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                host.ReportError("Internal error: failure in requeue", e);
+                this.logger.LogError(e, "Internal error while trying to confirm messages for EventHub {eventHubName}, partition {partitionId}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
             }
         }
 

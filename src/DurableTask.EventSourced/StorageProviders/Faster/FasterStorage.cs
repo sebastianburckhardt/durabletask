@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,6 +25,7 @@ namespace DurableTask.EventSourced.Faster
         internal const string UseLocalFileStorage = "UseLocalFileStorage";
         private readonly string connectionString;
         private readonly string taskHubName;
+        private readonly ILogger logger;
 
         private Partition partition;
         private BlobManager blobManager;
@@ -31,15 +33,18 @@ namespace DurableTask.EventSourced.Faster
         private StoreWorker storeWorker;
         private FasterLog log;
         private FasterKV store;
+       
+        internal TraceHelper TraceHelper { get; private set; }
 
         private volatile bool shuttingDown;
 
         public CancellationToken OwnershipCancellationToken { get; private set; }
 
-        public FasterStorage(string connectionString, string taskHubName)
+        public FasterStorage(string connectionString, string taskHubName, ILogger logger)
         {
             this.connectionString = connectionString;
             this.taskHubName = taskHubName;
+            this.logger = logger;
         }
 
         public static Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
@@ -50,12 +55,13 @@ namespace DurableTask.EventSourced.Faster
         public async Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
         {
             this.partition = partition;
+            this.TraceHelper = new TraceHelper(this.logger, (int) partition.PartitionId);
 
             if (this.connectionString == UseLocalFileStorage)
             {
                 BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
             }
-            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, partition.PartitionId);
+            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, this.logger, partition.PartitionId);
 
             await blobManager.StartAsync();
             this.OwnershipCancellationToken = await blobManager.AcquireOwnership(token);
@@ -66,8 +72,8 @@ namespace DurableTask.EventSourced.Faster
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.storeWorker = new StoreWorker(store, this.partition);
-            this.logWorker = new LogWorker(log, this.partition, this.storeWorker);
+            this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper);
+            this.logWorker = new LogWorker(log, this.partition, this.storeWorker, this.TraceHelper);
 
             if (this.log.TailAddress == this.log.BeginAddress)
             {
@@ -77,15 +83,15 @@ namespace DurableTask.EventSourced.Faster
                 // take an (empty) checkpoint immediately to ensure the paths are working
                 try
                 {
-                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "creating store");
+                    this.TraceHelper.FasterProgress("creating store");
 
                     this.store.TakeFullCheckpoint(out _);
                     await this.store.CompleteCheckpointAsync();
-                    EtwSource.Log.FasterStoreCreated((int) this.partition.PartitionId, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception e)
                 {
-                    EtwSource.Log.FasterStorageError((int) this.partition.PartitionId, "creating store", e.ToString());
+                    this.TraceHelper.FasterStorageError("creating store", e);
                     throw;
                 }
             }
@@ -93,18 +99,18 @@ namespace DurableTask.EventSourced.Faster
             {
                 try
                 {
-                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "loading checkpoint");
+                    this.TraceHelper.FasterProgress("loading checkpoint");
 
                     // we are recovering
                     // recover the last checkpoint of the store
                     this.store.Recover();
                     await storeWorker.Recover();
 
-                    EtwSource.Log.FasterCheckpointLoaded((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
                 catch(Exception e)
                 {
-                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "loading checkpoint", e.ToString());
+                    this.TraceHelper.FasterStorageError("loading checkpoint", e);
                     throw;
                 }
 
@@ -118,11 +124,11 @@ namespace DurableTask.EventSourced.Faster
                         await this.storeWorker.ReplayCommitLog(log);
                     }
 
-                    EtwSource.Log.FasterLogReplayed((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.TraceHelper.FasterLogReplayed(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception e)
                 {
-                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "replay log", e.ToString());
+                    this.TraceHelper.FasterStorageError("replay log", e);
                     throw;
                 }
 
@@ -133,7 +139,7 @@ namespace DurableTask.EventSourced.Faster
                     target.OnRecoveryCompleted();
                 }
 
-                this.partition.TraceDetail($"Recovery complete.");
+                this.TraceHelper.FasterProgress("recovery complete");
             }
 
             return storeWorker.InputQueuePosition;
@@ -145,7 +151,7 @@ namespace DurableTask.EventSourced.Faster
 
             try
             {
-                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping workers");
+                this.TraceHelper.FasterProgress("stopping workers");
                 this.shuttingDown = true;
 
                 Task t1 = this.logWorker.PersistAndShutdownAsync();
@@ -158,7 +164,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "stopping workers", e.ToString());
+                this.TraceHelper.FasterStorageError("stopping workers", e);
                 // swallow this exception and continue shutdown
                 workersStoppedCleanly = false;
             }
@@ -168,38 +174,38 @@ namespace DurableTask.EventSourced.Faster
                 // at this point we know the log was successfully persisted, so can we persist latest store
                 try
                 {
-                    EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "writing final checkpoint");
+                    this.TraceHelper.FasterProgress("writing final checkpoint");
                     var stopwatch = new System.Diagnostics.Stopwatch();
                     stopwatch.Start();
                     this.store.TakeFullCheckpoint(out _);
                     await this.store.CompleteCheckpointAsync();
-                    EtwSource.Log.FasterCheckpointSaved((int)this.partition.PartitionId, storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.TraceHelper.FasterCheckpointSaved(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception e)
                 {
-                    EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "writing final checkpoint", e.ToString());
+                    this.TraceHelper.FasterStorageError("writing final checkpoint", e);
                     // swallow this exception and continue shutdown
                 }
             }
 
             try
             {
-                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "disposing store");
+                this.TraceHelper.FasterProgress("disposing store");
                 this.store.Dispose();
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "disposing store", e.ToString());
+                this.TraceHelper.FasterStorageError("disposing store", e);
             }
 
             try
             {
-                EtwSource.Log.FasterProgress((int)this.partition.PartitionId, "stopping BlobManager");
+                this.TraceHelper.FasterProgress("stopping BlobManager");
                 await blobManager.StopAsync();
             }
             catch (Exception e)
             {
-                EtwSource.Log.FasterStorageError((int)this.partition.PartitionId, "stopping BlobManager", e.ToString());
+                this.TraceHelper.FasterStorageError("stopping BlobManager", e);
             }
         }
 

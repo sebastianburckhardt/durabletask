@@ -20,6 +20,7 @@ namespace DurableTask.EventSourced.Tests
     using System.Threading;
     using System.Threading.Tasks;
     using DurableTask.Core;
+    using Microsoft.Extensions.Logging;
 
     internal sealed class TestOrchestrationHost : IDisposable
     {
@@ -30,9 +31,9 @@ namespace DurableTask.EventSourced.Tests
         readonly HashSet<Type> addedOrchestrationTypes;
         readonly HashSet<Type> addedActivityTypes;
 
-        public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings)
+        public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
-            this.orchestrationService = new EventSourced.EventSourcedOrchestrationService(settings);
+            this.orchestrationService = new EventSourced.EventSourcedOrchestrationService(settings, loggerFactory);
             orchestrationService.CreateAsync(TestHelpers.DeleteStorageBeforeRunningTests).GetAwaiter().GetResult();
 
             this.settings = settings;

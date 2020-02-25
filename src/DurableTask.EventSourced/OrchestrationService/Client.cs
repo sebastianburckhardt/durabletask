@@ -20,18 +20,22 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
     internal class Client : TransportAbstraction.IClient
     {
         private readonly EventSourcedOrchestrationService host;
-        private readonly CancellationToken shutdownToken; 
+        private readonly CancellationToken shutdownToken;
+        private readonly ILogger logger;
+        private readonly string TracePrefix;
         private static TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
         public Guid ClientId { get; private set; }
         private TransportAbstraction.ISender BatchSender { get; set; }
 
+        public override string ToString() => TracePrefix;
 
         private long SequenceNumber; // for numbering requests that enter on this client
 
@@ -44,8 +48,9 @@ namespace DurableTask.EventSourced
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {
             this.host = host;
+            this.logger = host.Logger;
             this.ClientId = clientId;
-            this.AbbreviatedClientId = clientId.ToString("N").Substring(0,7);
+            this.TracePrefix = $"Client.{clientId.ToString("N").Substring(0, 7)}";
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
@@ -101,39 +106,39 @@ namespace DurableTask.EventSourced
             this.BatchSender.Submit(evt);
         }
 
-        public void ReportError(string where, Exception e)
+        public void ReportError(string context, Exception exception)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
+            if (this.logger.IsEnabled(LogLevel.Error))
             {
-                Trace.TraceError($"Client.{this.AbbreviatedClientId} !!! Exception in {where}: {e}");
+                this.logger.LogError(exception, "{client} !!! Exception in {context}", this.TracePrefix, context);
             }
-            if (EtwSource.EmitEtwTrace)
+            if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.ClientErrorReported(this.ClientId, where, e.GetType().Name, e.Message);
+                EtwSource.Log.ClientErrorReported(this.ClientId, context, exception.GetType().Name, exception.Message);
             }
         }
 
-        private void TraceSend(Event m)
+        private void TraceSend(Event @event)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
+            if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Sending {m}");
+                this.logger.LogTrace("{client} Sending {event}", this.TracePrefix, @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.ClientEventSent(this.ClientId, m.ToString());
+                EtwSource.Log.ClientEventSent(this.ClientId, @event.ToString());
             }
         }
 
-        private void TraceReceive(Event m)
+        private void TraceReceive(Event @event)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
+            if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                Trace.TraceInformation($"Client.{this.AbbreviatedClientId} Processing {m}");
+                this.logger.LogTrace("{client} Processing {event}", this.TracePrefix, @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.ClientEventReceived(this.ClientId, m.ToString());
+                EtwSource.Log.ClientEventReceived(this.ClientId, @event.ToString());
             }
         }
 

@@ -10,6 +10,8 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Dynamitey;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
 
@@ -17,88 +19,76 @@ namespace DurableTask.EventSourced
 {
     internal partial class Partition : TransportAbstraction.IPartition
     {
-        public void ReportError(string where, Exception e)
+        private readonly ILogger logger;
+
+        [ThreadStatic]
+        public static (ulong?,string) TraceContext = (null, string.Empty);
+
+        private string GetTracePrefix()
         {
-            if (EtwSource.EmitDiagnosticsTrace)
+            return $"Part{this.PartitionId:D2}";
+        }
+
+        public void ReportError(string context, Exception exception)
+        {
+            if (this.logger.IsEnabled(LogLevel.Error))
             {
-                System.Diagnostics.Trace.TraceError($"Part{this.PartitionId:D2} !!! Exception in {where}: {e}");
+                this.logger.LogError("{partition} !!! Exception in {context}: {exception}", this.TracePrefix, context, exception);
             }
-            if (EtwSource.EmitEtwTrace)
+            if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, where, e.GetType().Name, e.Message);
+                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, context, exception.GetType().Name, exception.Message);
             }
         }
 
         public void TraceProcess(PartitionEvent evt)
         {
-            Partition.TraceContext = $"{evt.CommitLogPosition:D10}   ";
-
-            if (EtwSource.EmitDiagnosticsTrace)
+            if (this.logger.IsEnabled(LogLevel.Debug))
             {
+                var context = evt.CommitLogPosition.HasValue ? $".{evt.CommitLogPosition.Value:D10}" : "";
                 if (evt.InputQueuePosition.HasValue)
                 {
-                    System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing external {evt} {evt.InputQueuePosition} {evt.WorkItem}");
+                    this.logger.LogDebug("{partition}{context} Processing external event {event} {inputQueuePosition} {workItem}", this.TracePrefix, context, evt, evt.InputQueuePosition, evt.WorkItem);
                 }
                 else
                 {
-                    System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{evt.CommitLogPosition:D10} Processing internal {evt} {evt.WorkItem}");
+                    this.logger.LogDebug("{partition}{context} Processing internal event {event} {workItem}", this.TracePrefix, context, evt, evt.WorkItem);
                 }
+
+                // the events following this will be processed with the same prefix and additional indentation
+                Partition.TraceContext = (evt.CommitLogPosition, $"{context}   ");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
                 EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.CommitLogPosition ?? 0UL, evt.InputQueuePosition ?? 0UL, evt.WorkItem, evt.ToString());
             }
+
         }
 
         public void TraceSend(Event evt)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
+            if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                this.DiagnosticsTrace($"Sending {evt} {evt.WorkItem}");
+                this.logger.LogDebug("{partition}{context} Sending {event} {workItem}", this.TracePrefix, Partition.TraceContext.Item2, evt, evt.WorkItem);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext.Item1 ?? 0, evt.WorkItem, evt.ToString());
             }
         }
 
-        public void TraceSubmit(Event evt)
+        public Partition DetailTracer => (this.logger.IsEnabled(LogLevel.Debug)) ? this : null;
+
+        public void TraceDetail(string message)
         {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace($"Submitting {evt} {evt.CommitLogPosition:D10} {evt.WorkItem}");
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventSent((int)this.PartitionId, Partition.TraceContext ?? "", evt.WorkItem, evt.ToString());
-            }
+            this.logger.LogDebug("{partition}{context} {message}", this.TracePrefix, Partition.TraceContext.Item2, message);
+
+            EtwSource.Log.PartitionDetail((int)this.PartitionId, Partition.TraceContext.Item1 ?? 0, message);
         }
 
-        public void TraceDetail(string msg)
+        public static void ClearTraceContext()
         {
-            if (EtwSource.EmitDiagnosticsTrace)
-            {
-                this.DiagnosticsTrace(msg);
-             
-                if (EtwSource.Log.IsVerboseEnabled)
-                {
-                    EtwSource.Log.PartitionDetail((int)this.PartitionId, Partition.TraceContext ?? "", msg);
-                }
-            }
-        }
-
-
-        public void DiagnosticsTrace(string msg)
-        {
-            var context = Partition.TraceContext;
-            if (string.IsNullOrEmpty(context))
-            {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2} {msg}");
-            }
-            else
-            {
-                System.Diagnostics.Trace.TraceInformation($"Part{this.PartitionId:D2}.{context} {msg}");
-            }
+            TraceContext = (null, string.Empty);
         }
 
         [Conditional("DEBUG")]
@@ -106,16 +96,18 @@ namespace DurableTask.EventSourced
         {
             if (!condition)
             {
-                var stacktrace = System.Environment.StackTrace;
-
-                if (EtwSource.EmitDiagnosticsTrace)
+                if (System.Diagnostics.Debugger.IsAttached)
                 {
-                    System.Diagnostics.Trace.TraceError($"Part{this.PartitionId:D2} !!! Assertion failed {stacktrace}");
+                    System.Diagnostics.Debugger.Break();
                 }
 
-                System.Diagnostics.Debugger.Break();
+                var stacktrace = System.Environment.StackTrace;
+
+                if (this.logger.IsEnabled(LogLevel.Error))
+                {
+                    this.logger.LogError("{partition} !!! Assertion failed {stacktrace}", this.TracePrefix, stacktrace);
+                }
             }
         }
-
     }
 }
