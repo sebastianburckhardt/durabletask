@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         private readonly object thisLock = new object(); // TODO test and perhaps improve scalability of single lock
 
         private readonly Queue<T> work = new Queue<T>();
-        private readonly Queue<(DateTime,CancellableCompletionSource<T>)> waiters = new Queue<(DateTime,CancellableCompletionSource<T>)>();
+        private readonly Queue<(DateTime, CancellableCompletionSource<T>)> waiters = new Queue<(DateTime, CancellableCompletionSource<T>)>();
 
         public WorkItemQueue(CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
         {
@@ -42,13 +42,13 @@ namespace DurableTask.EventSourced
                 while (this.waiters.Count > 0)
                 {
                     var next = this.waiters.Dequeue();
-                    this.Load = - this.waiters.Count;
+                    this.Load = -this.waiters.Count;
                     if (next.Item2.TrySetResult(element))
                     {
                         return;
                     }
                 }
-                    
+
                 this.work.Enqueue(element);
                 this.Load = this.work.Count;
             }
@@ -78,13 +78,10 @@ namespace DurableTask.EventSourced
         {
             lock (this.thisLock)
             {
-                if (waiters.Count > 0)
+                while (waiters.Count > 0 && waiters.Peek().Item1 < DateTime.UtcNow)
                 {
-                    while (waiters.Peek().Item1 < DateTime.UtcNow)
-                    {
-                        var expiredWaiter = waiters.Dequeue();
-                        expiredWaiter.Item2.TrySetCanceled();
-                    }
+                    var expiredWaiter = waiters.Dequeue();
+                    expiredWaiter.Item2.TrySetCanceled();
                 }
             }
         }
