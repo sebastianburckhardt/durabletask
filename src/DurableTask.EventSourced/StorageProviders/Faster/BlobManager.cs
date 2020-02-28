@@ -57,13 +57,20 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
+            PageSizeBits = 18, // 128k since we are just writing and often small portions
+            SegmentSizeBits = 28,
+            MemorySizeBits = 22, // 2MB because 16 pages are the minimum
         };
 
         public LogSettings StoreLogSettings => new LogSettings
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
-            MemorySizeBits = 29,
+            PageSizeBits = 22, // 4MB since page blobs can't access more than that in a single op
+            MutableFraction = 0.9,
+            SegmentSizeBits = 28,
+            CopyReadsToTail = true,    
+            MemorySizeBits = 27, // 128 MB
         };
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
