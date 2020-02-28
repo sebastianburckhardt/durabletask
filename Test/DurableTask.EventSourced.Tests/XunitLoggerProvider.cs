@@ -40,9 +40,25 @@ namespace DurableTask.EventSourced.Tests
 
             public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
             {
-                this.provider.Output?.WriteLine($"{formatter(state, exception)}");
-                if (exception != null)
-                    this.provider.Output?.WriteLine(exception.ToString());
+                // Write the information to the system trace
+                switch (logLevel)
+                {
+                    case LogLevel.Information:
+                    case LogLevel.Debug:
+                        System.Diagnostics.Trace.TraceInformation($"{formatter(state, exception)}");
+                        break;
+                    case LogLevel.Error:
+                    case LogLevel.Critical:
+                        System.Diagnostics.Trace.TraceError($"{formatter(state, exception)}");
+                        if (exception != null)
+                            System.Diagnostics.Trace.TraceError(exception.ToString());
+                        break;
+                    case LogLevel.Warning:
+                        System.Diagnostics.Trace.TraceWarning($"{formatter(state, exception)}");
+                        if (exception != null)
+                            System.Diagnostics.Trace.TraceWarning(exception.ToString());
+                        break;
+                }
             }
 
             private class NoopDisposable : IDisposable
