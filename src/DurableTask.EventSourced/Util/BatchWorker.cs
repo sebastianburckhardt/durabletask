@@ -65,7 +65,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public virtual void SubmitRange(IEnumerable<T> entries)
+        public virtual void SubmitIncomingBatch(IEnumerable<T> entries)
         {
             lock (this.thisLock)
             {

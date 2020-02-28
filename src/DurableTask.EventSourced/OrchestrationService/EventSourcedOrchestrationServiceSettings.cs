@@ -138,6 +138,12 @@ namespace DurableTask.EventSourced
         /// </summary>
         public bool KeepServiceRunning { get; set; } = false;
 
+        /// <summary>
+        /// Whether to checkpoint the current state of a partition when it is stopped. This improves recovery time but
+        /// lengthens shutdown time.
+        /// </summary>
+        public bool TakeStateCheckpointWhenStoppingPartition { get; set; } = true;
+
         /// <inheritdoc/>
         public override bool Equals(object obj)
         {

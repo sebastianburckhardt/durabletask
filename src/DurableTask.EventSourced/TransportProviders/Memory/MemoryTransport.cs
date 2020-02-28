@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced.Emulated
                 var tasks = new List<Task>();
                 foreach(var s in this.partitionStates)
                 {
-                    tasks.Add(s.PersistAndShutdownAsync());
+                    tasks.Add(s.PersistAndShutdownAsync(this.settings.TakeStateCheckpointWhenStoppingPartition));
                 }
                 await Task.WhenAll(tasks);
             }

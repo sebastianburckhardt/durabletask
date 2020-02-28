@@ -114,7 +114,7 @@ namespace DurableTask.EventSourced
                 this.partitionShutdown.Cancel();
 
                 // wait for current state (log and store) to be persisted
-                await this.State.PersistAndShutdownAsync();
+                await this.State.PersistAndShutdownAsync(this.Settings.TakeStateCheckpointWhenStoppingPartition);
 
             }
             catch (Exception e)
@@ -132,7 +132,10 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                this.SubmitRange(timersFired);
+                foreach (var t in timersFired)
+                {
+                    this.Submit(t);
+                }
             }
             catch (Exception e)
             {
@@ -177,9 +180,9 @@ namespace DurableTask.EventSourced
             this.State.Submit(evt);
         }
 
-        public void SubmitRange(IEnumerable<PartitionEvent> partitionEvents)
+        public void SubmitInputEvents(IEnumerable<PartitionEvent> partitionEvents)
         {
-            this.State.SubmitRange(partitionEvents);
+            this.State.SubmitInputEvents(partitionEvents);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)

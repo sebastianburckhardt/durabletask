@@ -27,6 +27,7 @@ namespace DurableTask.EventSourced.Tests
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
                 TaskHubName = GetTestTaskHubName(),
+                TakeStateCheckpointWhenStoppingPartition = true,  // set to false for testing recovery from log
             };
         }
 

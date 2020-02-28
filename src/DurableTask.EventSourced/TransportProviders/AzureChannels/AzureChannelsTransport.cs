@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 this.shutdownTokenSource = null;
 
                 await this.client.StopAsync();
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.PersistAndShutdownAsync()));
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.PersistAndShutdownAsync(this.settings.TakeStateCheckpointWhenStoppingPartition)));
             }
         }
     }

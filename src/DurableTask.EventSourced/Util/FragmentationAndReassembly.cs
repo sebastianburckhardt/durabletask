@@ -20,8 +20,6 @@ namespace DurableTask.EventSourced
 {
     internal static class FragmentationAndReassembly
     {
-        private const int FragmentSize = 50000;
-
         public interface IEventFragment
         {
             Guid CohortId { get; }
@@ -33,7 +31,7 @@ namespace DurableTask.EventSourced
             ulong? CommitLogPosition { get; }
         }
 
-        public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original)
+        public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original, int FragmentSize)
         {
             var cohortId = Guid.NewGuid();
             var list = new List<IEventFragment>();

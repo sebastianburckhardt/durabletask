@@ -123,7 +123,6 @@ namespace DurableTask.EventSourced.EventHubs
                     if (seqno >= this.inputQueuePosition)
                     {
                         var evt = (PartitionEvent)Serializer.DeserializeEvent(eventData.Body);
-                        evt.Serialized = eventData.Body; // we'll reuse this for writing to the event log
                         this.inputQueuePosition = seqno + 1;
                         evt.InputQueuePosition = this.inputQueuePosition;
                         batch.Add(evt);
@@ -136,7 +135,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                 if (batch.Count > 0)
                 {
-                    partition.SubmitRange(batch);
+                    partition.SubmitInputEvents(batch);
                 }
 
                 if (this.completedCheckpoint != null)

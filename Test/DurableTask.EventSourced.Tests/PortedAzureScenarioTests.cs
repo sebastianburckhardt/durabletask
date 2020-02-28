@@ -57,14 +57,12 @@ namespace DurableTask.EventSourced.Tests
             Trace.Listeners.Remove(this.traceListener);
         }
 
-        private static bool captureDiagnosticTraces = true;  // creates lots of noise with Faster
-
         internal class TestTraceListener : TraceListener
         {
             ITestOutputHelper _output;
             public TestTraceListener(ITestOutputHelper output) { _output = output; }
             public override void Write(string message) { }
-            public override void WriteLine(string message) { if (captureDiagnosticTraces) _output.WriteLine(message); }
+            public override void WriteLine(string message) { _output.WriteLine(message); }
         }
 
         /// <summary>

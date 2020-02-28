@@ -132,10 +132,10 @@ namespace DurableTask.EventSourced
             void Submit(PartitionEvent partitionEvent);
 
             /// <summary>
-            /// Queues a collection of events for processing on this partition.
+            /// Queues a batch of incoming external events for processing on this partition.
             /// </summary>
-            /// <param name="partitionEvent">The events to process.</param>
-            void SubmitRange(IEnumerable<PartitionEvent> partitionEvent);
+            /// <param name="inputBatch">The events to process.</param>
+            void SubmitInputEvents(IEnumerable<PartitionEvent> inputBatch);
 
             /// <summary>
             /// Indicates an observed error for diagnostic purposes.

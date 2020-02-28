@@ -62,7 +62,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
         public void DeleteRange(IEnumerable<ContentEntity> entities)
         {
-            this.SubmitRange(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
+            this.SubmitIncomingBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
         }
 
         protected abstract void HandleSuccessfulSend(TMessage msg);
@@ -164,7 +164,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
         public void Delete(IEnumerable<ContentEntity> entities)
         {
-            SubmitRange(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
+            SubmitIncomingBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
         }
 
         protected override async Task Process(IList<(TMessage,TableOperation)> batch)

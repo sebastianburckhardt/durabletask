@@ -92,7 +92,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
                         AckListeners.Register(lastEventInBatch, partitionBatch);
 
-                        partition.SubmitRange(partitionBatch);
+                        partition.SubmitInputEvents(partitionBatch);
 
                         await partitionBatch.Tcs.Task; // TODO add cancellation token
 

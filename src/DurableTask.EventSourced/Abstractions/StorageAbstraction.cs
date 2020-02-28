@@ -59,8 +59,9 @@ namespace DurableTask.EventSourced
             /// <summary>
             /// Finish processing events and save the partition state to storage.
             /// </summary>
+            /// <param name="takeFinalCheckpoint">Whether to take a final state checkpoint.</param>
             /// <returns>A task that completes when the state has been saved.</returns>
-            Task PersistAndShutdownAsync(); 
+            Task PersistAndShutdownAsync(bool takeFinalCheckpoint); 
 
             /// <summary>
             /// Queues a single event for processing on this partition state.
@@ -72,7 +73,7 @@ namespace DurableTask.EventSourced
             /// Queues a collection of events for processing on this partition state.
             /// </summary>
             /// <param name="evt">The collection of events to process.</param>
-            void SubmitRange(IEnumerable<PartitionEvent> evt);
+            void SubmitInputEvents(IEnumerable<PartitionEvent> evt);
 
             /// <summary>
             /// Queues a read operation for processing on this partition state.

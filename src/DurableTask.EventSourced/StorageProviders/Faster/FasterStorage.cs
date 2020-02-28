@@ -121,7 +121,7 @@ namespace DurableTask.EventSourced.Faster
                     // replay log if the store checkpoint lags behind the log
                     if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
                     {
-                        await this.storeWorker.ReplayCommitLog(log);
+                        await this.storeWorker.ReplayCommitLog(this.logWorker);
                     }
 
                     this.TraceHelper.FasterLogReplayed(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -145,7 +145,7 @@ namespace DurableTask.EventSourced.Faster
             return storeWorker.InputQueuePosition;
         }
 
-        public async Task PersistAndShutdownAsync()
+        public async Task PersistAndShutdownAsync(bool takeFinalSnapshot)
         {
             bool workersStoppedCleanly;
 
@@ -169,7 +169,7 @@ namespace DurableTask.EventSourced.Faster
                 workersStoppedCleanly = false;
             }
 
-            if (workersStoppedCleanly)
+            if (workersStoppedCleanly && takeFinalSnapshot)
             {
                 // at this point we know the log was successfully persisted, so can we persist latest store
                 try
@@ -217,12 +217,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void SubmitRange(IEnumerable<PartitionEvent> evts)
+        public void SubmitInputEvents(IEnumerable<PartitionEvent> evts)
         {
             if (!this.shuttingDown)
             {
-                this.logWorker.SubmitRange(evts.Where(e => e is IPartitionEventWithSideEffects));
-                this.storeWorker.SubmitRange(evts.Where(e => e is IReadonlyPartitionEvent));
+                this.logWorker.SubmitIncomingBatch(evts.Where(e => e is IPartitionEventWithSideEffects));
+                this.storeWorker.SubmitIncomingBatch(evts.Where(e => e is IReadonlyPartitionEvent));
             }
         }
 

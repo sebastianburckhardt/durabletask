@@ -129,46 +129,19 @@ namespace DurableTask.EventSourced.Faster
                 // at this point we know we will not process any more reads or updates
                 this.cancellationWaiter.TrySetResult(true);
             }
-        }
-        
+        }     
 
-        public async Task ReplayCommitLog(FasterLog log)
+        public async Task ReplayCommitLog(LogWorker logWorker)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
             var startPosition = this.CommitLogPosition;
             this.effects.IsReplaying = true;
-            await ReplayCommitLog(startPosition, log.TailAddress);
+            await logWorker.ReplayCommitLog(startPosition, this);
             stopwatch.Stop();
             this.partition.DetailTracer?.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
             this.effects.IsReplaying = false;
-
-            async Task ReplayCommitLog(ulong from, long to)
-            {
-                using (var iter = log.Scan((long) from, to))
-                {
-                    byte[] result;
-                    int entryLength;
-                    long currentAddress;
-
-                    while (true)
-                    {
-                        while (!iter.GetNext(out result, out entryLength, out currentAddress))
-                        {
-                            if (currentAddress >= to)
-                            {
-                                return;
-                            }
-                            await iter.WaitAsync();
-                        }
-
-                        var partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 0, entryLength));
-                        partitionEvent.CommitLogPosition = (ulong) iter.NextAddress;
-                        await this.ProcessEvent(partitionEvent);
-                    }
-                }
-            }
         }
 
         public async ValueTask ProcessEvent(PartitionEvent partitionEvent)

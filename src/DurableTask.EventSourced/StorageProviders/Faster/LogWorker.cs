@@ -14,6 +14,7 @@
 using FASTER.core;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -42,24 +43,22 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper = traceHelper;
         }
 
-        public void EnsureSerialized(PartitionEvent evt)
-        {
-            // serialize the entire event 
-            // TODO optimize for reusing already-serialized data coming in, but must add input position
-            byte[] bytes = Serializer.SerializeEvent(evt);
-            evt.Serialized = new ArraySegment<byte>(bytes, 0, bytes.Length);
-        }
+        public const byte completePacket = 0;
+        public const byte partialPacket = 1;
+        public const byte transportPacket = 2;
 
+        private const int maxFragmentSize = 50000; // TODO think about this, and sync it to Faster parameter
+        
         public override void Submit(PartitionEvent evt)
         {
             partition.Assert(evt is IPartitionEventWithSideEffects);
 
-            this.EnsureSerialized(evt);
+            byte[] bytes = Serializer.SerializeEvent(evt, completePacket);
 
             lock (this.thisLock)
             {
-                // append to faster log
-                this.log.Enqueue(evt.Serialized.AsSpan<byte>());
+                Enqueue(bytes);
+
                 evt.CommitLogPosition = (ulong)this.log.TailAddress;
 
                 // add to store worker (under lock for consistent ordering)
@@ -67,29 +66,37 @@ namespace DurableTask.EventSourced.Faster
 
                 base.Submit(evt);
             }
-        }      
+        }
 
-        public override void SubmitRange(IEnumerable<PartitionEvent> events)
+        public override void SubmitIncomingBatch(IEnumerable<PartitionEvent> events)
         {
+            // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
             foreach (var evt in events)
             {
-                partition.Assert(evt is IPartitionEventWithSideEffects);
-                this.EnsureSerialized(evt);
+                Submit(evt);
             }
+        }
 
-            lock (this.thisLock)
+        private void Enqueue(byte[] bytes)
+        {
+            // append to faster log
+            try
             {
-                foreach (var evt in events)
+                this.log.Enqueue(bytes);
+            }
+            catch (FASTER.core.FasterException e) when (e.Message == "Entry does not fit on page")
+            {
+                // the message is too big. Break it into fragments. 
+                int pos = 1;
+                while (pos < bytes.Length)
                 {
-                    // append to faster log
-                    this.log.Enqueue(evt.Serialized.AsSpan<byte>());
-                    evt.CommitLogPosition = (ulong)this.log.TailAddress;
+
+                    bool isLastFragment = 1 + bytes.Length - pos <= maxFragmentSize;
+                    int packetSize = isLastFragment ? 1 + bytes.Length - pos : maxFragmentSize;
+                    bytes[pos - 1] = isLastFragment ? completePacket : partialPacket;
+                    this.log.Enqueue(new ReadOnlySpan<byte>(bytes, pos - 1, packetSize));
+                    pos += packetSize - 1;
                 }
-
-                // add to store worker (under lock for consistent ordering)
-                this.storeWorker.SubmitRange(events);
-
-                base.SubmitRange(events);
             }
         }
 
@@ -153,5 +160,60 @@ namespace DurableTask.EventSourced.Faster
             }      
         }
 
+        public async Task ReplayCommitLog(ulong from, StoreWorker worker)
+        {
+            var to = this.log.TailAddress;
+
+            using (var iter = log.Scan((long)from, to))
+            {
+                byte[] result;
+                int entryLength;
+                long currentAddress;
+                MemoryStream reassembly = null;
+
+                while (true)
+                {
+                    PartitionEvent partitionEvent = null;
+
+                    while (!iter.GetNext(out result, out entryLength, out currentAddress))
+                    {
+                        if (currentAddress >= to)
+                        {
+                            return;
+                        }
+                        await iter.WaitAsync();
+                    }
+
+                    if (result[0] == completePacket)
+                    {
+                        if (reassembly == null)
+                        {
+                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
+                        }
+                        else
+                        {
+                            reassembly.Write(result, 1, entryLength - 1);
+                            reassembly.Position = 0;
+                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
+                            reassembly = null;
+                        }
+                    }
+                    else
+                    {
+                        if (reassembly == null)
+                        {
+                            reassembly = new MemoryStream();
+                        }
+                        reassembly.Write(result, 1, entryLength - 1);
+                    }
+
+                    if (partitionEvent != null)
+                    {
+                        partitionEvent.CommitLogPosition = (ulong)iter.NextAddress;
+                        await worker.ProcessEvent(partitionEvent);
+                    }
+                }
+            }
+        }
     }
 }

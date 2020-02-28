@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced.EventHubs
                     else
                     {
                         // the message is too big. Break it into fragments, and send each individually.
-                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i]);
+                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i], 50000);
                         maybeSent = i;
                         foreach (var fragment in fragments)
                         {

@@ -47,14 +47,14 @@ namespace DurableTask.EventSourced
             base.Submit(entry);
         }
 
-        public void SubmitRange(IEnumerable<PartitionEvent> entries)
+        public void SubmitInputEvents(IEnumerable<PartitionEvent> entries)
         {
             foreach (var entry in entries)
             {
                 entry.CommitLogPosition = nextSubmitPosition++;
             }
 
-            base.SubmitRange(entries);
+            base.SubmitIncomingBatch(entries);
         }
 
         public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             return Task.FromResult(0UL);
         }
 
-        public Task PersistAndShutdownAsync()
+        public Task PersistAndShutdownAsync(bool takeFinalStateCheckpoint)
         {
             return Task.Delay(10);
         }
