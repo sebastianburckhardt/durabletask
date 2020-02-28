@@ -20,21 +20,23 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class BatchTimer<T> : IComparer<DateTime>
+    internal class BatchTimer<T>
     {
         private readonly object thisLock = new object();
         private readonly CancellationToken cancellationToken;
         private readonly Action<List<T>> handler;
-        private readonly SortedList<DateTime, T> schedule;
+        private readonly SortedList<(DateTime when, int id), T> schedule;
         private readonly SemaphoreSlim notify;
 
-        //TODO implement this using linked list so we can collect garbage
+        private volatile int sequenceNumber;
+
+        //TODO consider using a min heap for more efficient removal of entries
 
         public BatchTimer(CancellationToken token, Action<List<T>> handler)
         {
             this.cancellationToken = token;
             this.handler = handler;
-            this.schedule = new SortedList<DateTime, T>(this);
+            this.schedule = new SortedList<(DateTime when, int id), T>();
             this.notify = new SemaphoreSlim(0, int.MaxValue);
 
             token.Register(() => this.notify.Release());
@@ -47,27 +49,35 @@ namespace DurableTask.EventSourced
             thread.Start();
         }
 
-        public int Compare(DateTime x, DateTime y)
+        public int GetFreshId()
         {
-            int result = x.CompareTo(y);
-
-            if (result == 0)
-                return 1;   // Handle equality as being greater, so that the list can contain duplicate keys
-            else
-                return result;
+           lock(this)
+           {
+               return sequenceNumber++;
+           }
         }
 
-        public void Schedule(DateTime when, T what)
+        public void Schedule(DateTime due, T what, int? id = null)
         {
             lock (this.thisLock)
             {
-                this.schedule.Add(when, what);
+                 var key = (due, id.HasValue ? id.Value : sequenceNumber++);
+
+                this.schedule.Add(key, what);
 
                 // notify the expiration check loop
-                if (when == this.schedule.First().Key)
+                if (key == this.schedule.First().Key)
                 {
                     this.notify.Release();
                 }
+            }
+        }
+
+        public bool TryRemove((DateTime when, int id) key)
+        {
+            lock (this.thisLock)
+            {
+                return this.schedule.Remove(key);
             }
         }
 
@@ -88,7 +98,7 @@ namespace DurableTask.EventSourced
                     var next = this.schedule.FirstOrDefault();
 
                     while (this.schedule.Count > 0
-                        && next.Key <= DateTime.UtcNow
+                        && next.Key.when <= DateTime.UtcNow
                         && !this.cancellationToken.IsCancellationRequested)
                     {
                         this.schedule.RemoveAt(0);
@@ -121,9 +131,9 @@ namespace DurableTask.EventSourced
                 var next = this.schedule.First();
                 var now = DateTime.UtcNow;
 
-                if (next.Key > now)
+                if (next.Key.when > now)
                 {
-                    delay = next.Key - now;
+                    delay = next.Key.when - now;
                     return true;
                 }
                 else

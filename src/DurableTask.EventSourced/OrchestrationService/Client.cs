@@ -157,9 +157,11 @@ namespace DurableTask.EventSourced
 
         private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, ClientRequestEvent request, bool doneWhenSent)
         {
-            var waiter = new ResponseWaiter(this.shutdownToken, request.RequestId, this);
+            DateTime due = DateTime.UtcNow + request.Timeout;
+            int timeoutId = this.ResponseTimeouts.GetFreshId();
+            var waiter = new ResponseWaiter(this.shutdownToken, request.RequestId, this, due, timeoutId);
             this.ResponseWaiters.TryAdd(request.RequestId, waiter);
-            this.ResponseTimeouts.Schedule(DateTime.UtcNow + request.Timeout, waiter);
+            this.ResponseTimeouts.Schedule(due, waiter, timeoutId);
 
             if (doneWhenSent)
             {
@@ -173,13 +175,15 @@ namespace DurableTask.EventSourced
 
         internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, TransportAbstraction.IAckOrExceptionListener
         {
-            private long id;
+            private long requestId;
             private Client client;
+            private (DateTime, int) timeoutKey;
 
-            public ResponseWaiter(CancellationToken token, long id, Client client) : base(token)
+            public ResponseWaiter(CancellationToken token, long id, Client client, DateTime due, int timeoutId) : base(token)
             {
-                this.id = id;
+                this.requestId = id;
                 this.client = client;
+                this.timeoutKey = (due, timeoutId);
             }
 
             public void Acknowledge(Event evt)
@@ -194,7 +198,8 @@ namespace DurableTask.EventSourced
 
             protected override void Cleanup()
             {
-                client.ResponseWaiters.TryRemove(this.id, out var _);
+                client.ResponseWaiters.TryRemove(this.requestId, out var _);
+                client.ResponseTimeouts.TryRemove(timeoutKey);
                 base.Cleanup();
             }
         }
