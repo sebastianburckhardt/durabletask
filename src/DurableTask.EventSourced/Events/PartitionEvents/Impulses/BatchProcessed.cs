@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced
         public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public OrchestrationRuntimeState InMemoryRuntimeState { get; set; }
+        public OrchestrationWorkItem CachedWorkItem { get; set; }
 
         public void DetermineEffects(EffectTracker effects)
         {

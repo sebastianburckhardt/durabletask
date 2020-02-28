@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced
             // create work items for all sessions
             foreach(var kvp in Sessions)
             {
-                OrchestrationWorkItem.EnqueueWorkItem(Partition, kvp.Key, kvp.Value);
+                new OrchestrationMessageBatch(kvp.Key, kvp.Value).ScheduleWorkItem(this.Partition);
             }
         }
 
@@ -67,12 +67,14 @@ namespace DurableTask.EventSourced
             return $"Sessions ({Sessions.Count} pending) next={SequenceNumber:D6}";
         }
 
-        private void AddMessageToSession(TaskMessage message, bool createNewExecution, bool inRecovery)
+        private void AddMessageToSession(TaskMessage message, bool forceNewExecution, bool isReplaying)
         {
             var instanceId = message.OrchestrationInstance.InstanceId;
 
-            if (this.Sessions.TryGetValue(instanceId, out var session) && !createNewExecution)
+            if (this.Sessions.TryGetValue(instanceId, out var session) && !forceNewExecution)
             {
+                // A session for this instance already exists, so a work item is in progress already.
+                // We don't need to schedule a work item because we'll notice the new messages when it completes.
                 session.Batch.Add(message);
             }
             else
@@ -82,24 +84,27 @@ namespace DurableTask.EventSourced
                     SessionId = SequenceNumber++,
                     Batch = new List<TaskMessage>() { message },
                     BatchStartPosition = 0,
-                    ForceNewExecution = createNewExecution,
+                    ForceNewExecution = forceNewExecution,
                 };
 
-                if (!inRecovery)
+                if (!isReplaying) // we don't start work items until end of recovery
                 {
-                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
                 }
             }
         }
 
-        private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool inRecovery)
+        private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool isReplaying)
         {
             if (this.Sessions.TryGetValue(instanceId, out var session))
             {
+                // A session for this instance already exists, so a work item is in progress already.
+                // We don't need to schedule a work item because we'll notice the new messages when it completes.
                 session.Batch.AddRange(messages);
             }
             else
             {
+                // Create a new session
                 this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
@@ -107,9 +112,9 @@ namespace DurableTask.EventSourced
                     BatchStartPosition = 0
                 };
 
-                if (!inRecovery)
+                if (!isReplaying) // we don't start work items until end of recovery
                 {
-                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
                 }
             }
         }
@@ -237,15 +242,14 @@ namespace DurableTask.EventSourced
             if (session.Batch.Count == 0)
             {
                 // no more pending messages for this instance, so we delete the session.
-                // we may revisit this policy when implementing support for extended sessions
                 this.Sessions.Remove(instanceId);
             }
             else
             {
-                if (!inRecovery)
-                {            
+                if (!inRecovery) // we don't start work items until end of recovery
+                {
                     // there are more messages. Prepare another work item.
-                    OrchestrationWorkItem.EnqueueWorkItem(Partition, instanceId, session);
+                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
                 }
             }
         }

@@ -16,6 +16,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
@@ -34,16 +36,15 @@ namespace DurableTask.EventSourced
         [DataMember]
         public List<HistoryEvent> History { get; set; }
 
+        /// <summary>
+        /// We cache this so we can resume the execution at the execution cursor.
+        /// </summary>
         [IgnoreDataMember]
-        private OrchestrationRuntimeState inMemoryRuntimeState;
+        public OrchestrationWorkItem CachedOrchestrationWorkItem { get; set; } 
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.History, this.InstanceId);
 
-        public OrchestrationRuntimeState GetRuntimeState()
-        {
-            return this.inMemoryRuntimeState ?? (this.inMemoryRuntimeState = new OrchestrationRuntimeState(this.History));
-        }
 
         public override string ToString()
         {
@@ -69,12 +70,9 @@ namespace DurableTask.EventSourced
                 this.History.AddRange(evt.NewEvents);
             }
 
-            if (!effects.IsReplaying)
-            {
-                // update the in-memory runtime state
-                this.inMemoryRuntimeState = evt.InMemoryRuntimeState;
-                evt.InMemoryRuntimeState?.NewEvents.Clear();
-            }
+            // cache the work item for reuse, if supplied
+            this.CachedOrchestrationWorkItem = evt.CachedWorkItem;
         }
+
     }
 }

@@ -387,7 +387,8 @@ namespace DurableTask.EventSourced
             OrchestrationState state)
         {
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
-            var partition = orchestrationWorkItem.Partition;
+            var messageBatch = orchestrationWorkItem.MessageBatch;
+            var partition = messageBatch.Partition;
 
             List<TaskMessage> localMessages = null;
             List<TaskMessage> remoteMessages = null;
@@ -409,15 +410,17 @@ namespace DurableTask.EventSourced
                 }
             }
 
+            bool shouldCacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;
+
             partition.Submit(new BatchProcessed()
             {
-                PartitionId = orchestrationWorkItem.Partition.PartitionId,
-                SessionId = orchestrationWorkItem.SessionId,
+                PartitionId = messageBatch.Partition.PartitionId,
+                SessionId = messageBatch.SessionId,
                 InstanceId = workItem.InstanceId,
-                BatchStartPosition = orchestrationWorkItem.BatchStartPosition,
-                BatchLength = orchestrationWorkItem.BatchLength,
+                BatchStartPosition = messageBatch.BatchStartPosition,
+                BatchLength = messageBatch.BatchLength,
                 NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
-                InMemoryRuntimeState = newOrchestrationRuntimeState,
+                CachedWorkItem = shouldCacheWorkItemForReuse ? orchestrationWorkItem : null,
                 State = state,
                 ActivityMessages = (List<TaskMessage>)outboundMessages,
                 LocalMessages = localMessages,

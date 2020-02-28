@@ -187,15 +187,16 @@ namespace DurableTask.EventSourced
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
         {
-            this.DetailTracer?.TraceDetail($"Creating ActivityWorkItem {item.WorkItemId}");
+            this.DetailTracer?.TraceDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
  
             this.ActivityWorkItemQueue.Add(item);
         }
 
-        public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
-        {
-            this.DetailTracer?.TraceDetail($"Creating OrchestrationWorkItem {item.WorkItemId}");
  
+        public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
+        { 
+            this.DetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.WorkItemId}");
+
             this.OrchestrationWorkItemQueue.Add(item);
         }
     }
