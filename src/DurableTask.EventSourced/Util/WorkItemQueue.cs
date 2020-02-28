@@ -25,14 +25,11 @@ namespace DurableTask.EventSourced
         private readonly object thisLock = new object(); // TODO test and perhaps improve scalability of single lock
 
         private readonly Queue<T> work = new Queue<T>();
-        private readonly Queue<CancellableCompletionSource<T>> waiters = new Queue<CancellableCompletionSource<T>>();
-
-        private readonly BatchTimer<CancellableCompletionSource<T>> expirationTimer;
+        private readonly Queue<(DateTime,CancellableCompletionSource<T>)> waiters = new Queue<(DateTime,CancellableCompletionSource<T>)>();
 
         public WorkItemQueue(CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
         {
             this.cancellationToken = token;
-            this.expirationTimer = new BatchTimer<CancellableCompletionSource<T>>(token, onExpiration);
         }
 
         public int Load { get; private set; }
@@ -46,7 +43,7 @@ namespace DurableTask.EventSourced
                 {
                     var next = this.waiters.Dequeue();
                     this.Load = - this.waiters.Count;
-                    if (next.TrySetResult(element))
+                    if (next.Item2.TrySetResult(element))
                     {
                         return;
                     }
@@ -70,12 +67,25 @@ namespace DurableTask.EventSourced
 
                 var tcs = new CancellableCompletionSource<T>(cancellationToken);
 
-                this.expirationTimer.Schedule(DateTime.UtcNow + timeout, tcs);
-
-                this.waiters.Enqueue(tcs);
+                this.waiters.Enqueue((DateTime.UtcNow + timeout, tcs));
                 this.Load = -this.waiters.Count;
 
                 return tcs.Task;
+            }
+        }
+
+        public void CheckExpirations()
+        {
+            lock (this.thisLock)
+            {
+                if (waiters.Count > 0)
+                {
+                    while (waiters.Peek().Item1 < DateTime.UtcNow)
+                    {
+                        var expiredWaiter = waiters.Dequeue();
+                        expiredWaiter.Item2.TrySetCanceled();
+                    }
+                }
             }
         }
     }

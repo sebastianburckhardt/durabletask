@@ -90,6 +90,16 @@ namespace DurableTask.EventSourced
             }
         }
 
+        private async Task WorkitemExpirationCheck(CancellationToken token)
+        {
+            await Task.Delay(10, token);
+
+            this.ActivityWorkItemQueue.CheckExpirations();
+            this.OrchestrationWorkItemQueue.CheckExpirations();
+
+            var ignoredTask = Task.Run(() => WorkitemExpirationCheck(token));
+        }
+
         /******************************/
         // storage provider
         /******************************/
@@ -175,6 +185,8 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = new WorkItemQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
             await taskHub.StartAsync();
+
+            var ignoredTask = Task.Run(() => WorkitemExpirationCheck(this.serviceShutdownSource.Token));
 
             System.Diagnostics.Debug.Assert(this.Client != null, "Backend should have added client");
         }

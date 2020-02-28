@@ -108,7 +108,7 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Error))
             {
-                this.logger.LogError(exception, "{client} !!! Exception in {context}", this.TracePrefix, context);
+                this.logger.LogError("{client} !!! {context}: {exception}", this.TracePrefix, context, exception);
             }
             if (EtwSource.Log.IsEnabled())
             {
