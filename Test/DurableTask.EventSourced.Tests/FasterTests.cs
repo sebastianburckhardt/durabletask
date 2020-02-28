@@ -37,10 +37,10 @@ namespace DurableTask.EventSourced.Tests
         [Theory]
         [InlineData(false, 3, 5)]
         [InlineData(false, 30, 50)]
-        [InlineData(false, 300, 5000)]
+        [InlineData(false, 300, 500)]
         [InlineData(true, 1, 10)]
         [InlineData(true, 30, 50)]
-        [InlineData(true, 300, 5000)]
+        [InlineData(true, 300, 500)]
         public async Task RecoverLog(bool useAzure, int numEntries, int maxBytesPerEntry)
         {
             List<byte[]> entries = new List<byte[]>();
