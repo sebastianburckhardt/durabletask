@@ -34,8 +34,8 @@ namespace DurableTask.EventSourced.Faster
 
         private bool IsShuttingDown => this.shutdownWaiter != null;
 
-        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker, TraceHelper traceHelper)
-            : base(CancellationToken.None)
+        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker, TraceHelper traceHelper, CancellationToken ownershipCancellation)
+            : base(ownershipCancellation)
         {
             this.log = log;
             this.partition = partition;

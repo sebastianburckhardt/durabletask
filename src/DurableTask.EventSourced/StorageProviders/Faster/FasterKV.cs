@@ -175,7 +175,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (partitionEvent != null)
             {
-                partition.TraceProcess(partitionEvent);
+                partition.TraceProcess(partitionEvent, false);
             }
 
             readContinuation.OnReadComplete(target);

@@ -37,6 +37,10 @@ namespace DurableTask.EventSourced
         private readonly ILogger transportLogger;
         private readonly ILogger storageLogger;
 
+        private const string LoggerName = "E1";
+        private const string TransportLoggerName = "E1Transport";
+        private const string StorageLoggerName = "E1Storage";
+
         private CancellationTokenSource serviceShutdownSource;
 
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
@@ -67,9 +71,9 @@ namespace DurableTask.EventSourced
         {
             this.settings = settings;
 
-            this.Logger = loggerFactory.CreateLogger("E1");
-            this.transportLogger = loggerFactory.CreateLogger("E1Transport");
-            this.storageLogger = loggerFactory.CreateLogger("E1Storage");
+            this.Logger = loggerFactory.CreateLogger(LoggerName);
+            this.transportLogger = loggerFactory.CreateLogger(TransportLoggerName);
+            this.storageLogger = loggerFactory.CreateLogger(StorageLoggerName);
 
             switch (this.settings.TransportComponent)
             {

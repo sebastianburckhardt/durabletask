@@ -115,6 +115,7 @@ namespace DurableTask.AzureStorage.Messaging
                     this.settings.TaskHubName,
                     taskMessage.Event.EventType.ToString(),
                     Utils.GetTaskEventId(taskMessage.Event),
+
                     sourceInstance.InstanceId,
                     sourceInstance.ExecutionId,
                     Encoding.Unicode.GetByteCount(rawContent),

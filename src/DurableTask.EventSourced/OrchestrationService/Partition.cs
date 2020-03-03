@@ -63,7 +63,6 @@ namespace DurableTask.EventSourced
             this.host = host;
             this.logger = host.Logger;
             this.PartitionId = partitionId;
-            this.TracePrefix = GetTracePrefix();
             this.PartitionFunction = partitionFunction;
             this.NumberPartitions = numberPartitions;
             this.State = state;
@@ -107,6 +106,9 @@ namespace DurableTask.EventSourced
 
         public async Task StopAsync()
         {
+            // do not do anything if we already lost ownership
+            this.State.OwnershipCancellationToken.ThrowIfCancellationRequested();
+
             // create or restore partition state from last snapshot
             try
             {
@@ -115,7 +117,6 @@ namespace DurableTask.EventSourced
 
                 // wait for current state (log and store) to be persisted
                 await this.State.PersistAndShutdownAsync(this.Settings.TakeStateCheckpointWhenStoppingPartition);
-
             }
             catch (Exception e)
             {

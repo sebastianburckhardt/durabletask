@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Faster
         public ulong InputQueuePosition { get; private set; }
         public ulong CommitLogPosition { get; private set; }
 
-        public StoreWorker(FasterKV store, Partition partition, TraceHelper traceHelper)
+        public StoreWorker(FasterKV store, Partition partition, TraceHelper traceHelper, CancellationToken ownershipCancellation) : base(ownershipCancellation)
         {
             this.store = store;
             this.partition = partition;
@@ -154,7 +154,7 @@ namespace DurableTask.EventSourced.Faster
 
             try
             {
-                this.partition.TraceProcess(partitionEvent);
+                this.partition.TraceProcess(partitionEvent, this.effects.IsReplaying);
                 this.effects.Effect = partitionEvent;
 
                 // collect the initial list of targets

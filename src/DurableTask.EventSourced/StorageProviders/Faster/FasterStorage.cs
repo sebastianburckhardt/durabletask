@@ -72,8 +72,8 @@ namespace DurableTask.EventSourced.Faster
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper);
-            this.logWorker = new LogWorker(log, this.partition, this.storeWorker, this.TraceHelper);
+            this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.OwnershipCancellationToken);
+            this.logWorker = new LogWorker(log, this.partition, this.storeWorker, this.TraceHelper, this.OwnershipCancellationToken);
 
             if (this.log.TailAddress == this.log.BeginAddress)
             {
@@ -149,6 +149,9 @@ namespace DurableTask.EventSourced.Faster
         {
             bool workersStoppedCleanly;
 
+            // do not do anything if we already lost ownership
+            this.OwnershipCancellationToken.ThrowIfCancellationRequested();
+
             try
             {
                 this.TraceHelper.FasterProgress("stopping workers");
@@ -161,6 +164,11 @@ namespace DurableTask.EventSourced.Faster
                 await t2;
      
                 workersStoppedCleanly = true;
+            }
+            catch(OperationCanceledException) when (this.OwnershipCancellationToken.IsCancellationRequested)
+            {
+                // we lost ownership
+                workersStoppedCleanly = false;
             }
             catch (Exception e)
             {

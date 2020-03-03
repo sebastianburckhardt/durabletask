@@ -82,10 +82,10 @@ namespace DurableTask.EventSourced
         }
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventReceived(int partitionId, ulong commitPosition, ulong inputPosition, string workItem, string eventInfo)
+        public void PartitionEventReceived(int partitionId, ulong commitPosition, ulong inputPosition, bool replaying, string workItem, string eventInfo)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(30, partitionId, commitPosition, inputPosition, workItem, eventInfo);
+            this.WriteEvent(30, partitionId, commitPosition, inputPosition, replaying, workItem, eventInfo);
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]

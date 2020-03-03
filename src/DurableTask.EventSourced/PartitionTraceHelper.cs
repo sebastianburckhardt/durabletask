@@ -24,35 +24,31 @@ namespace DurableTask.EventSourced
         [ThreadStatic]
         public static (ulong?,string) TraceContext = (null, string.Empty);
 
-        private string GetTracePrefix()
-        {
-            return $"Part{this.PartitionId:D2}";
-        }
-
         public void ReportError(string context, Exception exception)
         {
             if (this.logger.IsEnabled(LogLevel.Error))
             {
-                this.logger.LogError("{partition} !!! Exception in {context}: {exception}", this.TracePrefix, context, exception);
+                this.logger.LogError("Part{partition:D2} !!! Exception in {context}: {exception}", this.PartitionId, context, exception);
             }
             if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, context, exception.GetType().Name, exception.Message);
+                EtwSource.Log.PartitionErrorReported((int) this.PartitionId, context, exception.GetType().Name, exception.Message);
             }
         }
 
-        public void TraceProcess(PartitionEvent evt)
+        public void TraceProcess(PartitionEvent evt, bool replaying)
         {
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
                 var context = evt.CommitLogPosition.HasValue ? $".{evt.CommitLogPosition.Value:D10}" : "";
+                var verb = replaying ? "Replaying" : "Processing";
                 if (evt.InputQueuePosition.HasValue)
                 {
-                    this.logger.LogDebug("{partition}{context} Processing external event {event} {inputQueuePosition} {workItem}", this.TracePrefix, context, evt, evt.InputQueuePosition, evt.WorkItem);
+                    this.logger.LogDebug("Part{partition:D2}{context} {verb} external event {event} {inputQueuePosition} {workItem}", this.PartitionId, context, verb, evt, evt.InputQueuePosition, evt.WorkItem);
                 }
                 else
                 {
-                    this.logger.LogDebug("{partition}{context} Processing internal event {event} {workItem}", this.TracePrefix, context, evt, evt.WorkItem);
+                    this.logger.LogDebug("Part{partition:D2}{context} {verb} internal event {event} {workItem}", this.PartitionId, context, verb, evt, evt.WorkItem);
                 }
 
                 // the events following this will be processed with the same prefix and additional indentation
@@ -60,7 +56,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.CommitLogPosition ?? 0UL, evt.InputQueuePosition ?? 0UL, evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.CommitLogPosition ?? 0UL, evt.InputQueuePosition ?? 0UL, replaying, evt.WorkItem, evt.ToString());
             }
 
         }
@@ -69,7 +65,7 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                this.logger.LogDebug("{partition}{context} Sending {event} {workItem}", this.TracePrefix, Partition.TraceContext.Item2, evt, evt.WorkItem);
+                this.logger.LogDebug("Part{partition:D2}{context} Sending {event} {workItem}", this.PartitionId, Partition.TraceContext.Item2, evt, evt.WorkItem);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -81,7 +77,7 @@ namespace DurableTask.EventSourced
 
         public void TraceDetail(string message)
         {
-            this.logger.LogDebug("{partition}{context} {message}", this.TracePrefix, Partition.TraceContext.Item2, message);
+            this.logger.LogDebug("Part{partition:D2}{context} {message}", this.PartitionId, Partition.TraceContext.Item2, message);
 
             EtwSource.Log.PartitionDetail((int)this.PartitionId, Partition.TraceContext.Item1 ?? 0, message);
         }
@@ -105,7 +101,7 @@ namespace DurableTask.EventSourced
 
                 if (this.logger.IsEnabled(LogLevel.Error))
                 {
-                    this.logger.LogError("{partition} !!! Assertion failed {stacktrace}", this.TracePrefix, stacktrace);
+                    this.logger.LogError("Part{partition:D2} !!! Assertion failed {stacktrace}", this.PartitionId, stacktrace);
                 }
             }
         }

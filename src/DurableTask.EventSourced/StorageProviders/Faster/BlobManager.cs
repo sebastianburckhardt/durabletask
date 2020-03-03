@@ -126,6 +126,9 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task StartAsync()
         {
+            // ownership is cancelled if a lease is lost and cannot be renewed due to conflict
+            this.ownershipCancellation = new CancellationTokenSource();
+
             if (UseLocalFilesForTestingAndDebugging)
             {
                 Directory.CreateDirectory($"{LocalDirectoryPath}\\{PartitionFolder}");
@@ -141,9 +144,9 @@ namespace DurableTask.EventSourced.Faster
 
                 this.eventLogCommitBlob = this.partitionDirectory.GetBlockBlobReference(CommitBlobName);
                 
-                var eventLogDevice = new AzureStorageDevice(EventLogBlobName, this.partitionDirectory);
-                var hybridLogDevice = new AzureStorageDevice(HybridLogBlobName, this.partitionDirectory);
-                var objectLogDevice = new AzureStorageDevice(ObjectLogBlobName, this.partitionDirectory);
+                var eventLogDevice = new AzureStorageDevice(EventLogBlobName, this.partitionDirectory, this.ownershipCancellation.Token);
+                var hybridLogDevice = new AzureStorageDevice(HybridLogBlobName, this.partitionDirectory, this.ownershipCancellation.Token);
+                var objectLogDevice = new AzureStorageDevice(ObjectLogBlobName, this.partitionDirectory, this.ownershipCancellation.Token);
 
                 eventLogDevice.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"{EventLogBlobName}.{method}", e);
                 hybridLogDevice.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"{HybridLogBlobName}.{method}", e);
@@ -200,9 +203,6 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task<CancellationToken> AcquireOwnership(CancellationToken token)
         {
-            // ownership is cancelled if a lease is lost and cannot be renewed due to conflict
-            this.ownershipCancellation = new CancellationTokenSource();
-
             // shutdown can be triggered from three sources
             // - before this method even completes, via token
             // - implicitly if ownership is lost, after it is acquired
@@ -524,7 +524,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 var (path, blobName) = this.GetPrimaryHashTableBlob(indexToken);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, blobDirectory);
+                var device = new AzureStorageDevice(blobName, blobDirectory, this.ownershipCancellation.Token);
                 device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"indexDevice.{method}", e);
                 return device;
             }
@@ -541,7 +541,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 var (path, blobName) = this.GetLogSnapshotBlob(token);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, blobDirectory);
+                var device = new AzureStorageDevice(blobName, blobDirectory, this.ownershipCancellation.Token);
                 device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"snapshotLogDevice.{method}", e);
                 return device;
             }
@@ -558,7 +558,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 var (path, blobName) = this.GetObjectLogSnapshotBlob(token);
                 var blobDirectory = this.partitionDirectory.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, blobDirectory);
+                var device = new AzureStorageDevice(blobName, blobDirectory, this.ownershipCancellation.Token);
                 device.ExceptionTracer = (method, e) => this.TraceHelper.FasterBlobStorageError($"snapshotObjectLogDevice.{method}", e);
                 return device;
             }

@@ -194,7 +194,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext context)
         {
-            var processor = new EventProcessor(this.host, this, this.settings, this.parameters);
+            var processor = new EventProcessor(this.host, this, this.parameters);
             return processor;
         }
 

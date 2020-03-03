@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced.Faster
 
         public void FasterLogReplayed(ulong commitPosition, ulong inputPosition, long elapsedMs)
         {
-            logger.LogInformation("Part{partition:D2} Replayed Log, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, elapsedMs);
             EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, elapsedMs);
         }
 

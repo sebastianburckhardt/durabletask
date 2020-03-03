@@ -109,7 +109,7 @@ namespace DurableTask.EventSourced
 
                             if (partitionEvent != null)
                             {
-                                partition.TraceProcess(partitionEvent);
+                                partition.TraceProcess(partitionEvent, false);
                             }
 
                             readContinuation.OnReadComplete(readTarget);
@@ -125,7 +125,7 @@ namespace DurableTask.EventSourced
                             var partitionEvent = (PartitionEvent)o;
 
                             partitionEvent.CommitLogPosition = nextCommitPosition++;
-                            partition.TraceProcess(partitionEvent);
+                            partition.TraceProcess(partitionEvent, false);
                             effects.Effect = partitionEvent;
 
                             // determine the effects and apply all the updates

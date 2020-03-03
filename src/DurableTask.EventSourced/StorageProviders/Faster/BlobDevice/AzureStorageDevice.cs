@@ -24,6 +24,7 @@ namespace FASTER.devices
         private readonly CloudBlobDirectory blobDirectory;
         private readonly string blobName;
         private readonly bool deleteOnClose;
+        private readonly CancellationToken ownershipCancellation;
 
         // Page Blobs permit blobs of max size 8 TB, but the emulator permits only 2 GB
         private const long MAX_BLOB_SIZE = (long)(2 * 10e8);
@@ -35,12 +36,13 @@ namespace FASTER.devices
         /// </summary>
         /// <param name="blobName">A descriptive name that will be the prefix of all segments created</param>
         /// <param name="blobDirectory">the directory containing the blob</param>
+        /// <param name="ownershipCancellation">a cancellation token to stop all blob accesses</param>
         /// <param name="deleteOnClose">
         /// True if the program should delete all blobs created on call to <see cref="Close">Close</see>. False otherwise. 
         /// The container is not deleted even if it was created in this constructor
         /// </param>
         /// <param name="capacity">The maximum number of bytes this storage device can accommondate, or CAPACITY_UNSPECIFIED if there is no such limit </param>
-        public AzureStorageDevice(string blobName, CloudBlobDirectory blobDirectory, bool deleteOnClose = false, long capacity = Devices.CAPACITY_UNSPECIFIED)
+        public AzureStorageDevice(string blobName, CloudBlobDirectory blobDirectory, CancellationToken ownershipCancellation, bool deleteOnClose = false, long capacity = Devices.CAPACITY_UNSPECIFIED)
             : base($"{blobDirectory}\\{blobName}", PAGE_BLOB_SECTOR_SIZE, capacity)
         {
             this.blobs = new ConcurrentDictionary<int, BlobEntry>();
@@ -86,7 +88,7 @@ namespace FASTER.devices
 
             for (int i = startSegment; i <= endSegment; i++)
             {
-                bool ret = blobs.TryAdd(i, new BlobEntry(this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(i))));
+                bool ret = blobs.TryAdd(i, new BlobEntry(this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(i)), this.ownershipCancellation));
                 Debug.Assert(ret, "Recovery of blobs is single-threaded and should not yield any failure due to concurrency");
             }
         }
@@ -104,7 +106,10 @@ namespace FASTER.devices
             {
                 foreach (var entry in blobs)
                 {
-                    entry.Value.GetPageBlob().Delete();
+                    if (!ownershipCancellation.IsCancellationRequested)
+                    {
+                        entry.Value.GetPageBlob().Delete();
+                    }
                 }
             }
         }
@@ -120,19 +125,21 @@ namespace FASTER.devices
             if (blobs.TryRemove(segment, out BlobEntry blob))
             {
                 CloudPageBlob pageBlob = blob.GetPageBlob();
-                pageBlob.BeginDelete(ar =>
+                if (!ownershipCancellation.IsCancellationRequested)
                 {
-                    try
+                    pageBlob.BeginDelete(ar =>
                     {
-                        pageBlob.EndDelete(ar);
-
-                    }
-                    catch (Exception)
-                    {
+                        try
+                        {
+                            pageBlob.EndDelete(ar);
+                        }
+                        catch (Exception)
+                        {
                         // Can I do anything else other than printing out an error message?
                     }
-                    callback(ar);
-                }, result);
+                        callback(ar);
+                    }, result);
+                }
             }
         }
 
@@ -150,6 +157,12 @@ namespace FASTER.devices
 
             UnmanagedMemoryStream stream = new UnmanagedMemoryStream((byte*)destinationAddress, readLength, readLength, FileAccess.Write);
             CloudPageBlob pageBlob = blobEntry.GetPageBlob();
+            ownershipCancellation.ThrowIfCancellationRequested();
+            if (ownershipCancellation.IsCancellationRequested)
+            {
+                callback(3, readLength, ovNative);
+                return;
+            }
             pageBlob.BeginDownloadRangeToStream(stream, (Int64)sourceAddress, readLength, ar => {
                 try
                 {
@@ -202,7 +215,6 @@ namespace FASTER.devices
             {
                 return;
             }
-
             // Otherwise, invoke directly.
             WriteToBlobAsync(pageBlob, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
         }
@@ -214,6 +226,11 @@ namespace FASTER.devices
             Overlapped ov = new Overlapped(0, 0, IntPtr.Zero, asyncResult);
             NativeOverlapped* ovNative = ov.UnsafePack(callback, IntPtr.Zero);
             UnmanagedMemoryStream stream = new UnmanagedMemoryStream((byte*)sourceAddress, numBytesToWrite);
+            if (ownershipCancellation.IsCancellationRequested)
+            {
+                callback(3, numBytesToWrite, ovNative);
+                return;
+            }
             blob.BeginWritePages(stream, (long)destinationAddress, null, ar =>
             {
                 try

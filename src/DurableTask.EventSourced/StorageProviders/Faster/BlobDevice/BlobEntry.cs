@@ -19,15 +19,18 @@ namespace FASTER.devices
     {
         private CloudPageBlob pageBlob;
         private ConcurrentQueue<Action<CloudPageBlob>> pendingWrites;
+        private CancellationToken ownershipCancellation;
         private int waitingCount;
 
         /// <summary>
         /// Creates a new BlobEntry to hold the given pageBlob. The pageBlob must already be created.
         /// </summary>
         /// <param name="pageBlob"></param>
-        public BlobEntry(CloudPageBlob pageBlob)
+        /// <param name="ownershipCancellation"></param>
+        public BlobEntry(CloudPageBlob pageBlob, CancellationToken ownershipCancellation)
         {
             this.pageBlob = pageBlob;
+            this.ownershipCancellation = ownershipCancellation;
             if (pageBlob == null)
             {
                 // Only need to allocate a queue when we potentially need to asynchronously create a blob
@@ -40,7 +43,7 @@ namespace FASTER.devices
         /// Creates a new BlobEntry, does not initialize a page blob. Use <see cref="CreateAsync(long, CloudPageBlob)"/>
         /// for actual creation.
         /// </summary>
-        public BlobEntry() : this(null)
+        public BlobEntry() : this(null, CancellationToken.None)
         {
         }
 
@@ -62,6 +65,10 @@ namespace FASTER.devices
         {
             Debug.Assert(waitingCount == 0, "Create should be called on blobs that don't already exist and exactly once");
             // Asynchronously create the blob
+            if (this.ownershipCancellation.IsCancellationRequested)
+            {
+                return;
+            }
             pageBlob.BeginCreate(size, ar =>
             {
                 try
