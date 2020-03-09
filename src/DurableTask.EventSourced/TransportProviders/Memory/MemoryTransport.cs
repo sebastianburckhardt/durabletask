@@ -29,7 +29,6 @@ namespace DurableTask.EventSourced.Emulated
         private Dictionary<Guid, IMemoryQueue<ClientEvent>> clientQueues;
         private IMemoryQueue<PartitionEvent>[] partitionQueues;
         private TransportAbstraction.IClient client;
-        private StorageAbstraction.IPartitionState[] partitionStates;
         private TransportAbstraction.IPartition[] partitions;
         private CancellationTokenSource shutdownTokenSource;
 
@@ -47,7 +46,6 @@ namespace DurableTask.EventSourced.Emulated
             await Task.Delay(simulatedDelay);
             this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
             this.partitionQueues = new IMemoryQueue<PartitionEvent>[numberPartitions];
-            this.partitionStates = new StorageAbstraction.IPartitionState[numberPartitions];
             this.partitions = new TransportAbstraction.IPartition[numberPartitions];
         }
 
@@ -55,7 +53,6 @@ namespace DurableTask.EventSourced.Emulated
         {
             this.clientQueues = null;
             this.partitionQueues = null;
-            this.partitionStates = null;
 
             return this.host.StorageProvider.DeleteAllPartitionStatesAsync();
        }
@@ -83,14 +80,15 @@ namespace DurableTask.EventSourced.Emulated
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
+          
+
             // create all partitions
             Parallel.For(0, this.settings.MemoryPartitions, (iteration) =>
             {
                 int i = (int) iteration;
                 uint partitionId = (uint) iteration;
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
-                var partitionState = partitionStates[i] = this.host.StorageProvider.CreatePartitionState();
-                var partition = this.host.AddPartition(partitionId, partitionState, partitionSender);
+                var partition = this.host.AddPartition(partitionId, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
                 this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
                 this.partitions[i] = partition;
@@ -99,8 +97,8 @@ namespace DurableTask.EventSourced.Emulated
             // create or recover all the partitions
             for (uint i = 0; i < this.settings.MemoryPartitions; i++)
             {
-                var lastProcessedInput = await partitions[i].StartAsync(CancellationToken.None);
-                partitionQueues[i].StartPosition = lastProcessedInput + 1;
+                var nextInputQueuePosition = await partitions[i].StartAsync(new Termination(), 0);
+                partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;
             }
 
             // start all the emulated queues
@@ -121,9 +119,9 @@ namespace DurableTask.EventSourced.Emulated
                 await this.client.StopAsync();
 
                 var tasks = new List<Task>();
-                foreach(var s in this.partitionStates)
+                foreach(var p in this.partitions)
                 {
-                    tasks.Add(s.PersistAndShutdownAsync(this.settings.TakeStateCheckpointWhenStoppingPartition));
+                    tasks.Add(p.StopAsync());
                 }
                 await Task.WhenAll(tasks);
             }
@@ -157,7 +155,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(SendEvents), e);
+                partition.HandleError(nameof(SendEvents), e, false);
             }
         }
 
@@ -171,16 +169,7 @@ namespace DurableTask.EventSourced.Emulated
                 }
                 else if (evt is PartitionEvent partitionEvent)
                 {
-                    if (partitionEvent.PartitionId == sendingPartition)
-                    {
-                        // a loop-back message (impulse) can be committed immediately
-                        this.partitionStates[sendingPartition.Value].Submit(partitionEvent);
-                    }
-                    else
-                    {
-                        // enqueue this event
-                        this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
-                    }
+                    this.partitionQueues[partitionEvent.PartitionId].Send(partitionEvent);
                 }
             }
         }

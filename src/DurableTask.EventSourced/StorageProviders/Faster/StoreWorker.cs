@@ -25,18 +25,23 @@ namespace DurableTask.EventSourced.Faster
     {
         private readonly FasterKV store;
         private readonly Partition partition;
-        private readonly TraceHelper traceHelper;
+        private readonly FasterTraceHelper traceHelper;
 
         private readonly EffectTracker effects;
 
-        private volatile TaskCompletionSource<bool> cancellationWaiter;
+        private volatile TaskCompletionSource<bool> shutdownWaiter;
 
-        private bool IsShuttingDown => this.cancellationWaiter != null;
+        private bool IsShuttingDown => this.shutdownWaiter != null || this.cancellationToken.IsCancellationRequested;
 
         public ulong InputQueuePosition { get; private set; }
         public ulong CommitLogPosition { get; private set; }
 
-        public StoreWorker(FasterKV store, Partition partition, TraceHelper traceHelper, CancellationToken ownershipCancellation) : base(ownershipCancellation)
+        private Task pendingIndexCheckpoint;
+        private Task<ulong> pendingStoreCheckpoint;
+        private ulong lastCheckpointedPosition;
+
+        public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, CancellationToken cancellationToken) 
+            : base(cancellationToken)
         {
             this.store = store;
             this.partition = partition;
@@ -46,7 +51,7 @@ namespace DurableTask.EventSourced.Faster
             this.effects = new EffectTracker(this.partition);
         }
 
-        public async Task Initialize()
+        public async Task Initialize(ulong initialInputQueuePosition)
         {
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
@@ -56,10 +61,12 @@ namespace DurableTask.EventSourced.Faster
 
                 if (target is DedupState dedupState)
                 {
-                    this.InputQueuePosition = dedupState.InputQueuePosition = 0;
+                    this.InputQueuePosition = dedupState.InputQueuePosition = initialInputQueuePosition;
                     this.CommitLogPosition = dedupState.CommitLogPosition = 0;
                 }
             }
+
+            this.lastCheckpointedPosition = this.CommitLogPosition;
         }
 
         public async Task Recover()
@@ -69,7 +76,7 @@ namespace DurableTask.EventSourced.Faster
             this.InputQueuePosition = dedupState.InputQueuePosition;
             this.CommitLogPosition = dedupState.CommitLogPosition;
 
-            //var dump = await this.store.DumpCurrentState();
+            this.lastCheckpointedPosition = this.CommitLogPosition;
         }
 
         public async Task CancelAndShutdown()
@@ -78,58 +85,113 @@ namespace DurableTask.EventSourced.Faster
 
             lock (this.thisLock)
             {
-                this.cancellationWaiter = new TaskCompletionSource<bool>();
+                this.shutdownWaiter = new TaskCompletionSource<bool>();
                 this.Notify();
             }
 
-            // waits for the currently processing entry to finish processing
-            await this.cancellationWaiter.Task;
+            // waits for the currently processing entry to finish processing, or for termination
+            await Task.WhenAny(this.shutdownWaiter.Task, Task.Delay(-1, this.cancellationToken));
 
-            // write back the queue and log positions
-            this.effects.Effect = this;
-            await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
-
-            //var dump = await this.store.DumpCurrentState();
+            await this.SaveCurrentPositions();
 
             this.traceHelper.FasterProgress("stopped StoreWorker");
         }
 
+        private ValueTask SaveCurrentPositions()
+        {
+            // write back the queue and log positions
+            this.effects.Effect = this;
+            return store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
+        }
+
         protected override async Task Process(IList<object> batch)
         {
-            foreach (var o in batch)
+            try
             {
+                foreach (var o in batch)
+                {
+                    if (this.IsShuttingDown)
+                    {
+                        // immediately stop processing requests and exit
+                        this.shutdownWaiter?.TrySetResult(true);
+                        return;
+                    }
+
+                    // if there are IO responses ready to process, do that first
+                    this.store.CompletePending();
+
+                    // now process the read or update
+                    if (o is StorageAbstraction.IReadContinuation readContinuation)
+                    {
+                        try
+                        {
+                            this.store.Read(readContinuation, this.partition);
+                        }
+                        catch (Exception readException)
+                        {
+                            this.partition.HandleError($"Processing Read", readException, true);
+                        }
+                    }
+                    else
+                    {
+                        partition.Assert(o is IPartitionEventWithSideEffects);
+                        await this.ProcessEvent((PartitionEvent)o);
+                    }
+                }
+
                 if (this.IsShuttingDown)
                 {
-                    break; // stop processing sooner rather than later
+                    this.shutdownWaiter?.TrySetResult(true);
+                    return;
                 }
 
-                // if there are IO responses ready to process, do that first
-                this.store.CompletePending();
-
-                if (o is StorageAbstraction.IReadContinuation readContinuation)
+                // handle progression of checkpointing state machine (none -> index pending -> store pending -> none)
+                if (this.pendingStoreCheckpoint != null)
                 {
-                    try
+                    if (this.pendingStoreCheckpoint.IsCompleted == true)
                     {
-                        store.Read(readContinuation, this.partition);
-                    }
-                    catch (Exception readException)
-                    {
-                        partition.ReportError($"Processing Read", readException);
+                        this.lastCheckpointedPosition = await this.pendingStoreCheckpoint; // observe exceptions here
+                        this.pendingStoreCheckpoint = null;
                     }
                 }
-                else
+                else if (this.pendingIndexCheckpoint != null)
                 {
-                    partition.Assert(o is IPartitionEventWithSideEffects);
-                    await this.ProcessEvent((PartitionEvent)o);
+                    if (this.pendingIndexCheckpoint.IsCompleted == true)
+                    {
+                        await this.pendingIndexCheckpoint; // observe exceptions here
+                        this.pendingIndexCheckpoint = null;
+                        await this.SaveCurrentPositions(); // must be stored back to dedup before taking store checkpoint
+                        var token = this.store.StartStoreCheckpoint();
+                        this.pendingStoreCheckpoint = this.WaitForCheckpointAsync("store checkpoint", token);
+                    }
+                }
+                else if (this.lastCheckpointedPosition + this.partition.Settings.MaxLogDistanceBetweenCheckpointsInBytes <= this.CommitLogPosition)
+                {
+                    var token = this.store.StartIndexCheckpoint();
+                    this.pendingIndexCheckpoint = this.WaitForCheckpointAsync("index checkpoint", token);
                 }
             }
-
-            if (this.IsShuttingDown)
+            catch (Exception e)
             {
-                // at this point we know we will not process any more reads or updates
-                this.cancellationWaiter.TrySetResult(true);
+                this.traceHelper.FasterStorageError("StoreWorker.Process", e);
+
+                // if this happens during shutdown let the waiter know
+                this.shutdownWaiter?.TrySetException(e);
             }
         }     
+
+        public async Task<ulong> WaitForCheckpointAsync(string description, Guid checkpointToken)
+        {
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+            var commitLogPosition = this.CommitLogPosition;
+            var inputQueuePosition = this.InputQueuePosition;
+            this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
+            await store.CompleteCheckpointAsync();
+            this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
+            this.Notify();
+            return commitLogPosition;
+        }
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {
@@ -146,9 +208,9 @@ namespace DurableTask.EventSourced.Faster
 
         public async ValueTask ProcessEvent(PartitionEvent partitionEvent)
         {
-            if (partitionEvent.InputQueuePosition.HasValue && partitionEvent.InputQueuePosition.Value <= this.InputQueuePosition)
+            if (partitionEvent.NextInputQueuePosition.HasValue && partitionEvent.NextInputQueuePosition.Value <= this.InputQueuePosition)
             {
-                partition.DetailTracer?.TraceDetail($"Skipping duplicate input {partitionEvent.InputQueuePosition}");
+                partition.DetailTracer?.TraceDetail($"Skipping duplicate input {partitionEvent.NextInputQueuePosition}");
                 return;
             }
 
@@ -167,15 +229,15 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 // update the commit log and input queue positions
-                if (partitionEvent.CommitLogPosition.HasValue)
+                if (partitionEvent.NextCommitLogPosition.HasValue)
                 {
-                    this.partition.Assert(partitionEvent.CommitLogPosition.Value > this.CommitLogPosition);
-                    this.CommitLogPosition = partitionEvent.CommitLogPosition.Value;
+                    this.partition.Assert(partitionEvent.NextCommitLogPosition.Value > this.CommitLogPosition);
+                    this.CommitLogPosition = partitionEvent.NextCommitLogPosition.Value;
                 }
-                if (partitionEvent.InputQueuePosition.HasValue)
+                if (partitionEvent.NextInputQueuePosition.HasValue)
                 {
-                    this.partition.Assert(partitionEvent.InputQueuePosition.Value > this.InputQueuePosition);
-                    this.InputQueuePosition = partitionEvent.InputQueuePosition.Value;
+                    this.partition.Assert(partitionEvent.NextInputQueuePosition.Value > this.InputQueuePosition);
+                    this.InputQueuePosition = partitionEvent.NextInputQueuePosition.Value;
                 }
 
                 partition.DetailTracer?.TraceDetail("finished processing event");
@@ -184,7 +246,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception updateException)
             {
-                this.partition.ReportError($"Processing Update", updateException);
+                this.partition.HandleError($"Processing Update", updateException, false);
                 throw;
             }
         }

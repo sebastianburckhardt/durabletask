@@ -13,11 +13,9 @@ namespace DurableTask.EventSourced.Tests
             LoggerFactory = new LoggerFactory();
             LoggerProvider = new XunitLoggerProvider();
             LoggerFactory.AddProvider(LoggerProvider);
-            this.Host = TestHelpers.GetTestOrchestrationHost(EnableExtendedSessions, LoggerFactory);
+            this.Host = TestHelpers.GetTestOrchestrationHost(LoggerFactory);
             this.Host.StartAsync().Wait();
         }
-
-        internal const bool EnableExtendedSessions = false;
 
         public void Dispose()
         {

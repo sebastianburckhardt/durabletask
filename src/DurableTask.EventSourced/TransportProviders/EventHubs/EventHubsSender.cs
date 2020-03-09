@@ -37,10 +37,9 @@ namespace DurableTask.EventSourced.EventHubs
             this.logger = host.TransportLogger;
         }
    
-        // we reuse the same memory stream t
-        private readonly MemoryStream stream = new MemoryStream();
-
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
+        private const int maxFragmentSize = 64 * 1024; // EH can handle more than this, but let's not go close to the limit
+        private MemoryStream stream = new MemoryStream();
 
         protected override async Task Process(IList<Event> toSend)
         {
@@ -50,42 +49,43 @@ namespace DurableTask.EventSourced.EventHubs
             }
 
             // track progress in case of exception
-            var sentSuccessfully = 0;
-            var maybeSent = 0;
+            var sentSuccessfully = -1;
+            var maybeSent = -1;
             Exception senderException = null;
-
+            
             try
             {
                 var batch = sender.CreateBatch();
 
                 for (int i = 0; i < toSend.Count; i++)
                 {
-                    var startpos = (int)stream.Position;
-
+                    stream.Seek(0, SeekOrigin.Begin);
                     Serializer.SerializeEvent(toSend[i], stream);
 
-                    var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), startpos, (int)stream.Position - startpos);
+                    var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position);
                     var eventData = new EventData(arraySegment);
+                    bool tooBig = arraySegment.Count > maxFragmentSize;
 
-                    if (batch.TryAdd(eventData))
+                    if (!tooBig && batch.TryAdd(eventData))
                     {
-                        maybeSent = i;
                         continue;
                     }
                     else if (batch.Count > 0)
                     {
-                        // send the batch we have so far, then create a new batch
+                        // backtrack one
+                        i--;
+                        // send the batch we have so far
+                        maybeSent = i;
                         await sender.SendAsync(batch);
                         sentSuccessfully = i;
+
+                        // create a fresh batch
                         batch = sender.CreateBatch();
-                        stream.Seek(0, SeekOrigin.Begin);
-                        // backtrack one so we try to send this same element again
-                        i--;
                     }
                     else
                     {
                         // the message is too big. Break it into fragments, and send each individually.
-                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i], 50000);
+                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i], maxFragmentSize);
                         maybeSent = i;
                         foreach (var fragment in fragments)
                         {
@@ -93,23 +93,29 @@ namespace DurableTask.EventSourced.EventHubs
                             Serializer.SerializeEvent((Event)fragment, stream);
                             await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position)));
                         }
-                        sentSuccessfully = i + 1;
+                        sentSuccessfully = i;
                     }
                 }
 
                 if (batch.Count > 0)
                 {
+                    maybeSent = toSend.Count - 1;
                     await sender.SendAsync(batch);
+                    sentSuccessfully = toSend.Count - 1;
                 }
-                sentSuccessfully = toSend.Count;
             }
             catch (Exception e)
             {
                 this.logger.LogWarning(e, "Could not send messages to EventHub {eventHubName}, partition {partitionId}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 senderException = e;
             }
+            finally
+            {
+                // we don't need the contents of the stream anymore.
+                stream.SetLength(0); 
+            }
 
-            // Confirm all sent ones, and retry or report maybe-sent ones
+            // Confirm all sent events, and retry or report maybe-sent ones
             List<Event> requeue = null;
 
             try
@@ -122,7 +128,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     var evt = toSend[i];
 
-                    if (i < sentSuccessfully)
+                    if (i <= sentSuccessfully)
                     {
                         // the event was definitely sent successfully
                         AckListeners.Acknowledge(evt);

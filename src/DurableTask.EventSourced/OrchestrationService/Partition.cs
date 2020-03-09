@@ -15,6 +15,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,6 +33,7 @@ namespace DurableTask.EventSourced
         public string TracePrefix { get; private set; }
         public Func<string, uint> PartitionFunction { get; private set; }
         public Func<uint> NumberPartitions { get; private set; }
+        public Termination Termination { get; private set; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
 
@@ -40,53 +42,51 @@ namespace DurableTask.EventSourced
         public WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
-        public CancellationToken PartitionShutdownToken => this.partitionShutdown.Token;
-
         public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
         public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
-
-        private readonly CancellationTokenSource partitionShutdown;
 
         public Partition(
             EventSourcedOrchestrationService host,
             uint partitionId,
             Func<string, uint> partitionFunction,
             Func<uint> numberPartitions,
-            StorageAbstraction.IPartitionState state,
             TransportAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
             WorkItemQueue<TaskActivityWorkItem> activityWorkItemQueue,
-            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
-            CancellationToken serviceShutdownToken)
+            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue)
         {
             this.host = host;
             this.logger = host.Logger;
             this.PartitionId = partitionId;
             this.PartitionFunction = partitionFunction;
             this.NumberPartitions = numberPartitions;
-            this.State = state;
             this.BatchSender = batchSender;
             this.Settings = settings;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
-
-            this.partitionShutdown = CancellationTokenSource.CreateLinkedTokenSource(
-                serviceShutdownToken,
-                state.OwnershipCancellationToken);
         }
 
-        public async Task<ulong> StartAsync(CancellationToken token)
+        public async Task<ulong> StartAsync(Termination termination, ulong firstInputQueuePosition)
         {
+            this.TraceDetail("starting partition");
+
+            this.Termination = termination;
+            termination.Partition = this;
+
             // create or restore partition state from last snapshot
             try
             {
+                // create the state
+                this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
+
                 // initialize collections for pending work
-                this.PendingTimers = new BatchTimer<PartitionEvent>(this.PartitionShutdownToken, this.TimersFired);
+                this.PendingTimers = new BatchTimer<PartitionEvent>(this.Termination.Token, this.TimersFired);
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
                 this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
-                var inputQueuePosition = await State.CreateOrRestoreAsync(this, token);
+                // goes to storage to create or restore the partition state
+                var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.Termination, firstInputQueuePosition);
                 
                 this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
@@ -94,7 +94,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.ReportError("could not start partition", e);
+                this.HandleError("could not start partition", e, true);
                 throw;
             }
         }
@@ -104,29 +104,63 @@ namespace DurableTask.EventSourced
             this.State.Submit(partitionEvent);
         }
 
+        public void HandleError(string context, string message, bool isFatal)
+        {
+            this.TraceError(context, message, isFatal);
+
+            // terminate this partition in response to the error
+            if (isFatal)
+            {
+                this.Termination.Terminate($"Error in {context} : {message}");
+            }
+        }
+
+        public void HandleError(string context, Exception exception, bool isFatal)
+        {
+            this.TraceError(context, exception, isFatal);
+
+            // terminate this partition in response to the error
+            if (isFatal)
+            {
+                this.Termination.Terminate($"Exception in {context} : {exception.Message}");
+            }
+        }
+
+        [Conditional("DEBUG")]
+        public void Assert(bool condition)
+        {
+            if (!condition)
+            {
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    System.Diagnostics.Debugger.Break();
+                }
+
+                var stacktrace = System.Environment.StackTrace;
+
+                HandleError("assertion failed", stacktrace, false);
+            }
+        }
+
+
         public async Task StopAsync()
         {
-            // do not do anything if we already lost ownership
-            this.State.OwnershipCancellationToken.ThrowIfCancellationRequested();
-
-            // create or restore partition state from last snapshot
             try
             {
-                // stop all in-progress activities (timers, work items etc.)
-                this.partitionShutdown.Cancel();
-
-                // wait for current state (log and store) to be persisted
-                await this.State.PersistAndShutdownAsync(this.Settings.TakeStateCheckpointWhenStoppingPartition);
+                if (!this.Termination.IsTerminated)
+                {
+                    // for a clean shutdown we try to save some of the latest progress to storage and then release the lease
+                    await this.State.CleanShutdown(this.Settings.TakeStateCheckpointWhenStoppingPartition);
+                }
             }
             catch (Exception e)
             {
-                this.ReportError("could not stop partition", e);
-                throw;
+                this.HandleError("could not shut down partition state cleanly", e, true);
             }
-            finally
-            {
-                EtwSource.Log.PartitionStopped((int)this.PartitionId);
-            }
+
+            // at this point, the partition has been terminated (either cleanly or by exception)
+            this.Assert(this.Termination.IsTerminated);
+            EtwSource.Log.PartitionStopped((int)this.PartitionId);
         }
 
         private void TimersFired(List<PartitionEvent> timersFired)
@@ -140,7 +174,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.ReportError("Submitting Partition Timers", e);
+                this.HandleError("Submitting Partition Timers", e, true);
             }
         }
 

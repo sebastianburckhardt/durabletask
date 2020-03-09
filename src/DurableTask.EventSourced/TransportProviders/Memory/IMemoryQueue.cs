@@ -27,6 +27,6 @@ namespace DurableTask.EventSourced.Emulated
 
         void Resume();
 
-        ulong StartPosition { set; }
+        ulong FirstInputQueuePosition { set; }
     }
 }

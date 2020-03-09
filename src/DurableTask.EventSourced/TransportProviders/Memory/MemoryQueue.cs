@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Emulated
 
         protected abstract void Deliver(T evt);
 
-        public ulong StartPosition { get; set; }
+        public ulong FirstInputQueuePosition { get; set; }
 
         protected override Task Process(IList<B> batch)
         {
@@ -52,7 +52,7 @@ namespace DurableTask.EventSourced.Emulated
                     }
 
                     eventbatch[i] = this.Deserialize(batch[i]);
-                    eventbatch[i].InputQueuePosition = StartPosition + position + (ulong) i;
+                    eventbatch[i].NextInputQueuePosition = FirstInputQueuePosition + position + (ulong) i + 1;
                 }
 
                 foreach (var evt in eventbatch)

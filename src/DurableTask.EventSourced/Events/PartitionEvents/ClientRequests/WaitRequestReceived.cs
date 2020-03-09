@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                partition.ReportError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationCompletionTask)}", e);
+                partition.HandleError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationCompletionTask)}", e, false);
             }
         }
 
@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced
             StorageAbstraction.IReadContinuation
         {
             public OrchestrationWaiter(WaitRequestReceived request, Partition partition)
-                : base(partition.PartitionShutdownToken, request, partition)
+                : base(partition.Termination.Token, request, partition)
             {
                 Key = request.InstanceId;
                 partition.InstanceStatePubSub.Subscribe(this);

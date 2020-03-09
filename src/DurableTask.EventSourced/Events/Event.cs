@@ -24,16 +24,16 @@ namespace DurableTask.EventSourced
     internal abstract class Event
     {
         /// <summary>
-        /// For events entering the commit log, the position at which this event committed
+        /// For events entering the commit log, the position of the next event after this one.
         /// </summary>
         [IgnoreDataMember]
-        public ulong? CommitLogPosition { get; set; }
+        public ulong? NextCommitLogPosition { get; set; }
 
         /// <summary>
-        /// For events coming from the input queue, the input queue position.
+        /// For events coming from the input queue, the next input queue position after this event.
         /// </summary>
         [DataMember]
-        public ulong? InputQueuePosition { get; set; }
+        public ulong? NextInputQueuePosition { get; set; }
 
         [IgnoreDataMember]
         public AckListeners AckListeners;

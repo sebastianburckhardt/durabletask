@@ -19,7 +19,6 @@ namespace DurableTask.EventSourced.Tests
 {
     internal static class TestHelpers
     {
-
         public static EventSourcedOrchestrationServiceSettings GetEventSourcedOrchestrationServiceSettings()
         {
             return new EventSourcedOrchestrationServiceSettings
@@ -37,12 +36,9 @@ namespace DurableTask.EventSourced.Tests
         }
 
         public static TestOrchestrationHost GetTestOrchestrationHost(
-            bool enableExtendedSessions,
-            ILoggerFactory loggerFactory,
-            int extendedSessionTimeoutInSeconds = 30)
+            ILoggerFactory loggerFactory)
         {
             var settings = GetEventSourcedOrchestrationServiceSettings();
-            //settings.ExtendedSessions = enableExtendedSessions;
             return new TestOrchestrationHost(settings, loggerFactory);
         }
 

@@ -75,10 +75,10 @@ namespace DurableTask.EventSourced
         }
 
         [Event(22, Level = EventLevel.Error, Version = 1)]
-        public void PartitionErrorReported(int partitionId, string where, string exceptionType, string message)
+        public void PartitionErrorReported(int partitionId, string where, bool isFatal, string message, string exception)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(22, partitionId, where, exceptionType, message);
+            this.WriteEvent(22, partitionId, where, message, exception);
         }
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
@@ -149,59 +149,73 @@ namespace DurableTask.EventSourced
         // ----- faster storage provider events
 
         [Event(70, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointSaved(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
-        {
-            SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(70, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
-        }
-
-        [Event(71, Level = EventLevel.Verbose, Version = 1)]
-        public void FasterLogPersisted(int partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
-        {
-            SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(71, partitionId, commitPosition, numBytes, elapsedMilliseconds);
-        }
-
-        [Event(72, Level = EventLevel.Informational, Version = 1)]
         public void FasterStoreCreated(int partitionId, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(72, partitionId, inputPosition, elapsedMilliseconds);
+            this.WriteEvent(70, partitionId, inputPosition, elapsedMilliseconds);
         }
 
-        [Event(73, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointLoaded(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        [Event(71, Level = EventLevel.Informational, Version = 1)]
+        public void FasterCheckpointStarted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(73, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
+            this.WriteEvent(71, partitionId, checkpointGuid, reason, commitPosition, inputPosition);
+        }
+
+        [Event(72, Level = EventLevel.Informational, Version = 1)]
+        public void FasterCheckpointPersisted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(72, partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMilliseconds);
+        }
+
+        [Event(73, Level = EventLevel.Verbose, Version = 1)]
+        public void FasterLogPersisted(int partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(73, partitionId, commitPosition, numBytes, elapsedMilliseconds);
         }
 
         [Event(74, Level = EventLevel.Informational, Version = 1)]
-        public void FasterLogReplayed(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void FasterCheckpointLoaded(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(74, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
-        [Event(75, Level = EventLevel.Error, Version = 1)]
-        public void FasterStorageError(int partitionId, string operation, string details)
+        [Event(75, Level = EventLevel.Informational, Version = 1)]
+        public void FasterLogReplayed(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(75, partitionId, operation, details);
+            this.WriteEvent(75, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(76, Level = EventLevel.Error, Version = 1)]
-        public void FasterBlobStorageError(int partitionId, string operation, string details)
+        public void FasterStorageError(int partitionId, string operation, string details)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(76, partitionId, operation, details);
         }
 
-        [Event(77, Level = EventLevel.Verbose, Version = 1)]
+        [Event(77, Level = EventLevel.Error, Version = 1)]
+        public void FasterBlobStorageError(int partitionId, string operation, string blobName, string details)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(77, partitionId, operation, blobName, details);
+        }
+
+        [Event(78, Level = EventLevel.Warning, Version = 1)]
+        public void FasterBlobStorageWarning(int partitionId, string operation, string blobName, string details)
+        {
+            SetCurrentThreadActivityId(hostId);
+            this.WriteEvent(78, partitionId, operation, blobName, details);
+        }
+
+        [Event(79, Level = EventLevel.Verbose, Version = 1)]
         public void FasterProgress(int partitionId, string operation)
         {
             SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(77, partitionId, operation);
+            this.WriteEvent(79, partitionId, operation);
         }
 
         // ----- lease management events
@@ -220,7 +234,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(91, partitionId);
         }
 
-        [Event(92, Level = EventLevel.Error, Version = 1)]
+        [Event(92, Level = EventLevel.Warning, Version = 1)]
         public void LeaseLost(int partitionId, string operation)
         {
             SetCurrentThreadActivityId(hostId);

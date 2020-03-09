@@ -406,6 +406,25 @@ namespace DurableTask.EventSourced.Tests
         }
 
         /// <summary>
+        /// End-to-end test which validates the handling of an orchestration with very large input and output.
+        /// </summary>
+        [Fact]
+        public async Task LargeInputAndOutput()
+        {
+            var random = new Random();
+            var bytes = new byte[5 * 1024 * 1024];
+            random.NextBytes(bytes);
+
+            var client = await host.StartOrchestrationAsync(typeof(Orchestrations.EchoBytes), bytes);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            //Assert.Equal("World", JToken.Parse(status?.Input));
+            //Assert.Equal("Hello, World!", JToken.Parse(status?.Output));
+
+        }
+
+        /// <summary>
         /// End-to-end test which validates that orchestrations run concurrently of each other (up to 100 by default).
         /// </summary>
         [Fact]

@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ReportError(nameof(MemoryPartitionQueue), e);
+                partition.HandleError(nameof(MemoryPartitionQueue), e, true);
             }
         }
     }

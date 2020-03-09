@@ -26,6 +26,7 @@ using DurableTask.EventSourced.Emulated;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DurableTask.EventSourced.EventHubs
 {
@@ -37,22 +38,25 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly ILogger logger;
 
         private uint partitionId;
-        private CancellationTokenSource eventProcessorShutdown;
-        private Task<CurrentPartition> startupTask;
-        private Stopwatch timeSinceLastCheckpoint = new Stopwatch();
+        private CancellationTokenSource forcefulTermination;
 
-        private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> pending;
+        private Stopwatch timeSinceLastCheckpoint = new Stopwatch();
         private volatile Checkpoint pendingCheckpoint;
 
+        private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> pending;
+
+        private volatile Task<CurrentPartition> currentPartition;
+     
         /// <summary>
         /// The event processor can recover after exceptions, so we encapsulate
         /// the currently active partition
         /// </summary>
         private class CurrentPartition
         {
-            public StorageAbstraction.IPartitionState partitionState;
-            public TransportAbstraction.IPartition partition;
-            public ulong inputQueuePosition;
+            public Termination Termination;
+            public TransportAbstraction.IPartition Partition;
+            public Task<CurrentPartition> Next;
+            public ulong NextMessageToReceive;
         }
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
@@ -72,15 +76,15 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
             this.logger.LogInformation("Part{partition:D2} Starting EventProcessor", context.PartitionId);
-            this.eventProcessorShutdown = new CancellationTokenSource();
+            this.forcefulTermination = new CancellationTokenSource();
             this.partitionId = uint.Parse(context.PartitionId);
-            this.startupTask = this.StartPartition(TimeSpan.Zero);
+            this.currentPartition = this.StartPartitionAsync();
             return Task.CompletedTask;
         }
 
         public void Acknowledge(Event evt)
         {
-            while (this.pending.TryPeek(out var front) && front.evt.InputQueuePosition.Value <= evt.InputQueuePosition.Value)
+            while (this.pending.TryPeek(out var front) && front.evt.NextInputQueuePosition.Value <= evt.NextInputQueuePosition.Value)
             {
                 if (this.pending.TryDequeue(out var candidate))
                 {
@@ -93,78 +97,83 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        private async Task<CurrentPartition> StartPartition(TimeSpan delay)
+        private async Task<CurrentPartition> StartPartitionAsync(CurrentPartition prior = null)
         {
-            CurrentPartition current = new CurrentPartition();
-
-            if (delay > TimeSpan.Zero)
+            if (prior != null)
             {
+                await TaskHelpers.WaitForCancellationAsync(prior.Termination.Token);
+                this.currentPartition = prior.Next;
                 this.logger.LogDebug("Part{partition:D2} Waiting before restarting EventProcessor", this.partitionId);
-                await Task.Delay(delay, this.eventProcessorShutdown.Token);
+                await Task.Delay(TimeSpan.FromSeconds(12));
             }
 
-            current.partitionState = this.host.StorageProvider.CreatePartitionState();
-            current.partition = host.AddPartition(this.partitionId, current.partitionState, this.sender);
+            this.forcefulTermination.Token.ThrowIfCancellationRequested();
 
-            current.inputQueuePosition = await current.partition.StartAsync(this.eventProcessorShutdown.Token);
-            if (current.inputQueuePosition == 0)
-            {
-                // this taskhub started with a queue already having some start position, so adjust it accordingly
-                current.inputQueuePosition = (ulong)this.parameters.StartPositions[this.partitionId];
-            }
+            var c = new CurrentPartition();
+            c.Termination = new Termination(this.forcefulTermination.Token);
+            c.Next = this.StartPartitionAsync(c);
+            c.Partition = host.AddPartition(this.partitionId, this.sender);
+            c.NextMessageToReceive = await c.Partition.StartAsync(c.Termination, (ulong)this.parameters.StartPositions[this.partitionId]);
 
-            if (delay > TimeSpan.Zero)
-            {
-                this.logger.LogInformation("Part{partition:D2} Successfully started EventProcessor, next expected message is #{nextSeqno}", this.partitionId, current.inputQueuePosition);
-            }
+            var next = this.StartPartitionAsync(c);
 
-            // if this is a recovery, i.e. we failed prior to starting this partition, re-receive all pending batches
-            var batch = pending.Select(triple => triple.Item1).Where(evt => evt.InputQueuePosition > current.inputQueuePosition).ToList();
+            this.logger.LogInformation("Part{partition:D2} Successfully started EventProcessor, next expected message is #{nextSeqno}", this.partitionId, c.NextMessageToReceive);
 
+            // receive messages already sitting in the buffer
+            var batch = pending.Select(triple => triple.Item1).Where(evt => evt.NextInputQueuePosition > c.NextMessageToReceive).ToList();
             if (batch.Count > 0)
             {
-                current.inputQueuePosition = batch[batch.Count - 1].InputQueuePosition.Value;
-                current.partition.SubmitInputEvents(batch);
-                this.logger.LogDebug("Part{partition:D2} EventProcessor received {batchsize} messages, starting with #{seqno}, next expected message is #{nextSeqno}", this.partitionId, batch.Count, batch[0].InputQueuePosition - 1, current.inputQueuePosition);
+                c.NextMessageToReceive = batch[batch.Count - 1].NextInputQueuePosition.Value;
+                c.Partition.SubmitInputEvents(batch);
+                this.logger.LogDebug("Part{partition:D2} EventProcessor received {batchsize} messages, starting with #{seqno}, next expected message is #{nextSeqno}", this.partitionId, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextMessageToReceive);
             }
 
             timeSinceLastCheckpoint.Start();
-
-            return current;
+            return c;
         }
 
         async Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
         {
             this.logger.LogInformation("Part{partition:D2} Stopping EventProcessor for partition", this.partitionId);
-            this.eventProcessorShutdown.Cancel();
 
-            CurrentPartition current = null;
+            var currentTask = this.currentPartition;
+
+            if (! currentTask.IsCompleted)
+            {
+                this.forcefulTermination.Cancel();
+            }
 
             try
             {
-                current = await this.startupTask; // must wait for startup to complete (or fault, or be canceled)
+                CurrentPartition current = await this.currentPartition;
 
-                await current.partition.StopAsync();
-
-                var checkpoint = this.pendingCheckpoint;
-                if (checkpoint != null)
+                while (current.Termination.IsTerminated)
                 {
-                    this.pendingCheckpoint = null;
-                    this.logger.LogInformation("Part{partition:D2} EventProcessor is checkpointing messages received through #{seqno}", this.partitionId, checkpoint.SequenceNumber);
-                    await context.CheckpointAsync(checkpoint);
+                    current = await current.Next;               
                 }
 
-                this.logger.LogInformation("Part{partition:D2} Successfully stopped EventProcessor", this.partitionId);
-            }
-            catch (OperationCanceledException) when (this.eventProcessorShutdown.IsCancellationRequested)
-            {
-                this.logger.LogInformation("Part{partition:D2} EventProcessor was cancelled or lost lease", context.PartitionId);
-            }
-            catch (Exception e)
-            {
-                this.logger.LogError(e, "Part{partition:D2} Error while stopping EventProcessor", this.partitionId);
+                await current.Partition.StopAsync();
 
-                throw;
+                this.logger.LogInformation("Part{partition:D2} Cleanly stopped EventProcessor", this.partitionId);
+            }
+            catch(OperationCanceledException)
+            {
+                this.logger.LogInformation("Part{partition:D2} Terminated EventProcessor", this.partitionId);
+            }
+
+            await WriteLastCompletedCheckpoint(context);
+
+            this.logger.LogInformation("Part{partition:D2} Stopped EventProcessor for partition", this.partitionId);
+        }
+
+        private async ValueTask WriteLastCompletedCheckpoint(PartitionContext context)
+        {
+            var checkpoint = this.pendingCheckpoint;
+            if (checkpoint != null)
+            {
+                this.pendingCheckpoint = null;
+                this.logger.LogInformation("Part{partition:D2} EventProcessor is checkpointing messages received through #{seqno}", this.partitionId, checkpoint.SequenceNumber);
+                await context.CheckpointAsync(checkpoint);
             }
         }
 
@@ -175,31 +184,37 @@ namespace DurableTask.EventSourced.EventHubs
             return Task.FromResult<object>(null);
         }
 
-
         async Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> messages)
         {
+            CurrentPartition current = null;
+
             try
             {
-                var current = await this.startupTask; // must wait for startup to complete (or fault, or be canceled)
+                current = await this.currentPartition;
 
+                while (current.Termination.IsTerminated)
+                {
+                    current = await current.Next;
+                }
+                
                 var batch = new List<PartitionEvent>();
 
                 foreach (var eventData in messages)
                 {
                     var seqno = (ulong)eventData.SystemProperties.SequenceNumber;
-                    if (seqno == current.inputQueuePosition)
+                    if (seqno == current.NextMessageToReceive)
                     {
                         this.logger.LogTrace("Part{partition:D2} EventProcessor received message #{seqno}", this.partitionId, seqno);
                         var evt = (PartitionEvent)Serializer.DeserializeEvent(eventData.Body);
-                        current.inputQueuePosition = seqno + 1;
-                        evt.InputQueuePosition = current.inputQueuePosition;
+                        current.NextMessageToReceive = seqno + 1;
+                        evt.NextInputQueuePosition = current.NextMessageToReceive;
                         batch.Add(evt);
                         pending.Enqueue((evt, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                         AckListeners.Register(evt, this);
                     }
-                    else if (seqno > current.inputQueuePosition)
+                    else if (seqno > current.NextMessageToReceive)
                     {
-                        this.logger.LogError("Part{partition:D2} EventProcessor received wrong message, #{seqno} instead of #{expected}", this.partitionId, seqno, current.inputQueuePosition);
+                        this.logger.LogError("Part{partition:D2} EventProcessor received wrong message, #{seqno} instead of #{expected}", this.partitionId, seqno, current.NextMessageToReceive);
                         throw new InvalidOperationException("EventHubs Out-Of-Order Message");
                     }
                     else
@@ -210,35 +225,24 @@ namespace DurableTask.EventSourced.EventHubs
 
                 if (batch.Count > 0)
                 {
-                    this.logger.LogDebug("Part{partition:D2} EventProcessor received {batchsize} messages, starting with #{seqno}, next expected message is #{nextSeqno}", this.partitionId, batch.Count, batch[0].InputQueuePosition - 1, current.inputQueuePosition);
-                    current.partition.SubmitInputEvents(batch);
+                    this.logger.LogDebug("Part{partition:D2} EventProcessor received {batchsize} messages, starting with #{seqno}, next expected message is #{nextSeqno}", this.partitionId, batch.Count, batch[0].NextInputQueuePosition - 1, current.NextMessageToReceive);
+                    current.Partition.SubmitInputEvents(batch);
                 }
 
-                current.partitionState.OwnershipCancellationToken.ThrowIfCancellationRequested();
-
-                var checkpoint = this.pendingCheckpoint;
-                if (checkpoint != null)
-                {
-                    this.pendingCheckpoint = null;
-                    this.logger.LogInformation("Part{partition:D2} EventProcessor is checkpointing messages received through #{seqno}", this.partitionId, checkpoint.SequenceNumber);
-                    await context.CheckpointAsync(checkpoint);
-                }
+                await this.WriteLastCompletedCheckpoint(context);
 
                 return;
             }
             catch (OperationCanceledException)
             {
                 this.logger.LogInformation("Part{partition:D2} EventProcessor was cancelled or lost lease", context.PartitionId);
+                throw;
             }
             catch (Exception exception)
             {
                 this.logger.LogError("Part{partition:D2} Error while processing messages : {exception}", context.PartitionId, exception);
-            }
-
-            // retry in a bit
-            if (!this.eventProcessorShutdown.IsCancellationRequested)
-            {
-                this.startupTask = StartPartition(TimeSpan.FromSeconds(10));
+                current?.Termination.Terminate("error in event processor");
+                throw;
             }
         }
     }

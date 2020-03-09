@@ -39,11 +39,11 @@ namespace DurableTask.EventSourced
             this.GetOrAdd(TrackedObjectKey.Sessions);
             this.GetOrAdd(TrackedObjectKey.Timers);
         }
-        public CancellationToken OwnershipCancellationToken => CancellationToken.None;
+        public CancellationToken Termination => CancellationToken.None;
 
         public void Submit(PartitionEvent entry)
         {
-            entry.CommitLogPosition = nextSubmitPosition++;
+            entry.NextCommitLogPosition = nextSubmitPosition++;
             base.Submit(entry);
         }
 
@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced
         {
             foreach (var entry in entries)
             {
-                entry.CommitLogPosition = nextSubmitPosition++;
+                entry.NextCommitLogPosition = nextSubmitPosition++;
             }
 
             base.SubmitIncomingBatch(entries);
@@ -62,7 +62,7 @@ namespace DurableTask.EventSourced
             this.Submit(readContinuation);
         }
 
-        public Task<ulong> CreateOrRestoreAsync(Partition partition, CancellationToken token)
+        public Task<ulong> CreateOrRestoreAsync(Partition partition, Termination termination, ulong initialInputQueuePosition)
         {
             this.partition = partition;
 
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             return Task.FromResult(0UL);
         }
 
-        public Task PersistAndShutdownAsync(bool takeFinalStateCheckpoint)
+        public Task CleanShutdown(bool takeFinalStateCheckpoint)
         {
             return Task.Delay(10);
         }
@@ -124,7 +124,7 @@ namespace DurableTask.EventSourced
                             partition.Assert(o is IPartitionEventWithSideEffects);
                             var partitionEvent = (PartitionEvent)o;
 
-                            partitionEvent.CommitLogPosition = nextCommitPosition++;
+                            partitionEvent.NextCommitLogPosition = nextCommitPosition++;
                             partition.TraceProcess(partitionEvent, false);
                             effects.Effect = partitionEvent;
 
@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced
                     }
                     catch(Exception e)
                     {
-                        partition.ReportError($"error while processing event {o}", e);
+                        partition.HandleError($"error while processing event {o}", e, true);
                     }
                 }
             }

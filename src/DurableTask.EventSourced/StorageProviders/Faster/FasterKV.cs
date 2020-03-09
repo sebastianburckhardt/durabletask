@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,15 +13,21 @@ using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV : FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>, IDisposable
+    internal class FasterKV
     {
+        private FasterKV<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> fht;
+
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private readonly CancellationTokenSource shutdown;
         private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> mainSession;
+        private readonly CancellationToken terminationToken;
 
         public FasterKV(Partition partition, BlobManager blobManager)
-            : base(
+        {
+            this.partition = partition;
+            this.blobManager = blobManager;
+ 
+            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>(
                 1L << 16,
                 new Functions(partition),
                 blobManager.StoreLogSettings,
@@ -29,23 +36,171 @@ namespace DurableTask.EventSourced.Faster
                 {
                     keySerializer = () => new Key.Serializer(),
                     valueSerializer = () => new Value.Serializer(),
-                })
-        {
-            this.partition = partition;
-            this.blobManager = blobManager;
-            this.shutdown = new CancellationTokenSource();
-            this.mainSession = this.NewSession();
+                });
+            this.mainSession = fht.NewSession();
+
+            this.terminationToken = blobManager.Termination.Token;
+
+            var _ = terminationToken.Register(
+                () => {
+                    try
+                    {
+                        this.mainSession.Dispose();
+                        fht.Dispose();
+                        this.blobManager.HybridLogDevice.Close();
+                        this.blobManager.ObjectLogDevice.Close();
+                    }
+                    catch(Exception e)
+                    {
+                        this.blobManager.TraceHelper.FasterStorageError("Disposing FasterKV", e);
+                    }
+                }, 
+                useSynchronizationContext: false);
+
+            this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV.");
         }
 
-        public new void Dispose()
+        
+        public void Recover()
         {
-            shutdown.Cancel();
-            this.mainSession.Dispose();
-            base.Dispose();
-            this.blobManager.HybridLogDevice.Close();
-            this.blobManager.ObjectLogDevice.Close();
+            this.fht.Recover();
         }
 
+        public void CompletePending()
+        {
+            this.mainSession.CompletePending(false, false);
+        }
+
+        public bool TakeFullCheckpoint(out Guid checkpointGuid)
+        {
+            return this.fht.TakeFullCheckpoint(out checkpointGuid);
+        }
+
+        public ValueTask CompleteCheckpointAsync()
+        {
+            return this.fht.CompleteCheckpointAsync(this.terminationToken);
+        }
+
+        public Guid StartIndexCheckpoint()
+        {
+            bool success = this.fht.TakeIndexCheckpoint(out var token);
+
+            if (!success)
+                throw new InvalidOperationException("Faster refused index checkpoint");
+
+            return token;
+        }
+
+        public Guid StartStoreCheckpoint()
+        {
+            bool success = this.fht.TakeHybridLogCheckpoint(out var token);
+
+            if (!success)
+                throw new InvalidOperationException("Faster refused store checkpoint");
+
+            // according to Badrish this ensures proper fencing w.r.t. session
+            this.mainSession.Refresh();
+
+            return token;
+        }
+
+        public EffectTracker NoInput = null;
+
+        // fast path read, synchronous, on the main session
+        public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        {
+            FasterKV.Key key = readContinuation.ReadTarget;
+            TrackedObject target = null;
+
+            // try to read directly (fast path)
+            var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
+
+            switch (status)
+            {
+                case Status.NOTFOUND:
+                case Status.OK:
+                    ExecuteRead(readContinuation, partition, target);
+                    break;
+
+                case Status.PENDING:
+                    // read continuation will be called when complete
+                    break;
+
+                case Status.ERROR:
+                    throw new Exception("Faster"); //TODO
+            }
+        }
+
+        private static void ExecuteRead(StorageAbstraction.IReadContinuation readContinuation, Partition partition, TrackedObject target)
+        {
+            var partitionEvent = readContinuation as PartitionEvent;
+
+            if (partitionEvent != null)
+            {
+                partition.TraceProcess(partitionEvent, false);
+            }
+
+            readContinuation.OnReadComplete(target);
+
+            if (partitionEvent != null)
+            {
+                partition.DetailTracer?.TraceDetail("finished processing read event");
+                Partition.ClearTraceContext();
+            }
+        }
+
+         // retrieve or create the tracked object, asynchronously if necessary, on the main session
+        public async ValueTask<TrackedObject> GetOrCreate(Key key)
+        {
+            var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.terminationToken);
+            if (status == Status.NOTFOUND)
+            {
+                target = TrackedObjectKey.Factory(key);
+                await this.mainSession.UpsertAsync(key, target, false, this.terminationToken);
+            }
+            else if (status != Status.OK)
+            {
+                throw new Exception("Faster"); //TODO
+            }
+
+            target.Partition = this.partition;
+            return target;
+        }
+
+        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
+        {
+            return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
+        }
+
+        public async Task<StateDump> DumpCurrentState()
+        {
+            var result = new StateDump();
+            var keysToLookup = new HashSet<TrackedObjectKey>();
+
+            // get the set of keys appearing in the log
+            using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
+            {
+                while (iter1.GetNext(out RecordInfo recordInfo))
+                {
+                    keysToLookup.Add(iter1.GetKey().Val);
+                }
+            }
+
+            // read the current value of each
+            foreach (var k in keysToLookup)
+            {
+                Key key = k;
+                TrackedObject target = null;
+                var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
+                if (status == Status.OK)
+                {
+                    result.OnReadComplete(target);
+                }
+            }
+
+            await this.mainSession.CompletePendingAsync(true, this.terminationToken);
+            return result;
+        }
         public struct Key : IFasterEqualityComparer<Key>
         {
             public TrackedObjectKey Val;
@@ -140,109 +295,6 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
             }
-        }
-
-        public EffectTracker NoInput = null; 
-
-        // fast path read, synchronous, on the main session
-        public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
-        {
-            FasterKV.Key key = readContinuation.ReadTarget;
-            TrackedObject target = null;
-
-            // try to read directly (fast path)
-            var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
-
-            switch (status)
-            {
-                case Status.NOTFOUND:
-                case Status.OK:
-                    ExecuteRead(readContinuation, partition, target);
-                    break;
-
-                case Status.PENDING:
-                    // read continuation will be called when complete
-                    break;
-
-                case Status.ERROR:
-                    throw new Exception("Faster"); //TODO
-            }
-        }
-
-        private static void ExecuteRead(StorageAbstraction.IReadContinuation readContinuation, Partition partition, TrackedObject target)
-        {
-            var partitionEvent = readContinuation as PartitionEvent;
-
-            if (partitionEvent != null)
-            {
-                partition.TraceProcess(partitionEvent, false);
-            }
-
-            readContinuation.OnReadComplete(target);
-
-            if (partitionEvent != null)
-            {
-                partition.DetailTracer?.TraceDetail("finished processing read event");
-                Partition.ClearTraceContext();
-            }
-        }
-
-        public void CompletePending()
-        {
-            this.mainSession.CompletePending(false);
-        }
-
-        // retrieve or create the tracked object, asynchronously if necessary, on the main session
-        public async ValueTask<TrackedObject> GetOrCreate(Key key)
-        {
-            var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.shutdown.Token);
-            if (status == Status.NOTFOUND)
-            {
-                target = TrackedObjectKey.Factory(key);
-                await this.mainSession.UpsertAsync(key, target, false, this.shutdown.Token);
-            }
-            else if (status != Status.OK)
-            {
-                throw new Exception("Faster"); //TODO
-            }
-
-            target.Partition = this.partition;
-            return target;
-        }
-
-        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
-        {
-            return this.mainSession.RMWAsync(k, tracker, false, this.shutdown.Token);
-        }
-
-        public async Task<StateDump> DumpCurrentState()
-        {
-            var result = new StateDump();
-            var keysToLookup = new HashSet<TrackedObjectKey>();
-
-            // get the set of keys appearing in the log
-            using (var iter1 = this.Log.Scan(this.Log.BeginAddress, this.Log.TailAddress))
-            {
-                while (iter1.GetNext(out RecordInfo recordInfo))
-                {
-                    keysToLookup.Add(iter1.GetKey().Val);
-                }
-            }
-
-            // read the current value of each
-            foreach (var k in keysToLookup)
-            {
-                Key key = k;
-                TrackedObject target = null;
-                var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
-                if (status == Status.OK)
-                {
-                    result.OnReadComplete(target);
-                }
-            }
-
-            await this.mainSession.CompletePendingAsync();
-            return result;
         }
 
         public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation>

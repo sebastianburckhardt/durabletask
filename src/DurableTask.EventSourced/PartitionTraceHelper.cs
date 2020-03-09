@@ -11,6 +11,7 @@
 //  ----------------------------------------------------------------------------------
 
 using Dynamitey;
+using FASTER.core;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
@@ -24,27 +25,46 @@ namespace DurableTask.EventSourced
         [ThreadStatic]
         public static (ulong?,string) TraceContext = (null, string.Empty);
 
-        public void ReportError(string context, Exception exception)
+        public void TraceError(string context, Exception exception, bool isFatal)
         {
             if (this.logger.IsEnabled(LogLevel.Error))
             {
-                this.logger.LogError("Part{partition:D2} !!! Exception in {context}: {exception}", this.PartitionId, context, exception);
+                this.logger.LogError("Part{partition:D2} !!! Error in {context}: {exception} isFatal={isFatal}", this.PartitionId, context, exception, isFatal);
             }
             if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.PartitionErrorReported((int) this.PartitionId, context, exception.GetType().Name, exception.Message);
+                EtwSource.Log.PartitionErrorReported((int) this.PartitionId, context, isFatal, exception.Message, exception.ToString());
             }
+        }
+
+        public void TraceError(string context, string message, bool isFatal)
+        {
+            if (this.logger.IsEnabled(LogLevel.Error))
+            {
+                this.logger.LogError("Part{partition:D2} !!! Error in {context}: {message} isFatal={isFatal}", this.PartitionId, context, message, isFatal);
+            }
+            if (EtwSource.Log.IsEnabled())
+            {
+                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, context, isFatal, message, string.Empty);
+            }
+        }
+
+        public Partition DetailTracer => (this.logger.IsEnabled(LogLevel.Debug)) ? this : null;
+
+        public static void ClearTraceContext()
+        {
+            TraceContext = (null, string.Empty);
         }
 
         public void TraceProcess(PartitionEvent evt, bool replaying)
         {
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                var context = evt.CommitLogPosition.HasValue ? $".{evt.CommitLogPosition.Value:D10}" : "";
+                var context = evt.NextCommitLogPosition.HasValue ? $".{evt.NextCommitLogPosition.Value:D10}" : "";
                 var verb = replaying ? "Replaying" : "Processing";
-                if (evt.InputQueuePosition.HasValue)
+                if (evt.NextInputQueuePosition.HasValue)
                 {
-                    this.logger.LogDebug("Part{partition:D2}{context} {verb} external event {event} {inputQueuePosition} {workItem}", this.PartitionId, context, verb, evt, evt.InputQueuePosition, evt.WorkItem);
+                    this.logger.LogDebug("Part{partition:D2}{context} {verb} external event {event} {inputQueuePosition} {workItem}", this.PartitionId, context, verb, evt, evt.NextInputQueuePosition, evt.WorkItem);
                 }
                 else
                 {
@@ -52,11 +72,11 @@ namespace DurableTask.EventSourced
                 }
 
                 // the events following this will be processed with the same prefix and additional indentation
-                Partition.TraceContext = (evt.CommitLogPosition, $"{context}   ");
+                Partition.TraceContext = (evt.NextCommitLogPosition, $"{context}   ");
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.CommitLogPosition ?? 0UL, evt.InputQueuePosition ?? 0UL, replaying, evt.WorkItem, evt.ToString());
+                EtwSource.Log.PartitionEventReceived((int)this.PartitionId, evt.NextCommitLogPosition ?? 0UL, evt.NextInputQueuePosition ?? 0UL, replaying, evt.WorkItem, evt.ToString());
             }
 
         }
@@ -73,37 +93,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public Partition DetailTracer => (this.logger.IsEnabled(LogLevel.Debug)) ? this : null;
-
         public void TraceDetail(string message)
         {
             this.logger.LogDebug("Part{partition:D2}{context} {message}", this.PartitionId, Partition.TraceContext.Item2, message);
 
             EtwSource.Log.PartitionDetail((int)this.PartitionId, Partition.TraceContext.Item1 ?? 0, message);
-        }
-
-        public static void ClearTraceContext()
-        {
-            TraceContext = (null, string.Empty);
-        }
-
-        [Conditional("DEBUG")]
-        public void Assert(bool condition)
-        {
-            if (!condition)
-            {
-                if (System.Diagnostics.Debugger.IsAttached)
-                {
-                    System.Diagnostics.Debugger.Break();
-                }
-
-                var stacktrace = System.Environment.StackTrace;
-
-                if (this.logger.IsEnabled(LogLevel.Error))
-                {
-                    this.logger.LogError("Part{partition:D2} !!! Assertion failed {stacktrace}", this.PartitionId, stacktrace);
-                }
-            }
         }
     }
 }

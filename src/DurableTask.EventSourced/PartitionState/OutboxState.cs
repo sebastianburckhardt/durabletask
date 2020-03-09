@@ -55,7 +55,7 @@ namespace DurableTask.EventSourced
         private void SendBatchOnceEventIsPersisted(PartitionEvent evt, EffectTracker effects, Batch batch)
         {
             // put the messages in the outbox where they are kept until actually sent
-            var commitPosition = (long)evt.CommitLogPosition.Value;
+            var commitPosition = (long)evt.NextCommitLogPosition.Value;
             this.Outbox[commitPosition] = batch;
             batch.Position = commitPosition;
             batch.Partition = this.Partition;
@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
 
         public void Acknowledge(Event evt)
         {
-            long commitPosition = (long)evt.CommitLogPosition.Value;
+            long commitPosition = (long)evt.NextCommitLogPosition.Value;
             this.Send(this.Outbox[commitPosition]);
         }
 

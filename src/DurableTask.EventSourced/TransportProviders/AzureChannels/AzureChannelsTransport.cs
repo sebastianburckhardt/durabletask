@@ -82,22 +82,22 @@ namespace DurableTask.EventSourced.AzureChannels
                 var partitionState = partitionStates[i] = this.host.StorageProvider.CreatePartitionState();
 
                 var partitionTransport = this.partitionTransports[i] = new Transport(
-                    this.settings, 
-                    this.shutdownTokenSource.Token, 
-                    "TaskHub", 
-                    i, 
+                    this.settings,
+                    this.shutdownTokenSource.Token,
+                    "TaskHub",
+                    i,
                     partitionState,
                     clientId,
-                    tableClient); 
+                    tableClient);
 
                 if (i == 0)
                 {
                     await partitionTransport.CreateTableIfNotExistAsync();
                 }
 
-                var partition = partitions[i] = this.host.AddPartition(i, partitionStates[i], partitionTransport.PartitionSender);
-                
-                await partition.StartAsync(CancellationToken.None);
+                var partition = partitions[i] = this.host.AddPartition(i, partitionTransport.PartitionSender);
+
+                await partition.StartAsync(new Termination(), 0);
             }
 
             // create a client
@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 this.shutdownTokenSource = null;
 
                 await this.client.StopAsync();
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.PersistAndShutdownAsync(this.settings.TakeStateCheckpointWhenStoppingPartition)));
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(this.settings.TakeStateCheckpointWhenStoppingPartition)));
             }
         }
     }

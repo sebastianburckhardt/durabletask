@@ -28,18 +28,21 @@ namespace DurableTask.EventSourced
 
             bool IsLast { get; }
 
-            ulong? CommitLogPosition { get; }
+            ulong? NextCommitLogPosition { get; }
         }
 
-        public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original, int FragmentSize)
+        public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original, int maxFragmentSize)
         {
+            if (segment.Count <= maxFragmentSize)
+                throw new ArgumentException(nameof(segment), "segment must be larger than max fragment size");
+
             var cohortId = Guid.NewGuid();
             var list = new List<IEventFragment>();
             int offset = segment.Offset;
             int length = segment.Count;
             while (length > 0)
             {
-                int portion = Math.Min(length, FragmentSize);
+                int portion = Math.Min(length, maxFragmentSize);
                 if (original is ClientEvent clientEvent)
                 {
                     list.Add(new ClientEventFragment()

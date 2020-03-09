@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 }
                 catch(Exception e)
                 {
-                    partition.ReportError("Failure in receive loop", e);
+                    partition.HandleError("Failure in receive loop", e, true);
                 }
             }
         }
@@ -119,7 +119,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
         protected override bool HandleFailedSend(Event evt, Exception exception)
         {
-            this.partition.ReportError($"could not send {evt}", exception);
+            this.partition.HandleError($"could not send {evt}", exception, false);
 
             if (evt.SafeToDuplicateInTransport())
             {
@@ -189,9 +189,9 @@ namespace DurableTask.EventSourced.AzureChannels
                 {
                     var content = Serializer.SerializeEvent(evt);
 
-                    string source = !evt.CommitLogPosition.HasValue ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
+                    string source = !evt.NextCommitLogPosition.HasValue ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
                     string destination = evt is PartitionEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
-                    long pos = evt.CommitLogPosition.HasValue ? (long) evt.CommitLogPosition.Value : Interlocked.Increment(ref position);
+                    long pos = evt.NextCommitLogPosition.HasValue ? (long) evt.NextCommitLogPosition.Value : Interlocked.Increment(ref position);
                     transport.Send(evt, source, destination, pos, content, evt.ToString());
                 }
             }

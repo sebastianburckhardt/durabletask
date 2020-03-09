@@ -25,41 +25,45 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class LogWorker : BatchWorker<PartitionEvent>
     {
+        private readonly BlobManager blobManager;
         private readonly FasterLog log;
         private readonly Partition partition;
         private readonly StoreWorker storeWorker;
-        private readonly TraceHelper traceHelper;
+        private readonly FasterTraceHelper traceHelper;
 
         private volatile TaskCompletionSource<bool> shutdownWaiter;
 
-        private bool IsShuttingDown => this.shutdownWaiter != null;
+        private bool IsShuttingDown => this.shutdownWaiter != null || this.cancellationToken.IsCancellationRequested;
 
-        public LogWorker(FasterLog log, Partition partition, StoreWorker storeWorker, TraceHelper traceHelper, CancellationToken ownershipCancellation)
-            : base(ownershipCancellation)
+        public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
+            : base(cancellationToken)
         {
+            this.blobManager = blobManager;
             this.log = log;
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
+
+            this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
 
-        public const byte completePacket = 0;
-        public const byte partialPacket = 1;
-        public const byte transportPacket = 2;
+        public const byte first = 0x1;
+        public const byte last = 0x2;
+        public const byte none = 0x0;
 
-        private const int maxFragmentSize = 50000; // TODO think about this, and sync it to Faster parameter
-        
+        private int maxFragmentSize;
+
         public override void Submit(PartitionEvent evt)
         {
             partition.Assert(evt is IPartitionEventWithSideEffects);
 
-            byte[] bytes = Serializer.SerializeEvent(evt, completePacket);
+            byte[] bytes = Serializer.SerializeEvent(evt, first | last);
 
             lock (this.thisLock)
             {
                 Enqueue(bytes);
 
-                evt.CommitLogPosition = (ulong)this.log.TailAddress;
+                evt.NextCommitLogPosition = (ulong)this.log.TailAddress;
 
                 // add to store worker (under lock for consistent ordering)
                 this.storeWorker.Submit(evt);
@@ -79,21 +83,19 @@ namespace DurableTask.EventSourced.Faster
 
         private void Enqueue(byte[] bytes)
         {
-            // append to faster log
-            try
+            if (bytes.Length <= maxFragmentSize)
             {
                 this.log.Enqueue(bytes);
             }
-            catch (FASTER.core.FasterException e) when (e.Message == "Entry does not fit on page")
+            else
             {
                 // the message is too big. Break it into fragments. 
                 int pos = 1;
                 while (pos < bytes.Length)
                 {
-
                     bool isLastFragment = 1 + bytes.Length - pos <= maxFragmentSize;
                     int packetSize = isLastFragment ? 1 + bytes.Length - pos : maxFragmentSize;
-                    bytes[pos - 1] = isLastFragment ? completePacket : partialPacket;
+                    bytes[pos - 1] = (byte)(((pos == 1) ? first : none) | (isLastFragment ? last : none));
                     this.log.Enqueue(new ReadOnlySpan<byte>(bytes, pos - 1, packetSize));
                     pos += packetSize - 1;
                 }
@@ -107,7 +109,9 @@ namespace DurableTask.EventSourced.Faster
             lock (this.thisLock)
             {
                 this.shutdownWaiter = new TaskCompletionSource<bool>();
-                base.Submit(null);
+
+                // use null as a marker, once Process reaches it, we know all current queue entries have been processed
+                base.Submit(null); 
             }
 
             await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
@@ -130,7 +134,7 @@ namespace DurableTask.EventSourced.Faster
                     await log.CommitAsync();
                     this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     this.traceHelper.FasterStorageError("persisting log", e);
                     throw;
@@ -152,12 +156,11 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                if (this.IsShuttingDown)
-                {
-                    // lets the caller know that shutdown did not successfully persist the latest log
-                    this.shutdownWaiter.TrySetException(e);
-                }
-            }      
+                this.traceHelper.FasterStorageError("LogWorker.Process", e);
+
+                // if this happens during shutdown let the waiter know
+                this.shutdownWaiter?.TrySetException(e);
+            }     
         }
 
         public async Task ReplayCommitLog(ulong from, StoreWorker worker)
@@ -181,35 +184,36 @@ namespace DurableTask.EventSourced.Faster
                         {
                             return;
                         }
-                        await iter.WaitAsync();
+                        await iter.WaitAsync(this.cancellationToken);
                     }
 
-                    if (result[0] == completePacket)
+                    if ((result[0] & first) != none)
                     {
-                        if (reassembly == null)
+                        if ((result[0] & last) != none)
                         {
                             partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
                         }
                         else
                         {
+                            reassembly = new MemoryStream();
                             reassembly.Write(result, 1, entryLength - 1);
-                            reassembly.Position = 0;
-                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
-                            reassembly = null;
                         }
                     }
                     else
                     {
-                        if (reassembly == null)
-                        {
-                            reassembly = new MemoryStream();
-                        }
                         reassembly.Write(result, 1, entryLength - 1);
-                    }
+
+                        if ((result[0] & last) != none)
+                        {
+                            reassembly.Position = 0;
+                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
+                            reassembly = null;
+                        }
+                    }                 
 
                     if (partitionEvent != null)
                     {
-                        partitionEvent.CommitLogPosition = (ulong)iter.NextAddress;
+                        partitionEvent.NextCommitLogPosition = (ulong)iter.NextAddress;
                         await worker.ProcessEvent(partitionEvent);
                     }
                 }

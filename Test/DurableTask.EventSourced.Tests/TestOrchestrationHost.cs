@@ -34,7 +34,13 @@ namespace DurableTask.EventSourced.Tests
         public TestOrchestrationHost(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.orchestrationService = new EventSourced.EventSourcedOrchestrationService(settings, loggerFactory);
-            orchestrationService.CreateAsync(TestHelpers.DeleteStorageBeforeRunningTests).GetAwaiter().GetResult();
+
+            if (TestHelpers.DeleteStorageBeforeRunningTests)
+            {
+                orchestrationService.DeleteAsync().GetAwaiter().GetResult();
+            }
+
+            orchestrationService.CreateAsync().GetAwaiter().GetResult();
 
             this.settings = settings;
 

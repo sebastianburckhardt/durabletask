@@ -37,6 +37,17 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public PartitionEvent ReassembledEvent;
 
+        protected override void TraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.Bytes.Length);
+            if (this.IsLast)
+            {
+                s.Append(" last");
+            }
+        }
+
+
         public void DetermineEffects(EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Reassembly);

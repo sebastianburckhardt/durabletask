@@ -52,16 +52,17 @@ namespace DurableTask.EventSourced
             /// Restore the state of a partition from storage, or create a new one if there is nothing stored.
             /// </summary>
             /// <param name="localPartition">The partition.</param>
-            /// <param name="token">A cancellation token for </param>
+            /// <param name="termination">A termination object to initiate and/or indicate termination of this partition</param>
+            /// <param name="firstInputQueuePosition">for new partitions, the position of the first message to receive</param>
             /// <returns>the input queue position from which to resume input processing</returns>
-            Task<ulong> CreateOrRestoreAsync(Partition localPartition, CancellationToken token);
+            Task<ulong> CreateOrRestoreAsync(Partition localPartition, Termination termination, ulong firstInputQueuePosition);
 
             /// <summary>
             /// Finish processing events and save the partition state to storage.
             /// </summary>
             /// <param name="takeFinalCheckpoint">Whether to take a final state checkpoint.</param>
             /// <returns>A task that completes when the state has been saved.</returns>
-            Task PersistAndShutdownAsync(bool takeFinalCheckpoint); 
+            Task CleanShutdown(bool takeFinalCheckpoint);
 
             /// <summary>
             /// Queues a single event for processing on this partition state.
@@ -80,12 +81,6 @@ namespace DurableTask.EventSourced
             /// </summary>
             /// <param name="readContinuation">The read operation to process.</param>
             void ScheduleRead(IReadContinuation readContinuation);
-
-            /// <summary>
-            /// Indicates unexpected loss of ownership for this partition. This can happen
-            /// when a remote host is taking over this partition and has taken the lease.
-            /// </summary>
-            CancellationToken OwnershipCancellationToken { get; }
         }
 
         /// <summary>

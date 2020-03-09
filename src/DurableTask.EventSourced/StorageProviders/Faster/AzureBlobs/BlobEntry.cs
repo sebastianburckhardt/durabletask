@@ -5,9 +5,10 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Azure.Storage.Blob;
 
-namespace FASTER.devices
+namespace DurableTask.EventSourced.Faster
 {
     // This class bundles a page blob object with a queue and a counter to ensure 
     // 1) BeginCreate is not called more than once
@@ -17,43 +18,35 @@ namespace FASTER.devices
     // In-progress creation is denoted by a null value on the underlying page blob
     class BlobEntry
     {
-        private CloudPageBlob pageBlob;
+        public CloudPageBlob PageBlob { get; private set; }
+        
         private ConcurrentQueue<Action<CloudPageBlob>> pendingWrites;
-        private CancellationToken ownershipCancellation;
+        private AzureStorageDevice azureStorageDevice;
         private int waitingCount;
 
         /// <summary>
         /// Creates a new BlobEntry to hold the given pageBlob. The pageBlob must already be created.
         /// </summary>
         /// <param name="pageBlob"></param>
-        /// <param name="ownershipCancellation"></param>
-        public BlobEntry(CloudPageBlob pageBlob, CancellationToken ownershipCancellation)
+        /// <param name="azureStorageDevice"></param>
+        public BlobEntry(CloudPageBlob pageBlob, AzureStorageDevice azureStorageDevice)
         {
-            this.pageBlob = pageBlob;
-            this.ownershipCancellation = ownershipCancellation;
+            this.PageBlob = pageBlob;
+            this.azureStorageDevice = azureStorageDevice;
             if (pageBlob == null)
             {
                 // Only need to allocate a queue when we potentially need to asynchronously create a blob
                 pendingWrites = new ConcurrentQueue<Action<CloudPageBlob>>();
                 waitingCount = 0;
             }
-
         }
+
         /// <summary>
         /// Creates a new BlobEntry, does not initialize a page blob. Use <see cref="CreateAsync(long, CloudPageBlob)"/>
         /// for actual creation.
         /// </summary>
-        public BlobEntry() : this(null, CancellationToken.None)
+        public BlobEntry(AzureStorageDevice azureStorageDevice) : this(null, azureStorageDevice)
         {
-        }
-
-        /// <summary>
-        /// Getter for the underlying <see cref="CloudPageBlob"/>
-        /// </summary>
-        /// <returns>the underlying <see cref="CloudPageBlob"/>, or null if there is none</returns>
-        public CloudPageBlob GetPageBlob()
-        {
-            return pageBlob;
         }
 
         /// <summary>
@@ -61,27 +54,22 @@ namespace FASTER.devices
         /// </summary>
         /// <param name="size">maximum size of the blob</param>
         /// <param name="pageBlob">The page blob to create</param>
-        public void CreateAsync(long size, CloudPageBlob pageBlob)
+        public async Task CreateAsync(long size, CloudPageBlob pageBlob)
         {
-            Debug.Assert(waitingCount == 0, "Create should be called on blobs that don't already exist and exactly once");
-            // Asynchronously create the blob
-            if (this.ownershipCancellation.IsCancellationRequested)
+            try
             {
-                return;
-            }
-            pageBlob.BeginCreate(size, ar =>
-            {
-                try
+                if (this.waitingCount != 0)
                 {
-                    pageBlob.EndCreate(ar);
+                    this.azureStorageDevice.BlobManager?.Warning("expect BlobEntry.CreateAsync to be called on blobs that don't already exist and exactly once", pageBlob);
                 }
-                catch (Exception e)
-                {
-                    Trace.TraceError(e.Message);
-                }
+
+                await pageBlob.CreateAsync(size,
+                    accessCondition: null, options: this.azureStorageDevice.BlobRequestOptions, operationContext: null, this.azureStorageDevice.Termination.Token);
+
                 // At this point the blob is fully created. After this line all consequent writers will write immediately. We just
                 // need to clear the queue of pending writers.
-                this.pageBlob = pageBlob;
+                this.PageBlob = pageBlob;
+
                 // Take a snapshot of the current waiting count. Exactly this many actions will be cleared.
                 // Swapping in -1 will inform any stragglers that we are not taking their actions and prompt them to retry (and call write directly)
                 int waitingCountSnapshot = Interlocked.Exchange(ref waitingCount, -1);
@@ -94,9 +82,15 @@ namespace FASTER.devices
                     while (!pendingWrites.TryDequeue(out action)) { }
                     action(pageBlob);
                 }
+
                 // Mark for deallocation for the GC
                 pendingWrites = null;
-            }, null);
+            }
+            catch (Exception e)
+            {
+                this.azureStorageDevice.BlobManager?.FatalError("could not create page blob", pageBlob, e);
+                throw;
+            }
         }
 
         /// <summary>
@@ -112,9 +106,12 @@ namespace FASTER.devices
             do
             {
                 currentCount = waitingCount;
+
                 // If current count became -1, creation is complete. New queue entries will not be processed and we must call the action ourselves.
                 if (currentCount == -1) return false;
+
             } while (Interlocked.CompareExchange(ref waitingCount, currentCount + 1, currentCount) != currentCount);
+
             // Enqueue last. The creation thread is obliged to wait until it has processed waitingCount many actions.
             // It is extremely unlikely that we will get scheduled out here anyways.
             pendingWrites.Enqueue(writeAction);

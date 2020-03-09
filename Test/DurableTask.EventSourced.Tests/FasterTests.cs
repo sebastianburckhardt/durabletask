@@ -52,15 +52,15 @@ namespace DurableTask.EventSourced.Tests
             var connectionString = TestHelpers.GetAzureStorageConnectionString();
 
             BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
-            var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0);
 
             await BlobManager.DeleteTaskhubStorageAsync(useAzure ? connectionString : null, taskHubName);
-            await blobManager.StartAsync();
-            await blobManager.AcquireOwnership(CancellationToken.None);
 
             // first, commit some number of random entries to the log and record the commit positions
-            using (var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager))
             {
+                var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0, new Termination());
+                await blobManager.StartAsync();
+                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
+
                 for (int i = 0; i < numEntries; i++)
                 {
                     var bytes = new Byte[1 + random.Next(maxBytesPerEntry)];
@@ -69,14 +69,19 @@ namespace DurableTask.EventSourced.Tests
                     positions.Add(log.Enqueue(entries[i]));
                 }
                 await log.CommitAsync();
+
+                await blobManager.StopAsync();
             }
 
             // then, read back all the entries, and compare position and content
-            int iterationCount = 0;
-            using (var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager))
             {
+                var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0, new Termination());
+                await blobManager.StartAsync();
+                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
+
+                int iterationCount = 0;
                 await Iterate(0, positions[positions.Count - 1]);
-                 
+
                 async Task Iterate(long from, long to)
                 {
                     using (var iter = log.Scan(from, to + 1))
@@ -112,11 +117,9 @@ namespace DurableTask.EventSourced.Tests
                         }
                     }
                 }
-            }
 
-            // shut down the blob manager so the leases get released
-            await blobManager.StopAsync();
+                await blobManager.StopAsync();
+            }
         }
     }
 }
-

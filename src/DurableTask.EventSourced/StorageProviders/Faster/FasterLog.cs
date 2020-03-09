@@ -14,17 +14,59 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using FASTER.core;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterLog : FASTER.core.FasterLog
-        
+    internal class FasterLog
     {
+        private readonly FASTER.core.FasterLog log;
+        private readonly CancellationToken terminationToken;
+
         public FasterLog(BlobManager blobManager)
-            : base(blobManager.EventLogSettings)
         {
+            this.log = new FASTER.core.FasterLog(blobManager.EventLogSettings);
+            this.terminationToken = blobManager.Termination.Token;
+
+            var _ = terminationToken.Register(
+              () => {
+                  try
+                  {
+                      this.log.Dispose();
+                      blobManager.EventLogDevice.Close();
+                  }
+                  catch (Exception e)
+                  {
+                      blobManager.TraceHelper.FasterStorageError("Disposing FasterLog", e);
+                  }
+              },
+              useSynchronizationContext: false);
         }
- 
+
+        public long BeginAddress => this.log.BeginAddress;
+        public long TailAddress => this.log.TailAddress;
+        public long CommittedUntilAddress => this.log.CommittedUntilAddress;
+
+        public long Enqueue(byte[] entry)
+        {
+            return this.log.Enqueue(entry);
+        }
+
+        public long Enqueue(ReadOnlySpan<byte> entry)
+        {
+            return this.log.Enqueue(entry);
+        }
+
+        public ValueTask CommitAsync()
+        {
+            return this.log.CommitAsync(this.terminationToken);
+        }
+
+        public FasterLogScanIterator Scan(long beginAddress, long endAddress)
+        {            
+            return this.log.Scan(beginAddress, endAddress); // used during recovery only
+        }
     }
 }

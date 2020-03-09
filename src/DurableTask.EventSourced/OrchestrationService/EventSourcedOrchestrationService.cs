@@ -248,9 +248,10 @@ namespace DurableTask.EventSourced
             return this.Client;
         }
 
-        TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, TransportAbstraction.ISender batchSender)
+        TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, TransportAbstraction.ISender batchSender)
         {
-            var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, state, batchSender, this.settings, this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.serviceShutdownSource.Token);
+            var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, batchSender, this.settings, 
+                this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue);
 
             EtwSource.Log.PartitionStarted((int)partitionId);
 

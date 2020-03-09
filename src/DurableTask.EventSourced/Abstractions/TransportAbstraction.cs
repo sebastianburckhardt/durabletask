@@ -10,6 +10,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Dynamitey.DynamicObjects;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -91,10 +92,9 @@ namespace DurableTask.EventSourced
             /// Places a partition on this host.
             /// </summary>
             /// <param name="partitionId">The partition id.</param>
-            /// <param name="state">The state of the partition.</param>
             /// <param name="batchSender">A sender for passing messages to the transport backend</param>
             /// <returns></returns>
-            IPartition AddPartition(uint partitionId, StorageAbstraction.IPartitionState state, ISender batchSender);
+            IPartition AddPartition(uint partitionId, ISender batchSender);
 
             /// <summary>
             /// Returns a logger for use by the transport backend.
@@ -115,14 +115,20 @@ namespace DurableTask.EventSourced
             /// <summary>
             /// Acquire partition ownership, recover partition state from storage, and resume processing.
             /// </summary>
-            /// <param name="token">A cancellation token to abort the start</param>
-            /// <returns>The input queue position from where to resume processing inputs.</returns>
-            Task<ulong> StartAsync(CancellationToken token);
+            /// <param name="termination">A termination object for initiating and/or detecting termination of the partition.</param>
+            /// <param name="firstInputQueuePosition">For new partitions, the position of the first message to receive.</param>
+            /// <returns>The input queue position of the next message to receive.</returns>
+            /// <remarks>
+            /// The termination token source can be used for immediately terminating the partition.
+            /// Also, it can be used to detect that the partition has terminated for any other reason, 
+            /// be it cleanly (after StopAsync) or uncleanly (after losing a lease or hitting a fatal error).
+            /// </remarks>
+            Task<ulong> StartAsync(Termination termination, ulong firstInputQueuePosition);
 
             /// <summary>
-            /// Stop processing, save partition state to storage, and release ownership.
+            /// Clean shutdown: stop processing, save partition state to storage, and release ownership.
             /// </summary>
-            /// <returns>When all steps have completed.</returns>
+            /// <returns>When all steps have completed and termination is performed.</returns>
             Task StopAsync();
 
             /// <summary>
@@ -138,11 +144,12 @@ namespace DurableTask.EventSourced
             void SubmitInputEvents(IEnumerable<PartitionEvent> inputBatch);
 
             /// <summary>
-            /// Indicates an observed error for diagnostic purposes.
+            /// Error handling for the partition.
             /// </summary>
             /// <param name="msg">A message describing the circumstances.</param>
             /// <param name="e">The exception that was observed.</param>
-            void ReportError(string msg, Exception e);
+            /// <param name="fatal">whether this partition should be terminated.</param>
+            void HandleError(string msg, Exception e, bool fatal);
         }
 
         /// <summary>
