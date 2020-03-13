@@ -186,16 +186,13 @@ namespace DurableTask.EventSourced
 
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
-            var session = this.Sessions[evt.InstanceId];
-
-            // the session may have been forcefully replaced by a new one
-            // (if the user replaced a running instance)
-            // we can recognize this situation because the session id will not match
-            // in that case, ignore the results of the processed batch
-            if (session.SessionId != evt.SessionId)
+            // our instance may already be obsolete if it has been forcefully replaced.
+            // This can manifest as the instance having disappeared, or as the current instance having
+            // a different session id
+            if (!this.Sessions.TryGetValue(evt.InstanceId, out var session) || session.SessionId != evt.SessionId)
             {
-                return;
-            }
+                return;           
+            };
 
             if (evt.ActivityMessages?.Count > 0)
             {
