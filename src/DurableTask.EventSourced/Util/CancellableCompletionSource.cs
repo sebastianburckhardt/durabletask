@@ -25,6 +25,7 @@ namespace DurableTask.EventSourced
 
         public CancellableCompletionSource(CancellationToken token1)
         {
+            token1.ThrowIfCancellationRequested();
             this.CancellationRegistration = token1.Register(this.TrySetCanceled);
         }
 

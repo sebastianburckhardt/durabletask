@@ -51,19 +51,19 @@ namespace DurableTask.EventSourced.Faster
             return BlobManager.DeleteTaskhubStorageAsync(connectionString, taskHubName);
         }
 
-        public async Task<ulong> CreateOrRestoreAsync(Partition partition, Termination termination, ulong firstInputQueuePosition)
+        public async Task<ulong> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition)
         {
             this.partition = partition;
-            this.terminationToken = termination.Token;
+            this.terminationToken = errorHandler.Token;
 
-            this.TraceHelper = new FasterTraceHelper(this.logger, (int) partition.PartitionId);
+            this.TraceHelper = new FasterTraceHelper(this.logger, (int)partition.PartitionId);
 
             if (this.connectionString == UseLocalFileStorage)
             {
                 BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
             }
 
-            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, this.logger, partition.PartitionId, termination);
+            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, this.logger, partition.PartitionId, errorHandler);
 
             await blobManager.StartAsync();
 
@@ -81,9 +81,9 @@ namespace DurableTask.EventSourced.Faster
                 // take an (empty) checkpoint immediately to ensure the paths are working
                 try
                 {
-                   this.TraceHelper.FasterProgress("creating store");
+                    this.TraceHelper.FasterProgress("creating store");
 
-                   // this is a fresh partition
+                    // this is a fresh partition
                     await storeWorker.Initialize(firstInputQueuePosition);
 
                     await this.TakeCheckpointAsync("initial checkpoint");
@@ -100,7 +100,7 @@ namespace DurableTask.EventSourced.Faster
             else
             {
                 this.TraceHelper.FasterProgress("loading checkpoint");
-               
+
                 try
                 {
                     // we are recovering the last checkpoint of the store
@@ -109,7 +109,7 @@ namespace DurableTask.EventSourced.Faster
 
                     this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     this.TraceHelper.FasterStorageError("loading checkpoint", e);
                     throw;
@@ -152,7 +152,7 @@ namespace DurableTask.EventSourced.Faster
         public async Task CleanShutdown(bool takeFinalCheckpoint)
         {
             this.TraceHelper.FasterProgress("stopping workers");
-
+            
             // in parallel, finish processing log requests and stop processing store requests
             Task t1 = this.logWorker.PersistAndShutdownAsync();
             Task t2 = this.storeWorker.CancelAndShutdown();

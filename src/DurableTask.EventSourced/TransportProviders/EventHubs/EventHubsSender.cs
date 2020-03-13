@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.EventHubs
         }
    
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
-        private const int maxFragmentSize = 64 * 1024; // EH can handle more than this, but let's not go close to the limit
+        private const int maxFragmentSize = 500 * 1024; // account for very non-optimal serialization of event
         private MemoryStream stream = new MemoryStream();
 
         protected override async Task Process(IList<Event> toSend)
@@ -89,6 +89,7 @@ namespace DurableTask.EventSourced.EventHubs
                         maybeSent = i;
                         foreach (var fragment in fragments)
                         {
+                            //TODO send bytes directly instead of as events (which causes significant space overhead)
                             stream.Seek(0, SeekOrigin.Begin);
                             Serializer.SerializeEvent((Event)fragment, stream);
                             await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position)));

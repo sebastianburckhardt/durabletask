@@ -50,6 +50,7 @@ namespace DurableTask.EventSourced.Tests
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
             var connectionString = TestHelpers.GetAzureStorageConnectionString();
+            var logger = loggerFactory.CreateLogger("faster");
 
             BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
 
@@ -57,7 +58,7 @@ namespace DurableTask.EventSourced.Tests
 
             // first, commit some number of random entries to the log and record the commit positions
             {
-                var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0, new Termination());
+                var blobManager = new BlobManager(connectionString, taskHubName, logger, 0, new PartitionErrorHandler(0, logger));
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
 
@@ -75,7 +76,7 @@ namespace DurableTask.EventSourced.Tests
 
             // then, read back all the entries, and compare position and content
             {
-                var blobManager = new BlobManager(connectionString, taskHubName, loggerFactory.CreateLogger("faster"), 0, new Termination());
+                var blobManager = new BlobManager(connectionString, taskHubName, logger, 0, new PartitionErrorHandler(0, logger));
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
 

@@ -89,19 +89,27 @@ namespace DurableTask.EventSourced.Faster
                 this.Notify();
             }
 
-            // waits for the currently processing entry to finish processing, or for termination
-            await Task.WhenAny(this.shutdownWaiter.Task, Task.Delay(-1, this.cancellationToken));
+            // waits for the currently processing entry to finish processing
+            await TaskHelpers.WaitForTaskOrCancellation(this.shutdownWaiter.Task, this.cancellationToken);
 
             await this.SaveCurrentPositions();
 
             this.traceHelper.FasterProgress("stopped StoreWorker");
         }
 
-        private ValueTask SaveCurrentPositions()
+        private async Task SaveCurrentPositions()
         {
-            // write back the queue and log positions
-            this.effects.Effect = this;
-            return store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
+            try
+            {
+                // write back the queue and log positions
+                this.effects.Effect = this;
+                await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
+            }
+            catch (Exception terminationException)
+                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.cancellationToken);
+            }
         }
 
         protected override async Task Process(IList<object> batch)
@@ -129,7 +137,7 @@ namespace DurableTask.EventSourced.Faster
                         }
                         catch (Exception readException)
                         {
-                            this.partition.HandleError($"Processing Read", readException, true);
+                            this.partition.ErrorHandler.HandleError("StoreWorker.Process", "Could not process read", readException, false, false);
                         }
                     }
                     else
@@ -171,12 +179,13 @@ namespace DurableTask.EventSourced.Faster
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync("index checkpoint", token);
                 }
             }
-            catch (Exception e)
+            catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
-                this.traceHelper.FasterStorageError("StoreWorker.Process", e);
-
-                // if this happens during shutdown let the waiter know
-                this.shutdownWaiter?.TrySetException(e);
+                // o.k during termination
+            }
+            catch (Exception exception)
+            {
+                this.partition.ErrorHandler.HandleError("StoreWorker.Process", "unexpected error", exception, true, false);
             }
         }     
 
@@ -244,10 +253,16 @@ namespace DurableTask.EventSourced.Faster
                 this.effects.Effect = null;
                 Partition.ClearTraceContext();
             }
-            catch (Exception updateException)
+            // convert various storage errors that happen during termination into a uniform OperationCanceledException
+            catch (Exception terminationException)
+                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
             {
-                this.partition.HandleError($"Processing Update", updateException, false);
-                throw;
+                throw new OperationCanceledException("partition was terminated", terminationException, this.cancellationToken);
+            }
+            // for robustness, swallow exceptions that occur while an event is processed 
+            catch (Exception updateException) when (!(updateException is OutOfMemoryException))
+            {
+                this.partition.ErrorHandler.HandleError(nameof(ProcessEvent), $"Processing Update {partitionEvent}", updateException, false, false);
             }
         }
     

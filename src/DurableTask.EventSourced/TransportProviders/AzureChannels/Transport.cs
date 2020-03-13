@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 }
                 catch(Exception e)
                 {
-                    partition.HandleError("Failure in receive loop", e, true);
+                    partition.ErrorHandler.HandleError(nameof(ReceiveLoopAsync), "Failure in receive loop", e, true, false);
                 }
             }
         }
@@ -119,7 +119,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
         protected override bool HandleFailedSend(Event evt, Exception exception)
         {
-            this.partition.HandleError($"could not send {evt}", exception, false);
+            this.partition.ErrorHandler.HandleError(nameof(HandleFailedSend), $"could not send {evt}", exception, false, false);
 
             if (evt.SafeToDuplicateInTransport())
             {

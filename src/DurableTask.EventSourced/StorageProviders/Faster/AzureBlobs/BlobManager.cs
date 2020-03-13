@@ -36,12 +36,11 @@ namespace DurableTask.EventSourced.Faster
         private readonly string connectionString;
         private readonly string containerName;
         private readonly uint partitionId;
+        private readonly CancellationTokenSource shutDownOrTermination;
 
         private CloudBlobContainer blobContainer;
         private CloudBlockBlob eventLogCommitBlob;
         private CloudBlobDirectory partitionDirectory;
-
-        private CancellationTokenSource shutDownOrTermination;
 
         private string LeaseId;
 
@@ -55,7 +54,7 @@ namespace DurableTask.EventSourced.Faster
         public IDevice HybridLogDevice { get; private set; }
         public IDevice ObjectLogDevice { get; private set; }
 
-        public Termination Termination { get; private set; }
+        public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
@@ -104,15 +103,15 @@ namespace DurableTask.EventSourced.Faster
         /// <param name="taskHubName">The name of the taskhub</param>
         /// <param name="logger">A logger for logging</param>
         /// <param name="partitionId">The partition id</param>
-        /// <param name="termination">A cancellation token source to initiate or indicate termination of this partition</param>
-        public BlobManager(string connectionString, string taskHubName, ILogger logger, uint partitionId, Termination termination)
+        /// <param name="errorHandler">A handler for errors encountered in this partition</param>
+        public BlobManager(string connectionString, string taskHubName, ILogger logger, uint partitionId, IPartitionErrorHandler errorHandler)
         {
             this.connectionString = connectionString;
             this.containerName = GetContainerName(taskHubName);
             this.partitionId = partitionId;
             this.TraceHelper = new FasterTraceHelper(logger, (int)partitionId);
-            this.Termination = termination;
-            this.shutDownOrTermination = CancellationTokenSource.CreateLinkedTokenSource(termination.Token);
+            this.PartitionErrorHandler = errorHandler;
+            this.shutDownOrTermination = CancellationTokenSource.CreateLinkedTokenSource(errorHandler.Token);
 
             if (!UseLocalFilesForTestingAndDebugging)
             {
@@ -175,17 +174,17 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void Warning(string message, CloudBlob blob, Exception e = null)
+        public void HandleBlobError(string where, string message, CloudBlob blob, Exception e, bool isFatal, bool isWarning)
         {
-            this.TraceHelper.FasterBlobStorageError(message, blob, e);
-        }
-
-        public void FatalError(string message, CloudBlob blob, Exception e = null)
-        {
-            this.TraceHelper.FasterBlobStorageError(message, blob, e);
-
-            // fatal error means everything stops.
-            this.Termination.Terminate($"fatal error: {message}");
+            if (isWarning)
+            {
+                this.TraceHelper.FasterBlobStorageWarning(message, blob, e);
+            }
+            else
+            {
+                this.TraceHelper.FasterBlobStorageError(message, blob, e);
+            }
+            this.PartitionErrorHandler.HandleError(where, $"storage error for blob {blob?.Name ?? ""}", e, isFatal, isWarning);
         }
 
         // clean shutdown, wait for everything, then terminate
@@ -269,14 +268,14 @@ namespace DurableTask.EventSourced.Faster
         {
             var newLeaseTimer = new System.Diagnostics.Stopwatch();
 
-            while (!this.Termination.IsTerminated)
+            while (!this.PartitionErrorHandler.IsTerminated)
             {
                 try
                 {
                     newLeaseTimer.Restart();
 
                     this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null,
-                        accessCondition: null, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.Termination.Token);
+                        accessCondition: null, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
 
                     this.leaseTimer = newLeaseTimer;
 
@@ -289,7 +288,7 @@ namespace DurableTask.EventSourced.Faster
                     // the previous owner has not released the lease yet, 
                     // try again until it becomes available, should be relatively soon
                     // as the transport layer is supposed to shut down the previous owner when starting this
-                    await Task.Delay(TimeSpan.FromSeconds(1), this.Termination.Token);
+                    await Task.Delay(TimeSpan.FromSeconds(1), this.PartitionErrorHandler.Token);
 
                     continue;
                 }
@@ -311,9 +310,7 @@ namespace DurableTask.EventSourced.Faster
                 }
                 catch (Exception e)
                 {
-                    // this partition is doomed. 
-                    this.TraceHelper.FasterStorageError("could not acquire lease", e);
-                    this.Termination.Terminate("lost lease");
+                    this.PartitionErrorHandler.HandleError(nameof(AcquireOwnership), "could not acquire lease", e, true, false);
                     throw;
                 }
             }
@@ -330,7 +327,7 @@ namespace DurableTask.EventSourced.Faster
             var nextLeaseTimer = new System.Diagnostics.Stopwatch();
             this.TraceHelper.LeaseProgress("renewing lease");
             nextLeaseTimer.Start();
-            await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.Termination.Token);
+            await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.PartitionErrorHandler.Token);
             this.leaseTimer = nextLeaseTimer;
             this.TraceHelper.LeaseProgress("renewed lease");
         }
@@ -359,18 +356,16 @@ namespace DurableTask.EventSourced.Faster
             catch (StorageException ex) when (LeaseConflict(ex))
             {
                 // We lost the lease to someone else. Terminate ownership immediately.
-                this.TraceHelper.LeaseLost("renew");
-                this.Termination.Terminate("lease lost");
+                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "lease lost", ex, true, true);
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterStorageError("could not maintain lease", e);
-                this.Termination.Terminate("could not maintain lease");
+                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "could not maintain lease", e, true, false);
             }
 
             // if this is a clean shutdown try to release the lease
             // otherwise leave it be and let it expire to protect straggling storage accesses
-            if (!this.Termination.IsTerminated)
+            if (!this.PartitionErrorHandler.IsTerminated)
             {
                 try
                 {
@@ -379,7 +374,7 @@ namespace DurableTask.EventSourced.Faster
                     AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
 
                     await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc,
-                        options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.Termination.Token);
+                        options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
 
                     this.TraceHelper.LeaseReleased();
                 }
@@ -398,7 +393,8 @@ namespace DurableTask.EventSourced.Faster
                 }
             }
 
-            this.Termination.Terminate("blob manager stopped");
+            this.PartitionErrorHandler.TerminateNormally();
+
             this.TraceHelper.LeaseProgress("blob manager stopped");
         }
 
@@ -447,7 +443,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
                     this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
-                    this.Termination.Terminate("lease lost");
+                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob, ex, true, this.PartitionErrorHandler.IsTerminated);
                     throw;
                 }
                 catch (Exception e)
@@ -483,7 +479,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
                     this.TraceHelper.LeaseLost(nameof(ILogCommitManager.GetCommitMetadata));
-                    this.Termination.Terminate("lease lost");
+                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob, ex, true, this.PartitionErrorHandler.IsTerminated);
                     throw;
                 }
                 catch (Exception e)

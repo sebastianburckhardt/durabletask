@@ -100,6 +100,12 @@ namespace DurableTask.EventSourced
             /// Returns a logger for use by the transport backend.
             /// </summary>
             ILogger TransportLogger { get; }
+
+            /// <summary>
+            /// Returns an error handler object for the given partition.
+            /// </summary>
+            /// <param name="partitionId">The partition id.</param>
+            IPartitionErrorHandler CreateErrorHandler(uint partitionId);
         }
 
         /// <summary>
@@ -123,7 +129,7 @@ namespace DurableTask.EventSourced
             /// Also, it can be used to detect that the partition has terminated for any other reason, 
             /// be it cleanly (after StopAsync) or uncleanly (after losing a lease or hitting a fatal error).
             /// </remarks>
-            Task<ulong> StartAsync(Termination termination, ulong firstInputQueuePosition);
+            Task<ulong> StartAsync(IPartitionErrorHandler termination, ulong firstInputQueuePosition);
 
             /// <summary>
             /// Clean shutdown: stop processing, save partition state to storage, and release ownership.
@@ -144,12 +150,9 @@ namespace DurableTask.EventSourced
             void SubmitInputEvents(IEnumerable<PartitionEvent> inputBatch);
 
             /// <summary>
-            /// Error handling for the partition.
+            /// The error handler for this partition.
             /// </summary>
-            /// <param name="msg">A message describing the circumstances.</param>
-            /// <param name="e">The exception that was observed.</param>
-            /// <param name="fatal">whether this partition should be terminated.</param>
-            void HandleError(string msg, Exception e, bool fatal);
+            IPartitionErrorHandler ErrorHandler { get; }
         }
 
         /// <summary>

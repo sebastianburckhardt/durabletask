@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Faster
                 });
             this.mainSession = fht.NewSession();
 
-            this.terminationToken = blobManager.Termination.Token;
+            this.terminationToken = partition.ErrorHandler.Token;
 
             var _ = terminationToken.Register(
                 () => {
@@ -63,45 +63,93 @@ namespace DurableTask.EventSourced.Faster
         
         public void Recover()
         {
-            this.fht.Recover();
+            try
+            {
+                this.fht.Recover();
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public void CompletePending()
         {
-            this.mainSession.CompletePending(false, false);
+            try
+            {
+                this.mainSession.CompletePending(false, false);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public bool TakeFullCheckpoint(out Guid checkpointGuid)
         {
-            return this.fht.TakeFullCheckpoint(out checkpointGuid);
+            try
+            {
+                return this.fht.TakeFullCheckpoint(out checkpointGuid);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
-        public ValueTask CompleteCheckpointAsync()
+        public async ValueTask CompleteCheckpointAsync()
         {
-            return this.fht.CompleteCheckpointAsync(this.terminationToken);
+            try
+            {
+                await this.fht.CompleteCheckpointAsync(this.terminationToken);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public Guid StartIndexCheckpoint()
         {
-            bool success = this.fht.TakeIndexCheckpoint(out var token);
+            try
+            {
+                bool success = this.fht.TakeIndexCheckpoint(out var token);
 
-            if (!success)
-                throw new InvalidOperationException("Faster refused index checkpoint");
+                if (!success)
+                    throw new InvalidOperationException("Faster refused index checkpoint");
 
-            return token;
+                return token;
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public Guid StartStoreCheckpoint()
         {
-            bool success = this.fht.TakeHybridLogCheckpoint(out var token);
+            try
+            {
+                bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 
-            if (!success)
-                throw new InvalidOperationException("Faster refused store checkpoint");
+                if (!success)
+                    throw new InvalidOperationException("Faster refused store checkpoint");
 
-            // according to Badrish this ensures proper fencing w.r.t. session
-            this.mainSession.Refresh();
+                // according to Badrish this ensures proper fencing w.r.t. session
+                this.mainSession.Refresh();
 
-            return token;
+                return token;
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public EffectTracker NoInput = null;
@@ -109,25 +157,33 @@ namespace DurableTask.EventSourced.Faster
         // fast path read, synchronous, on the main session
         public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
         {
-            FasterKV.Key key = readContinuation.ReadTarget;
-            TrackedObject target = null;
-
-            // try to read directly (fast path)
-            var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
-
-            switch (status)
+            try
             {
-                case Status.NOTFOUND:
-                case Status.OK:
-                    ExecuteRead(readContinuation, partition, target);
-                    break;
+                FasterKV.Key key = readContinuation.ReadTarget;
+                TrackedObject target = null;
 
-                case Status.PENDING:
-                    // read continuation will be called when complete
-                    break;
+                // try to read directly (fast path)
+                var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
 
-                case Status.ERROR:
-                    throw new Exception("Faster"); //TODO
+                switch (status)
+                {
+                    case Status.NOTFOUND:
+                    case Status.OK:
+                        ExecuteRead(readContinuation, partition, target);
+                        break;
+
+                    case Status.PENDING:
+                        // read continuation will be called when complete
+                        break;
+
+                    case Status.ERROR:
+                        throw new Exception("Faster"); //TODO
+                }
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
             }
         }
 
@@ -152,55 +208,74 @@ namespace DurableTask.EventSourced.Faster
          // retrieve or create the tracked object, asynchronously if necessary, on the main session
         public async ValueTask<TrackedObject> GetOrCreate(Key key)
         {
-            var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.terminationToken);
-            if (status == Status.NOTFOUND)
+            try
             {
-                target = TrackedObjectKey.Factory(key);
-                await this.mainSession.UpsertAsync(key, target, false, this.terminationToken);
-            }
-            else if (status != Status.OK)
-            {
-                throw new Exception("Faster"); //TODO
-            }
+                var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.terminationToken);
+                if (status == Status.NOTFOUND)
+                {
+                    target = TrackedObjectKey.Factory(key);
+                    await this.mainSession.UpsertAsync(key, target, false, this.terminationToken);
+                }
+                else if (status != Status.OK)
+                {
+                    throw new Exception("Faster"); //TODO
+                }
 
-            target.Partition = this.partition;
-            return target;
+                target.Partition = this.partition;
+                return target;
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
-        {
+        {       
+            // we are not wrapping termination exceptions on this one, rather do it in caller
+            // because we expect many calls to this while processing an event
             return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
         }
 
-        public async Task<StateDump> DumpCurrentState()
+        private async Task<StateDump> DumpCurrentState()
         {
-            var result = new StateDump();
-            var keysToLookup = new HashSet<TrackedObjectKey>();
-
-            // get the set of keys appearing in the log
-            using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
+            try
             {
-                while (iter1.GetNext(out RecordInfo recordInfo))
-                {
-                    keysToLookup.Add(iter1.GetKey().Val);
-                }
-            }
+                var result = new StateDump();
+                var keysToLookup = new HashSet<TrackedObjectKey>();
 
-            // read the current value of each
-            foreach (var k in keysToLookup)
+                // get the set of keys appearing in the log
+                using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
+                {
+                    while (iter1.GetNext(out RecordInfo recordInfo))
+                    {
+                        keysToLookup.Add(iter1.GetKey().Val);
+                    }
+                }
+
+                // read the current value of each
+                foreach (var k in keysToLookup)
+                {
+                    Key key = k;
+                    TrackedObject target = null;
+                    var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
+                    if (status == Status.OK)
+                    {
+                        result.OnReadComplete(target);
+                    }
+                }
+
+                await this.mainSession.CompletePendingAsync(true, this.terminationToken);
+                return result;
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
             {
-                Key key = k;
-                TrackedObject target = null;
-                var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
-                if (status == Status.OK)
-                {
-                    result.OnReadComplete(target);
-                }
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
             }
-
-            await this.mainSession.CompletePendingAsync(true, this.terminationToken);
-            return result;
         }
+
         public struct Key : IFasterEqualityComparer<Key>
         {
             public TrackedObjectKey Val;

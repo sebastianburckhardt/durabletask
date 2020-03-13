@@ -55,8 +55,8 @@ namespace DurableTask.EventSourced.Faster
 
         public override void Submit(PartitionEvent evt)
         {
-            partition.Assert(evt is IPartitionEventWithSideEffects);
-
+            partition.Assert(evt is IPartitionEventWithSideEffects);         
+            
             byte[] bytes = Serializer.SerializeEvent(evt, first | last);
 
             lock (this.thisLock)
@@ -65,10 +65,10 @@ namespace DurableTask.EventSourced.Faster
 
                 evt.NextCommitLogPosition = (ulong)this.log.TailAddress;
 
+                base.Submit(evt);
+
                 // add to store worker (under lock for consistent ordering)
                 this.storeWorker.Submit(evt);
-
-                base.Submit(evt);
             }
         }
 
@@ -114,7 +114,8 @@ namespace DurableTask.EventSourced.Faster
                 base.Submit(null); 
             }
 
-            await this.shutdownWaiter.Task; // waits for all the enqueued entries to be persisted
+            // wait for all the enqueued entries to be persisted
+            await TaskHelpers.WaitForTaskOrCancellation(this.shutdownWaiter.Task, this.cancellationToken); 
 
             this.traceHelper.FasterProgress("stopped LogWorker");
         }
@@ -129,16 +130,8 @@ namespace DurableTask.EventSourced.Faster
                 stopwatch.Start();
                 long previous = log.CommittedUntilAddress;
 
-                try
-                {
-                    await log.CommitAsync();
-                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
-                }
-                catch (Exception e)
-                {
-                    this.traceHelper.FasterStorageError("persisting log", e);
-                    throw;
-                }
+                await log.CommitAsync();
+                this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, log.CommittedUntilAddress - previous, stopwatch.ElapsedMilliseconds);
 
                 foreach (var evt in batch)
                 {
@@ -154,69 +147,78 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
             }
-            catch (Exception e)
+            catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
-                this.traceHelper.FasterStorageError("LogWorker.Process", e);
-
-                // if this happens during shutdown let the waiter know
-                this.shutdownWaiter?.TrySetException(e);
+                // o.k. during shutdown
+            }
+            catch (Exception e) when (!(e is OutOfMemoryException))
+            {
+                this.partition.ErrorHandler.HandleError("LogWorker.Process", "unexpected error", e, true, false);
             }     
         }
 
         public async Task ReplayCommitLog(ulong from, StoreWorker worker)
         {
-            var to = this.log.TailAddress;
-
-            using (var iter = log.Scan((long)from, to))
+            try
             {
-                byte[] result;
-                int entryLength;
-                long currentAddress;
-                MemoryStream reassembly = null;
+                var to = this.log.TailAddress;
 
-                while (true)
+                using (var iter = log.Scan((long)from, to))
                 {
-                    PartitionEvent partitionEvent = null;
+                    byte[] result;
+                    int entryLength;
+                    long currentAddress;
+                    MemoryStream reassembly = null;
 
-                    while (!iter.GetNext(out result, out entryLength, out currentAddress))
+                    while (!this.cancellationToken.IsCancellationRequested)
                     {
-                        if (currentAddress >= to)
+                        PartitionEvent partitionEvent = null;
+
+                        while (!iter.GetNext(out result, out entryLength, out currentAddress))
                         {
-                            return;
+                            if (currentAddress >= to)
+                            {
+                                return;
+                            }
+                            await iter.WaitAsync(this.cancellationToken);
                         }
-                        await iter.WaitAsync(this.cancellationToken);
-                    }
 
-                    if ((result[0] & first) != none)
-                    {
-                        if ((result[0] & last) != none)
+                        if ((result[0] & first) != none)
                         {
-                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
+                            if ((result[0] & last) != none)
+                            {
+                                partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
+                            }
+                            else
+                            {
+                                reassembly = new MemoryStream();
+                                reassembly.Write(result, 1, entryLength - 1);
+                            }
                         }
                         else
                         {
-                            reassembly = new MemoryStream();
                             reassembly.Write(result, 1, entryLength - 1);
-                        }
-                    }
-                    else
-                    {
-                        reassembly.Write(result, 1, entryLength - 1);
 
-                        if ((result[0] & last) != none)
+                            if ((result[0] & last) != none)
+                            {
+                                reassembly.Position = 0;
+                                partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
+                                reassembly = null;
+                            }
+                        }
+
+                        if (partitionEvent != null)
                         {
-                            reassembly.Position = 0;
-                            partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
-                            reassembly = null;
+                            partitionEvent.NextCommitLogPosition = (ulong)iter.NextAddress;
+                            await worker.ProcessEvent(partitionEvent);
                         }
-                    }                 
-
-                    if (partitionEvent != null)
-                    {
-                        partitionEvent.NextCommitLogPosition = (ulong)iter.NextAddress;
-                        await worker.ProcessEvent(partitionEvent);
                     }
                 }
+            }
+            catch (Exception terminationException)
+                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.partition.ErrorHandler.Token);
             }
         }
     }

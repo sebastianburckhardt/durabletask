@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly string blobName;
         private readonly bool underLease;
 
-        internal Termination Termination { get; private set; }
+        internal IPartitionErrorHandler PartitionErrorHandler { get; private set; }
         internal BlobRequestOptions BlobRequestOptions { get; private set; }
 
         // Page Blobs permit blobs of max size 8 TB, but the emulator permits only 2 GB
@@ -52,7 +52,7 @@ namespace DurableTask.EventSourced.Faster
             this.blobs = new ConcurrentDictionary<int, BlobEntry>();
             this.blobDirectory = blobDirectory;
             this.blobName = blobName;
-            this.Termination = blobManager.Termination;
+            this.PartitionErrorHandler = blobManager.PartitionErrorHandler;
             this.BlobManager = blobManager;
             this.underLease = underLease;
             this.BlobRequestOptions = underLease ? blobManager.BlobRequestOptionsUnderLease : blobManager.BlobRequestOptionsNotUnderLease; 
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.Faster
                     this.BlobManager.ConfirmLeaseIsGoodForAWhile();
                 }
 
-                if (!Termination.IsTerminated)
+                if (!this.PartitionErrorHandler.IsTerminated)
                 {
                     pageBlob.BeginDelete(ar =>
                     {
@@ -153,8 +153,7 @@ namespace DurableTask.EventSourced.Faster
                         }
                         catch (Exception exception)
                         {
-                            // Can I do anything else other than printing out an error message?
-                            this.BlobManager?.Warning("could not remove page blob for segment", pageBlob, exception);
+                            this.BlobManager?.HandleBlobError(nameof(RemoveSegmentAsync), "could not remove page blob for segment", pageBlob, exception, false, true);
                         }
                         callback(ar);
                     }, result);
@@ -179,11 +178,11 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 await blob.WritePagesAsync(stream, destinationAddress + offset,
-                    contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.Termination.Token);
+                    contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
             }
             catch (Exception exception)
             {
-                this.BlobManager?.FatalError("could not write to page blob", blob, exception);
+                this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob, exception, true, this.PartitionErrorHandler.IsTerminated);
                 throw;
             }
             finally
@@ -207,7 +206,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                    accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.Termination.Token);
+                    accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
 
                 if (stream.Position != readLength)
                 {
@@ -216,7 +215,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception exception)
             {
-                this.BlobManager?.FatalError("could not read from page blob", blob, exception);
+                this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), "could not read from page blob", blob, exception, true, this.PartitionErrorHandler.IsTerminated);
                 throw;
             }
             finally
@@ -237,7 +236,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 var nonLoadedBlob = this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
                 var exception = new InvalidOperationException("Attempt to read a non-loaded segment");
-                this.BlobManager?.FatalError(exception.Message, nonLoadedBlob, exception);
+                this.BlobManager?.HandleBlobError(nameof(ReadAsync), exception.Message, nonLoadedBlob, exception, true, false);
                 throw exception;
             }
 

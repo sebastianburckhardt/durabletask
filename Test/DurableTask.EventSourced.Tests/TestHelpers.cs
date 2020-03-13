@@ -27,6 +27,7 @@ namespace DurableTask.EventSourced.Tests
                 StorageConnectionString = GetStorageConnectionString(),
                 TaskHubName = GetTestTaskHubName(),
                 TakeStateCheckpointWhenStoppingPartition = true,  // set to false for testing recovery from log
+                MaxLogDistanceBetweenCheckpointsInBytes = long.MaxValue,
             };
         }
 

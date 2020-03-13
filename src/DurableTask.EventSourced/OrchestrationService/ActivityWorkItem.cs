@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
             this.OriginPartition = partition.PartitionFunction(message.OrchestrationInstance.InstanceId);
             this.ActivityId = activityId;
             this.Id = activityId.ToString();
-            this.LockedUntilUtc = DateTime.MaxValue;
+            this.LockedUntilUtc = DateTime.MaxValue; // this backend does not require workitem lock renewals
             this.TaskMessage = message;
         }
 

@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced
         public string TracePrefix { get; private set; }
         public Func<string, uint> PartitionFunction { get; private set; }
         public Func<uint> NumberPartitions { get; private set; }
-        public Termination Termination { get; private set; }
+        public IPartitionErrorHandler ErrorHandler { get; private set; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
 
@@ -67,12 +67,12 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
         }
 
-        public async Task<ulong> StartAsync(Termination termination, ulong firstInputQueuePosition)
+        public async Task<ulong> StartAsync(IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition)
         {
+            Partition.ClearTraceContext();
             this.TraceDetail("starting partition");
 
-            this.Termination = termination;
-            termination.Partition = this;
+            this.ErrorHandler = errorHandler;
 
             // create or restore partition state from last snapshot
             try
@@ -81,12 +81,12 @@ namespace DurableTask.EventSourced
                 this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
 
                 // initialize collections for pending work
-                this.PendingTimers = new BatchTimer<PartitionEvent>(this.Termination.Token, this.TimersFired);
+                this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
                 this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
                 // goes to storage to create or restore the partition state
-                var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.Termination, firstInputQueuePosition);
+                var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
                 
                 this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
@@ -94,7 +94,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.HandleError("could not start partition", e, true);
+                this.ErrorHandler.HandleError(nameof(StartAsync), "could not start partition", e, true, false);
                 throw;
             }
         }
@@ -104,28 +104,7 @@ namespace DurableTask.EventSourced
             this.State.Submit(partitionEvent);
         }
 
-        public void HandleError(string context, string message, bool isFatal)
-        {
-            this.TraceError(context, message, isFatal);
-
-            // terminate this partition in response to the error
-            if (isFatal)
-            {
-                this.Termination.Terminate($"Error in {context} : {message}");
-            }
-        }
-
-        public void HandleError(string context, Exception exception, bool isFatal)
-        {
-            this.TraceError(context, exception, isFatal);
-
-            // terminate this partition in response to the error
-            if (isFatal)
-            {
-                this.Termination.Terminate($"Exception in {context} : {exception.Message}");
-            }
-        }
-
+       
         [Conditional("DEBUG")]
         public void Assert(bool condition)
         {
@@ -138,7 +117,7 @@ namespace DurableTask.EventSourced
 
                 var stacktrace = System.Environment.StackTrace;
 
-                HandleError("assertion failed", stacktrace, false);
+                this.ErrorHandler.HandleError(stacktrace, "assertion failed", null, false, false);
             }
         }
 
@@ -147,19 +126,23 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                if (!this.Termination.IsTerminated)
+                if (!this.ErrorHandler.IsTerminated)
                 {
                     // for a clean shutdown we try to save some of the latest progress to storage and then release the lease
                     await this.State.CleanShutdown(this.Settings.TakeStateCheckpointWhenStoppingPartition);
                 }
             }
+            catch(OperationCanceledException) when (this.ErrorHandler.IsTerminated)
+            {
+                // o.k. during termination
+            }
             catch (Exception e)
             {
-                this.HandleError("could not shut down partition state cleanly", e, true);
+                this.ErrorHandler.HandleError(nameof(StopAsync), "could not shut down partition state cleanly", e, true, false);
             }
 
             // at this point, the partition has been terminated (either cleanly or by exception)
-            this.Assert(this.Termination.IsTerminated);
+            this.Assert(this.ErrorHandler.IsTerminated);
             EtwSource.Log.PartitionStopped((int)this.PartitionId);
         }
 
@@ -172,9 +155,13 @@ namespace DurableTask.EventSourced
                     this.Submit(t);
                 }
             }
+            catch (OperationCanceledException) when (this.ErrorHandler.IsTerminated)
+            {
+                // o.k. during termination
+            }
             catch (Exception e)
             {
-                this.HandleError("Submitting Partition Timers", e, true);
+                this.ErrorHandler.HandleError("TimersFired", "Submitting Partition Timers", e, true, false);
             }
         }
 

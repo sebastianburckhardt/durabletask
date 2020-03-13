@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.HandleError(nameof(MemoryPartitionQueue), e, true);
+                partition.ErrorHandler.HandleError(nameof(MemoryPartitionQueue), "could not deliver events", e, true, false);
             }
         }
     }

@@ -97,7 +97,7 @@ namespace DurableTask.EventSourced.Emulated
             // create or recover all the partitions
             for (uint i = 0; i < this.settings.MemoryPartitions; i++)
             {
-                var nextInputQueuePosition = await partitions[i].StartAsync(new Termination(), 0);
+                var nextInputQueuePosition = await partitions[i].StartAsync(this.host.CreateErrorHandler(i), 0);
                 partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;
             }
 
@@ -155,7 +155,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.HandleError(nameof(SendEvents), e, false);
+                partition.ErrorHandler.HandleError(nameof(SendEvents), "could not send events", e, true, false);
             }
         }
 

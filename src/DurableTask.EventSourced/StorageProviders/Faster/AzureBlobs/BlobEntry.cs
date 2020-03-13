@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Storage.Blob;
@@ -60,11 +61,11 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (this.waitingCount != 0)
                 {
-                    this.azureStorageDevice.BlobManager?.Warning("expect BlobEntry.CreateAsync to be called on blobs that don't already exist and exactly once", pageBlob);
+                    this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "expect to be called on blobs that don't already exist and exactly once", pageBlob, null, false, false);
                 }
 
                 await pageBlob.CreateAsync(size,
-                    accessCondition: null, options: this.azureStorageDevice.BlobRequestOptions, operationContext: null, this.azureStorageDevice.Termination.Token);
+                    accessCondition: null, options: this.azureStorageDevice.BlobRequestOptions, operationContext: null, this.azureStorageDevice.PartitionErrorHandler.Token);
 
                 // At this point the blob is fully created. After this line all consequent writers will write immediately. We just
                 // need to clear the queue of pending writers.
@@ -88,7 +89,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.azureStorageDevice.BlobManager?.FatalError("could not create page blob", pageBlob, e);
+                this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "could not create page blob", pageBlob, e, true, this.azureStorageDevice.PartitionErrorHandler.IsTerminated);
                 throw;
             }
         }

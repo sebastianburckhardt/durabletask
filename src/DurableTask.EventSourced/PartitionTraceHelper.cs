@@ -23,32 +23,11 @@ namespace DurableTask.EventSourced
         private readonly ILogger logger;
 
         [ThreadStatic]
-        public static (ulong?,string) TraceContext = (null, string.Empty);
+        public static (ulong?,string) TraceContext;
 
-        public void TraceError(string context, Exception exception, bool isFatal)
-        {
-            if (this.logger.IsEnabled(LogLevel.Error))
-            {
-                this.logger.LogError("Part{partition:D2} !!! Error in {context}: {exception} isFatal={isFatal}", this.PartitionId, context, exception, isFatal);
-            }
-            if (EtwSource.Log.IsEnabled())
-            {
-                EtwSource.Log.PartitionErrorReported((int) this.PartitionId, context, isFatal, exception.Message, exception.ToString());
-            }
-        }
+        
 
-        public void TraceError(string context, string message, bool isFatal)
-        {
-            if (this.logger.IsEnabled(LogLevel.Error))
-            {
-                this.logger.LogError("Part{partition:D2} !!! Error in {context}: {message} isFatal={isFatal}", this.PartitionId, context, message, isFatal);
-            }
-            if (EtwSource.Log.IsEnabled())
-            {
-                EtwSource.Log.PartitionErrorReported((int)this.PartitionId, context, isFatal, message, string.Empty);
-            }
-        }
-
+        // A little helper property that allows us to easily check the condition for low-level tracing
         public Partition DetailTracer => (this.logger.IsEnabled(LogLevel.Debug)) ? this : null;
 
         public static void ClearTraceContext()

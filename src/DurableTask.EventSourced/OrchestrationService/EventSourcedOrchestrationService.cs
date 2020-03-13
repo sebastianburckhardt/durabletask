@@ -262,6 +262,11 @@ namespace DurableTask.EventSourced
 
         StorageAbstraction.IStorageProvider TransportAbstraction.IHost.StorageProvider => this;
 
+        IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
+        {
+            return new PartitionErrorHandler((int) partitionId, this.storageLogger);
+        }
+
         /******************************/
         // client methods
         /******************************/
@@ -398,7 +403,9 @@ namespace DurableTask.EventSourced
             List<TaskMessage> localMessages = null;
             List<TaskMessage> remoteMessages = null;
 
-            partition.Assert(continuedAsNewMessage == null); // current implementation is eager
+            // all continue as new requests are processed immediately ("fast" continue-as-new)
+            // so by the time we get here, it is not a continue as new
+            partition.Assert(continuedAsNewMessage == null);
  
             if (orchestratorMessages != null)
             {
@@ -417,22 +424,30 @@ namespace DurableTask.EventSourced
 
             bool shouldCacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;
 
-            partition.Submit(new BatchProcessed()
+            try
             {
-                PartitionId = messageBatch.Partition.PartitionId,
-                SessionId = messageBatch.SessionId,
-                InstanceId = workItem.InstanceId,
-                BatchStartPosition = messageBatch.BatchStartPosition,
-                BatchLength = messageBatch.BatchLength,
-                NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
-                CachedWorkItem = shouldCacheWorkItemForReuse ? orchestrationWorkItem : null,
-                State = state,
-                ActivityMessages = (List<TaskMessage>)outboundMessages,
-                LocalMessages = localMessages,
-                RemoteMessages = remoteMessages,
-                TimerMessages = (List<TaskMessage>)workItemTimerMessages,
-                Timestamp = DateTime.UtcNow,
-            });
+                partition.Submit(new BatchProcessed()
+                {
+                    PartitionId = messageBatch.Partition.PartitionId,
+                    SessionId = messageBatch.SessionId,
+                    InstanceId = workItem.InstanceId,
+                    BatchStartPosition = messageBatch.BatchStartPosition,
+                    BatchLength = messageBatch.BatchLength,
+                    NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
+                    CachedWorkItem = shouldCacheWorkItemForReuse ? orchestrationWorkItem : null,
+                    State = state,
+                    ActivityMessages = (List<TaskMessage>)outboundMessages,
+                    LocalMessages = localMessages,
+                    RemoteMessages = remoteMessages,
+                    TimerMessages = (List<TaskMessage>)workItemTimerMessages,
+                    Timestamp = DateTime.UtcNow,
+                });
+            }
+            catch(OperationCanceledException e)
+            {
+                // we get here if the partition was terminated. The work is thrown away. It's unavoidable by design, but let's at least create a warning.
+                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync), "discarding completed orchestration work item because of partition termination", e, false, true);
+            }
 
             return Task.CompletedTask;
         }
@@ -498,15 +513,25 @@ namespace DurableTask.EventSourced
         {
             var activityWorkItem = (ActivityWorkItem)workItem;
             var partition = activityWorkItem.Partition;
-            partition.Submit(new ActivityCompleted()
+
+            try
             {
-                PartitionId = activityWorkItem.Partition.PartitionId,
-                ActivityId = activityWorkItem.ActivityId,
-                OriginPartitionId = activityWorkItem.OriginPartition,
-                ReportedLoad = this.ActivityWorkItemQueue.Load,
-                Timestamp = DateTime.UtcNow,
-                Response = responseMessage,
-            });
+                partition.Submit(new ActivityCompleted()
+                {
+                    PartitionId = activityWorkItem.Partition.PartitionId,
+                    ActivityId = activityWorkItem.ActivityId,
+                    OriginPartitionId = activityWorkItem.OriginPartition,
+                    ReportedLoad = this.ActivityWorkItemQueue.Load,
+                    Timestamp = DateTime.UtcNow,
+                    Response = responseMessage,
+                });
+            }
+            catch (OperationCanceledException e)
+            {
+                // we get here if the partition was terminated. The work is thrown away. It's unavoidable by design, but let's at least create a warning.
+                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskActivityWorkItemAsync), "discarding completed activity work item because of partition termination", e, false, true);
+            }
+
             return Task.CompletedTask;
         }
         

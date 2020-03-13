@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced.Faster
         public FasterLog(BlobManager blobManager)
         {
             this.log = new FASTER.core.FasterLog(blobManager.EventLogSettings);
-            this.terminationToken = blobManager.Termination.Token;
+            this.terminationToken = blobManager.PartitionErrorHandler.Token;
 
             var _ = terminationToken.Register(
               () => {
@@ -51,22 +51,50 @@ namespace DurableTask.EventSourced.Faster
 
         public long Enqueue(byte[] entry)
         {
-            return this.log.Enqueue(entry);
+            try
+            {
+                return this.log.Enqueue(entry);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public long Enqueue(ReadOnlySpan<byte> entry)
         {
-            return this.log.Enqueue(entry);
+            try
+            {
+                return this.log.Enqueue(entry);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
-        public ValueTask CommitAsync()
+        public async ValueTask CommitAsync()
         {
-            return this.log.CommitAsync(this.terminationToken);
+            try
+            {
+                await this.log.CommitAsync(this.terminationToken);
+            }
+            catch (Exception terminationException)
+                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         public FasterLogScanIterator Scan(long beginAddress, long endAddress)
-        {            
-            return this.log.Scan(beginAddress, endAddress); // used during recovery only
+        {
+            // used during recovery only
+
+            // we are not wrapping termination exceptions here, since we would also have to wrap the iterator.
+            // instead we wrap the whole replay loop in the caller.
+            return this.log.Scan(beginAddress, endAddress); 
         }
     }
 }

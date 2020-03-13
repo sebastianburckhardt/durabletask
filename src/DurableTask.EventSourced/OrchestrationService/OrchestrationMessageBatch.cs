@@ -62,40 +62,18 @@ namespace DurableTask.EventSourced
             {
                 // we either have no previous instance, or want to replace the previous instance
                 this.Partition.DetailTracer?.TraceDetail($"Starting fresh orchestration instance={this.InstanceId} batch={this.WorkItemId}");
-
-                workItem = new OrchestrationWorkItem()
-                {
-                    MessageBatch = this,
-                    InstanceId = this.InstanceId,
-                    Session = null,
-                    LockedUntilUtc = DateTime.MaxValue,
-                    NewMessages = this.MessagesToProcess,
-                    OrchestrationRuntimeState = new OrchestrationRuntimeState()
-                };
+                workItem = new OrchestrationWorkItem(this);
             }
             else if (historyState.CachedOrchestrationWorkItem != null)
             {
                 this.Partition.DetailTracer?.TraceDetail($"Continuing orchestration from cached cursor instance={this.InstanceId} batch={WorkItemId}");
-
                 workItem = historyState.CachedOrchestrationWorkItem;
-                workItem.MessageBatch = this;
-                workItem = historyState.CachedOrchestrationWorkItem;
-                workItem.NewMessages = this.MessagesToProcess;
-                workItem.OrchestrationRuntimeState.NewEvents.Clear();
+                workItem.SetNextMessageBatch(this);
             }
             else
             {
                 this.Partition.DetailTracer?.TraceDetail($"Continuing orchestration from saved history instance={this.InstanceId} batch={WorkItemId}");
-
-                workItem = new OrchestrationWorkItem()
-                {
-                    MessageBatch = this,
-                    InstanceId = this.InstanceId,
-                    Session = null,
-                    LockedUntilUtc = DateTime.MaxValue,
-                    NewMessages = this.MessagesToProcess,
-                    OrchestrationRuntimeState = new OrchestrationRuntimeState(historyState.History),
-                };
+                workItem = new OrchestrationWorkItem(this, historyState.History);
             }
 
             if (!this.IsExecutableInstance(workItem, out var warningMessage))

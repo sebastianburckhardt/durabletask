@@ -62,7 +62,7 @@ namespace DurableTask.EventSourced
             this.Submit(readContinuation);
         }
 
-        public Task<ulong> CreateOrRestoreAsync(Partition partition, Termination termination, ulong initialInputQueuePosition)
+        public Task<ulong> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, ulong initialInputQueuePosition)
         {
             this.partition = partition;
 
@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced
                     }
                     catch(Exception e)
                     {
-                        partition.HandleError($"error while processing event {o}", e, true);
+                        partition.ErrorHandler.HandleError(nameof(Process), $"error while processing {o}", e, false, false);
                     }
                 }
             }

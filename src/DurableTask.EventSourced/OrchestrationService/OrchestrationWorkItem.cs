@@ -23,8 +23,28 @@ namespace DurableTask.EventSourced
 {
     internal class OrchestrationWorkItem : TaskOrchestrationWorkItem
     {
+
         public OrchestrationMessageBatch MessageBatch { get; set; }
 
+        public Partition Partition => MessageBatch.Partition;
+
         public string WorkItemId => $"S{MessageBatch.SessionId:D6}:{MessageBatch.BatchStartPosition}[{MessageBatch.BatchLength}]";
+
+        public OrchestrationWorkItem(OrchestrationMessageBatch messageBatch, List<HistoryEvent> previousHistory = null)
+        {
+            this.MessageBatch = messageBatch;
+            this.InstanceId = messageBatch.InstanceId;
+            this.NewMessages = messageBatch.MessagesToProcess;
+            this.OrchestrationRuntimeState = new OrchestrationRuntimeState(previousHistory);
+            this.LockedUntilUtc = DateTime.MaxValue; // this backend does not require workitem lock renewals
+            this.Session = null; // we don't need the extended session API in this provider because we are caching the work items
+        }
+
+        public void SetNextMessageBatch(OrchestrationMessageBatch messageBatch)
+        {
+            this.MessageBatch = messageBatch;
+            this.NewMessages = messageBatch.MessagesToProcess;
+            this.OrchestrationRuntimeState.NewEvents.Clear();
+        }
     }
 }

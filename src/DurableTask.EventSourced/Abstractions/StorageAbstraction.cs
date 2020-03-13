@@ -52,16 +52,18 @@ namespace DurableTask.EventSourced
             /// Restore the state of a partition from storage, or create a new one if there is nothing stored.
             /// </summary>
             /// <param name="localPartition">The partition.</param>
-            /// <param name="termination">A termination object to initiate and/or indicate termination of this partition</param>
-            /// <param name="firstInputQueuePosition">for new partitions, the position of the first message to receive</param>
+            /// <param name="errorHandler">An error handler to initiate and/or indicate termination of this partition.</param>
+            /// <param name="firstInputQueuePosition">For new partitions, the position of the first message to receive.</param>
             /// <returns>the input queue position from which to resume input processing</returns>
-            Task<ulong> CreateOrRestoreAsync(Partition localPartition, Termination termination, ulong firstInputQueuePosition);
+            /// <exception cref="OperationCanceledException">Indicates that termination was signaled before the operation completed.</exception>
+            Task<ulong> CreateOrRestoreAsync(Partition localPartition, IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition);
 
             /// <summary>
             /// Finish processing events and save the partition state to storage.
             /// </summary>
             /// <param name="takeFinalCheckpoint">Whether to take a final state checkpoint.</param>
             /// <returns>A task that completes when the state has been saved.</returns>
+            /// <exception cref="OperationCanceledException">Indicates that termination was signaled before the operation completed.</exception>
             Task CleanShutdown(bool takeFinalCheckpoint);
 
             /// <summary>

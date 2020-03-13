@@ -39,16 +39,16 @@ namespace DurableTask.EventSourced
 
         // ----- starting/stopping of the host
 
-        // we are grouping all events on this host using a single activity id
-        // and since we are only using one host per machine, we can save its id in this static field.
-        private static Guid hostId;
+        // we are grouping all events by this instance of EventSourcedOrchestrationService using a single activity id
+        // and since there is only one of these per machine, we can save its id in this static field.
+        private static Guid serviceInstanceId;
 
         [Event(10, Level = EventLevel.Informational, Opcode = EventOpcode.Start, Version = 1)]
         public void HostStarted(Guid hostId, string machineName)
         {
             SetCurrentThreadActivityId(hostId);
             this.WriteEvent(10, hostId, machineName);
-            EtwSource.hostId = hostId;
+            EtwSource.serviceInstanceId = hostId;
         }
 
         [Event(11, Level = EventLevel.Informational, Opcode = EventOpcode.Stop, Version = 1)]
@@ -63,49 +63,56 @@ namespace DurableTask.EventSourced
         [Event(20, Level = EventLevel.Informational, Version = 1)]
         public void PartitionStarted(int partitionId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(20, partitionId);
         }
 
         [Event(21, Level = EventLevel.Informational, Version = 1)]
         public void PartitionStopped(int partitionId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(21, partitionId);
         }
 
         [Event(22, Level = EventLevel.Error, Version = 1)]
-        public void PartitionErrorReported(int partitionId, string where, bool isFatal, string message, string exception)
+        public void PartitionError(int partitionId, string where, bool isFatal, string message, string exception)
         {
-            SetCurrentThreadActivityId(hostId);
-            this.WriteEvent(22, partitionId, where, message, exception);
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(22, partitionId, where, isFatal, message, exception);
+        }
+
+        [Event(23, Level = EventLevel.Warning, Version = 1)]
+        public void PartitionWarning(int partitionId, string where, bool isFatal, string message, string exception)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(23, partitionId, where, isFatal, message, exception);
         }
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
         public void PartitionEventReceived(int partitionId, ulong commitPosition, ulong inputPosition, bool replaying, string workItem, string eventInfo)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(30, partitionId, commitPosition, inputPosition, replaying, workItem, eventInfo);
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]
         public void PartitionEventSent(int partitionId, ulong context, string workItem, string eventInfo)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(31, partitionId, context, workItem, eventInfo);
         }
 
         [Event(32, Level = EventLevel.Verbose, Version = 1)]
         public void PartitionDetail(int partitionId, ulong context, string message)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(32, partitionId, context, message);
         }
 
         [Event(33, Level = EventLevel.Verbose, Version = 1)]
         public void OffloadDecision(int partitionId, int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemoteLoad)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(33, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
         }
 
@@ -114,107 +121,107 @@ namespace DurableTask.EventSourced
         [Event(50, Level = EventLevel.Informational, Version = 1)]
         public void ClientStarted(Guid clientId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(50, clientId);
         }
 
         [Event(51, Level = EventLevel.Informational, Version = 1)]
         public void ClientStopped(Guid clientId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(51, clientId);
         }
 
         [Event(52, Level = EventLevel.Error, Version = 1)]
         public void ClientErrorReported(Guid clientId, string where, string exceptionType, string message)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(52, clientId, where, exceptionType, message);
         }
 
         [Event(60, Level = EventLevel.Verbose, Version = 1)]
         public void ClientEventReceived(Guid clientId, string eventInfo)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(60, clientId, eventInfo);
         }
 
         [Event(61, Level = EventLevel.Verbose, Version = 1)]
         public void ClientEventSent(Guid clientId, string eventInfo)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(61, clientId, eventInfo);
         }
 
-        // ----- faster storage provider events
+        // ----- faster storage events
 
         [Event(70, Level = EventLevel.Informational, Version = 1)]
         public void FasterStoreCreated(int partitionId, ulong inputPosition, long elapsedMilliseconds)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(70, partitionId, inputPosition, elapsedMilliseconds);
         }
 
         [Event(71, Level = EventLevel.Informational, Version = 1)]
         public void FasterCheckpointStarted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(71, partitionId, checkpointGuid, reason, commitPosition, inputPosition);
         }
 
         [Event(72, Level = EventLevel.Informational, Version = 1)]
         public void FasterCheckpointPersisted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(72, partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(73, Level = EventLevel.Verbose, Version = 1)]
         public void FasterLogPersisted(int partitionId, long commitPosition, long numBytes, long elapsedMilliseconds)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(73, partitionId, commitPosition, numBytes, elapsedMilliseconds);
         }
 
         [Event(74, Level = EventLevel.Informational, Version = 1)]
         public void FasterCheckpointLoaded(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(74, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(75, Level = EventLevel.Informational, Version = 1)]
         public void FasterLogReplayed(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(75, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(76, Level = EventLevel.Error, Version = 1)]
         public void FasterStorageError(int partitionId, string operation, string details)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(76, partitionId, operation, details);
         }
 
         [Event(77, Level = EventLevel.Error, Version = 1)]
         public void FasterBlobStorageError(int partitionId, string operation, string blobName, string details)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(77, partitionId, operation, blobName, details);
         }
 
         [Event(78, Level = EventLevel.Warning, Version = 1)]
         public void FasterBlobStorageWarning(int partitionId, string operation, string blobName, string details)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(78, partitionId, operation, blobName, details);
         }
 
         [Event(79, Level = EventLevel.Verbose, Version = 1)]
         public void FasterProgress(int partitionId, string operation)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(79, partitionId, operation);
         }
 
@@ -223,29 +230,74 @@ namespace DurableTask.EventSourced
         [Event(90, Level = EventLevel.Informational, Version = 1)]
         public void LeaseAcquired(int partitionId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(90, partitionId);
         }
 
         [Event(91, Level = EventLevel.Informational, Version = 1)]
         public void LeaseReleased(int partitionId)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(91, partitionId);
         }
 
         [Event(92, Level = EventLevel.Warning, Version = 1)]
         public void LeaseLost(int partitionId, string operation)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(92, partitionId, operation);
         }
 
         [Event(93, Level = EventLevel.Verbose, Version = 1)]
         public void LeaseProgress(int partitionId, string operation)
         {
-            SetCurrentThreadActivityId(hostId);
+            SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(93, partitionId, operation);
         }
+
+        // ----- transport events
+
+        //[Event(30, Level = EventLevel.Verbose, Version = 1)]
+        //public void PacketReceived(int partitionId, ulong commitPosition, ulong inputPosition, bool replaying, string workItem, string eventInfo)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(30, partitionId, commitPosition, inputPosition, replaying, workItem, eventInfo);
+        //}
+
+        //[Event(31, Level = EventLevel.Verbose, Version = 1)]
+        //public void PartitionEventSent(int partitionId, ulong context, string workItem, string eventInfo)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(31, partitionId, context, workItem, eventInfo);
+        //}
+
+        //// ----- EventHubs EventProcessor events
+        //[Event(100, Level = EventLevel.Informational, Version = 1)]
+        //public void EventProcessorInfo(int partitionId, string Details)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(90, partitionId);
+        //}
+
+        //[Event(101, Level = EventLevel.Informational, Version = 1)]
+        //public void LeaseReleased(int partitionId)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(91, partitionId);
+        //}
+
+        //[Event(012, Level = EventLevel.Warning, Version = 1)]
+        //public void LeaseLost(int partitionId, string operation)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(92, partitionId, operation);
+        //}
+
+        //[Event(93, Level = EventLevel.Verbose, Version = 1)]
+        //public void LeaseProgress(int partitionId, string operation)
+        //{
+        //    SetCurrentThreadActivityId(serviceInstanceId);
+        //    this.WriteEvent(93, partitionId, operation);
+        //}
     }
 }
