@@ -118,7 +118,10 @@ namespace DurableTask.Core
                     throw new TypeMissingException($"TaskActivity {scheduledEvent.Name} version {scheduledEvent.Version} was not found");
                 }
 
-                renewTask = Task.Factory.StartNew(() => RenewUntil(workItem, renewCancellationTokenSource.Token), renewCancellationTokenSource.Token);
+                if (workItem.LockedUntilUtc < DateTime.MaxValue)
+                {
+                    renewTask = Task.Factory.StartNew(() => RenewUntil(workItem, renewCancellationTokenSource.Token), renewCancellationTokenSource.Token);
+                }
 
                 // TODO : pass workflow instance data
                 var context = new TaskContext(taskMessage.OrchestrationInstance);
