@@ -416,7 +416,7 @@ namespace DurableTask.EventSourced.Tests
             random.NextBytes(bytes);
 
             var client = await host.StartOrchestrationAsync(typeof(Orchestrations.EchoBytes), bytes);
-            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
             //Assert.Equal("World", JToken.Parse(status?.Input));

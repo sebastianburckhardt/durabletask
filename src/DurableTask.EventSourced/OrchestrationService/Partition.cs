@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced
 
         public void ProcessAsync(PartitionEvent partitionEvent)
         {
-            this.State.Submit(partitionEvent);
+            this.State.SubmitEvent(partitionEvent);
         }
 
        
@@ -193,18 +193,18 @@ namespace DurableTask.EventSourced
 
         public void Send(Event evt)
         {
-            this.TraceSend(evt);
+            this.DetailTracer?.TraceSend(evt);
             this.BatchSender.Submit(evt);
         }
 
         public void Submit(PartitionEvent evt)
         {
-            this.State.Submit(evt);
+            this.State.SubmitEvent(evt);
         }
 
         public void SubmitInputEvents(IEnumerable<PartitionEvent> partitionEvents)
         {
-            this.State.SubmitInputEvents(partitionEvents);
+            this.State.SubmitExternalEvents(partitionEvents);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
@@ -217,7 +217,7 @@ namespace DurableTask.EventSourced
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 
-            this.DetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.WorkItemId}");
+            this.DetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.CorrelationId}");
 
             this.OrchestrationWorkItemQueue.Add(item);
         }

@@ -27,5 +27,8 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public TimeSpan Timeout { get; set; }
+
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
     }
 }

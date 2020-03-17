@@ -20,6 +20,7 @@ using System.Threading.Tasks;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
 using Microsoft.Azure.Storage.Blob.Protocol;
+using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Newtonsoft.Json;
@@ -36,6 +37,7 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly string HostId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsConnections connections;
+        private readonly ILogger logger;
 
         private EventProcessorHost eventProcessorHost;
         private TransportAbstraction.IClient client;
@@ -63,6 +65,7 @@ namespace DurableTask.EventSourced.EventHubs
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
+            this.logger = host.TransportLogger;
         }
 
         private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
@@ -165,7 +168,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.client = host.AddClient(this.ClientId, this);
 
-            var clientEventLoopTask = this.ClientEventLoop();
+            var clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
             this.eventProcessorHost = new EventProcessorHost(
                  EventHubsConnections.PartitionsPath,
@@ -185,16 +188,16 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task TransportAbstraction.ITaskHub.StopAsync()
         {
-            System.Diagnostics.Trace.TraceInformation("Shutting down EventHubsBackend");
+            this.logger.LogInformation("Shutting down EventHubsBackend");
             await client.StopAsync();
             this.shutdownSource.Cancel();
             await this.eventProcessorHost.UnregisterEventProcessorAsync();
             await this.connections.Close();
         }
 
-        IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext context)
+        IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext partitionContext)
         {
-            var processor = new EventProcessor(this.host, this, this.parameters);
+            var processor = new EventHubsProcessor(this.host, this, this.parameters, partitionContext);
             return processor;
         }
 
@@ -227,7 +230,19 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     foreach (var ed in eventData)
                     {
-                        var clientEvent = (ClientEvent)Serializer.DeserializeEvent(ed.Body);
+                        string eventId = null;
+                        ClientEvent clientEvent = null;
+
+                        try
+                        {
+                            Serializer.DeserializePacket<ClientEvent>(ed.Body, out eventId, out clientEvent);
+                        }
+                        catch (Exception)
+                        {
+                            this.logger.LogError("EventProcessor for Client{clientId} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
+                            throw;
+                        }
+                        this.logger.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
 
                         if (clientEvent.ClientId == this.ClientId)
                         {

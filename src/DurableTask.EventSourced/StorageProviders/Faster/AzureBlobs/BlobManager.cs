@@ -56,6 +56,9 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
+        public ulong CheckpointCommitLogPosition { get; set; }
+        public ulong CheckpointInputQueuePosition { get; set; }
+
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
         public FasterLogSettings EventLogSettings => new FasterLogSettings
@@ -72,9 +75,9 @@ namespace DurableTask.EventSourced.Faster
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
-            PageSizeBits = 22, // 4MB since page blobs can't access more than that in a single op
+            PageSizeBits = 22, // 4MB since page blobs can't write more than that in a single op
             MutableFraction = 0.9,
-            SegmentSizeBits = 28,
+            SegmentSizeBits = 28, // 256 MB
             CopyReadsToTail = true,    
             MemorySizeBits = 27, // 128 MB
         };
@@ -543,6 +546,8 @@ namespace DurableTask.EventSourced.Faster
                 {
                     using (var writer = new BinaryWriter(blobStream))
                     {
+                        writer.Write(this.CheckpointCommitLogPosition);
+                        writer.Write(this.CheckpointInputQueuePosition);
                         writer.Write(commitMetadata.Length);
                         writer.Write(commitMetadata);
                         writer.Flush();
@@ -594,6 +599,8 @@ namespace DurableTask.EventSourced.Faster
                 {
                     using (var reader = new BinaryReader(blobstream))
                     {
+                        this.CheckpointCommitLogPosition = reader.ReadUInt64();
+                        this.CheckpointInputQueuePosition = reader.ReadUInt64();
                         var len = reader.ReadInt32();
                         return reader.ReadBytes(len);
                     }

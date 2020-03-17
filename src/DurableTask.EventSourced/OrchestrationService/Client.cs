@@ -41,19 +41,21 @@ namespace DurableTask.EventSourced
 
         private BatchTimer<ResponseWaiter> ResponseTimeouts;
         private ConcurrentDictionary<long, ResponseWaiter> ResponseWaiters;
-        private Dictionary<Guid, List<ClientEventFragment>> Fragments;
+        private Dictionary<string, List<ClientEventFragment>> Fragments;
         
+        public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
+
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {
             this.host = host;
             this.logger = host.Logger;
             this.ClientId = clientId;
-            this.TracePrefix = $"Client.{clientId.ToString("N").Substring(0, 7)}";
+            this.TracePrefix = $"Client.{GetShortId(clientId)}";
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
-            this.Fragments = new Dictionary<Guid, List<ClientEventFragment>>();
+            this.Fragments = new Dictionary<string, List<ClientEventFragment>>();
             this.ResponseTimeouts.Start("ClientTimer");
         }
 
@@ -71,18 +73,20 @@ namespace DurableTask.EventSourced
             }
             else
             {
+                var originalEventString = fragment.OriginalEventId.ToString();
+
                 if (!fragment.IsLast)
                 {
-                    if (!this.Fragments.TryGetValue(fragment.CohortId, out var list))
+                    if (!this.Fragments.TryGetValue(originalEventString, out var list))
                     {
-                        this.Fragments[fragment.CohortId] = list = new List<ClientEventFragment>();
+                        this.Fragments[originalEventString] = list = new List<ClientEventFragment>();
                     }
                     list.Add(fragment);
                 }
                 else
                 {
-                    var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble(this.Fragments[fragment.CohortId], fragment);
-                    this.Fragments.Remove(fragment.CohortId);
+                    var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble<ClientEvent>(this.Fragments[originalEventString], fragment);
+                    this.Fragments.Remove(fragment.EventIdString);
 
                     ProcessInternal(reassembledEvent);
                 }
@@ -120,7 +124,7 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                this.logger.LogTrace("{client} Sending {event}", this.TracePrefix, @event);
+                this.logger.LogTrace("{client} Sending event {eventId}: {event}", this.TracePrefix, "TODO", @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
@@ -132,7 +136,7 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                this.logger.LogTrace("{client} Processing {event}", this.TracePrefix, @event);
+                this.logger.LogTrace("{client} Processing event {eventId}: {event}", this.TracePrefix, "TODO", @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {

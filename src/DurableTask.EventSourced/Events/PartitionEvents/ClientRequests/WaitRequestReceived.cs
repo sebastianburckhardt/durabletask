@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string ExecutionId { get; set; }
 
-        protected override void TraceInformation(StringBuilder s)
+        protected override void ExtraTraceInformation(StringBuilder s)
         {
             s.Append(' ');
             s.Append(this.InstanceId);
@@ -82,11 +82,14 @@ namespace DurableTask.EventSourced
         private class OrchestrationWaiter :
             Partition.ResponseWaiter,
             PubSub<string, OrchestrationState>.IListener,
-            StorageAbstraction.IReadContinuation
+            StorageAbstraction.IInternalReadonlyEvent
         {
+            private readonly WaitRequestReceived request;
+
             public OrchestrationWaiter(WaitRequestReceived request, Partition partition)
                 : base(partition.ErrorHandler.Token, request, partition)
             {
+                this.request = request;
                 Key = request.InstanceId;
                 partition.InstanceStatePubSub.Subscribe(this);
             }
@@ -94,6 +97,8 @@ namespace DurableTask.EventSourced
             public string Key { get; private set; }
 
             public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.Key);
+
+            public string EventIdString => request.EventIdString;
 
             public void Notify(OrchestrationState value)
             {

@@ -68,6 +68,7 @@ namespace DurableTask.EventSourced
 
         public void Acknowledge(Event evt)
         {
+            this.Partition.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}");
             long commitPosition = (long)evt.NextCommitLogPosition.Value;
             this.Send(this.Outbox[commitPosition]);
         }
@@ -98,6 +99,8 @@ namespace DurableTask.EventSourced
 
             public void Acknowledge(Event evt)
             {
+                this.Partition.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
+
                 if (++numAcks == Count)
                 {
                     Partition.Submit(new SendConfirmed()
@@ -126,6 +129,7 @@ namespace DurableTask.EventSourced
             {
                 PartitionId = evt.OriginPartitionId,
                 Result = evt.Response,
+                ActivityId = evt.ActivityId,
                 ActivitiesQueueSize = evt.ReportedLoad,
             });
             this.SendBatchOnceEventIsPersisted(evt, effects, batch);
@@ -146,6 +150,7 @@ namespace DurableTask.EventSourced
                     {
                         PartitionId = destination,
                         TaskMessages = new List<TaskMessage>(),
+                        OriginCorrelationId = evt.CorrelationId,
                     };
                 }
                 outmessage.TaskMessages.Add(message);

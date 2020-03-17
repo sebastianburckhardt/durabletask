@@ -105,7 +105,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     // we are recovering the last checkpoint of the store
                     this.store.Recover();
-                    await storeWorker.Recover();
+                    storeWorker.ReadCheckpointPositions(this.blobManager);
 
                     this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                 }
@@ -116,18 +116,13 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
-                stopwatch.Restart();
 
                 try
                 {
                     if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
                     {
-                        this.TraceHelper.FasterProgress("replaying log");
-
                         // replay log as the store checkpoint lags behind the log
                         await this.storeWorker.ReplayCommitLog(this.logWorker);
-
-                        this.TraceHelper.FasterLogReplayed(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
                     }
                 }
                 catch (Exception e)
@@ -137,10 +132,13 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 // restart pending actitivities, timers, work items etc.
-                foreach (var key in TrackedObjectKey.GetSingletons())
+                using (Partition.TraceContext(this.storeWorker.CommitLogPosition, "recover"))
                 {
-                    var target = (TrackedObject)await store.GetOrCreate(key);
-                    target.OnRecoveryCompleted();
+                    foreach (var key in TrackedObjectKey.GetSingletons())
+                    {
+                        var target = (TrackedObject)await store.GetOrCreate(key);
+                        target.OnRecoveryCompleted();
+                    }
                 }
 
                 this.TraceHelper.FasterProgress("recovery complete");
@@ -176,7 +174,7 @@ namespace DurableTask.EventSourced.Faster
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
-            bool success = this.store.TakeFullCheckpoint(out var checkpointGuid);
+            bool success = this.store.TakeFullCheckpoint(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, out var checkpointGuid);
             if (success)
             {
                 this.TraceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.storeWorker.CommitLogPosition, this.storeWorker.InputQueuePosition);
@@ -193,18 +191,18 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
-        public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
+        public void SubmitInternalReadonlyEvent(StorageAbstraction.IInternalReadonlyEvent readContinuation)
         {
             this.storeWorker.Submit(readContinuation);
         }
 
-        public void SubmitInputEvents(IEnumerable<PartitionEvent> evts)
+        public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
             this.logWorker.SubmitIncomingBatch(evts.Where(e => e is IPartitionEventWithSideEffects));
             this.storeWorker.SubmitIncomingBatch(evts.Where(e => e is IReadonlyPartitionEvent));
         }
 
-        public void Submit(PartitionEvent evt)
+        public void SubmitEvent(PartitionEvent evt)
         {
             if (evt is IPartitionEventWithSideEffects)
             {

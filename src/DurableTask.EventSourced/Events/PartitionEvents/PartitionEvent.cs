@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
         void DetermineEffects(EffectTracker effects);
     }
 
-    internal interface IReadonlyPartitionEvent : StorageAbstraction.IReadContinuation
+    internal interface IReadonlyPartitionEvent : StorageAbstraction.IInternalReadonlyEvent
     {
 
     }

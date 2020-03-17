@@ -114,7 +114,15 @@ namespace DurableTask.EventSourced.AzureChannels
 
         protected override void HandleSuccessfulSend(Event evt)
         {
-            AckListeners.Acknowledge(evt);          
+            try
+            {
+                AckListeners.Acknowledge(evt);
+            }
+            catch (Exception exception) when (!(exception is OutOfMemoryException))
+            {
+                // for robustness, swallow exceptions, but report them
+                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Processing Ack for {evt}", exception, false, false);
+            }
         }
 
         protected override bool HandleFailedSend(Event evt, Exception exception)
@@ -183,7 +191,7 @@ namespace DurableTask.EventSourced.AzureChannels
                     && partitionEvent.PartitionId == transport.partitionId)
                 {
                     // a loop-back message (impulse) can be committed immediately
-                    transport.partitionState.Submit(partitionEvent);
+                    transport.partitionState.SubmitEvent(partitionEvent);
                 }
                 else
                 {

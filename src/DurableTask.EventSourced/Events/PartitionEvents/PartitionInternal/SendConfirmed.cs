@@ -13,44 +13,24 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class PartitionEventFragment : 
-        PartitionEvent, 
-        IPartitionEventWithSideEffects, 
-        FragmentationAndReassembly.IEventFragment
+    internal class SendConfirmed : PartitionInternalEvent
     {
         [DataMember]
-        public Guid CohortId { get; set; }
-
-        [DataMember]
-        public byte[] Bytes { get; set; }
-
-        [DataMember]
-        public bool IsLast { get; set; }
+        public long Position { get; set; }
 
         [IgnoreDataMember]
-        public PartitionEvent ReassembledEvent;
+        public override string CorrelationId => $"S{Position:D10}";
 
-        protected override void TraceInformation(StringBuilder s)
+        public override void DetermineEffects(EffectTracker effects)
         {
-            s.Append(' ');
-            s.Append(this.Bytes.Length);
-            if (this.IsLast)
-            {
-                s.Append(" last");
-            }
-        }
-
-
-        public void DetermineEffects(EffectTracker effects)
-        {
-            effects.Add(TrackedObjectKey.Reassembly);
+            effects.Add(TrackedObjectKey.Outbox);
         }
     }
 }

@@ -13,26 +13,27 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class PartitionMessageReceived : PartitionEvent, IPartitionEventWithSideEffects
+    internal class ClientEventFragment : ClientEvent, FragmentationAndReassembly.IEventFragment
     {
         [DataMember]
-        public uint OriginPartition { get; set; }
+        public EventId OriginalEventId {  get; set; }
 
         [DataMember]
-        public long OriginPosition { get; set; }
+        public byte[] Bytes { get; set; }
 
-        public void DetermineEffects(EffectTracker effects)
-        {
-            effects.Add(TrackedObjectKey.Dedup);
-        }
+        [DataMember]
+        public int Fragment { get; set; }
+
+        [DataMember]
+        public bool IsLast { get; set; }
+
+        public override EventId EventId => EventId.MakeFragmentEventId(this.OriginalEventId, this.Fragment);
     }
 }

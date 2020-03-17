@@ -29,6 +29,8 @@ namespace DurableTask.EventSourced
         private static DataContractSerializer trackedObjectSerializer
             = new DataContractSerializer(typeof(TrackedObject));
 
+        private static UnicodeEncoding uniEncoding = new UnicodeEncoding();
+
         public static byte[] SerializeEvent(Event e, byte? header = null)
         {
             var stream = new MemoryStream();
@@ -60,6 +62,24 @@ namespace DurableTask.EventSourced
         public static Event DeserializeEvent(Stream stream)
         {
             return (Event)eventSerializer.ReadObject(stream);
+        }
+
+        public static void SerializePacket(Event e, Stream s)
+        {
+            var writer = new BinaryWriter(s, Encoding.UTF8);
+            writer.Write(e.EventIdString);
+            writer.Flush();
+            eventSerializer.WriteObject(s, e);
+        }
+
+        public static void DeserializePacket<TEvent>(ArraySegment<byte> segment, out string eventId, out TEvent evt)
+        {
+            using (var stream = new MemoryStream(segment.Array, segment.Offset, segment.Count, false))
+            {
+                var reader = new BinaryReader(stream);
+                eventId = reader.ReadString();
+                evt = (TEvent)eventSerializer.ReadObject(stream);
+            }
         }
 
         public static void SerializeTrackedObject(TrackedObject trackedObject)

@@ -29,5 +29,9 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public DateTime Timestamp { get; set; }
+
+        [IgnoreDataMember]
+        public override string CorrelationId => $"{this.OriginPartition:D2}-O{this.Timestamp:o}";
+
     }
 }

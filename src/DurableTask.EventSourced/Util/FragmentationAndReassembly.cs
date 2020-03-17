@@ -22,7 +22,7 @@ namespace DurableTask.EventSourced
     {
         public interface IEventFragment
         {
-            Guid CohortId { get; }
+            EventId OriginalEventId { get; }
 
             byte[] Bytes { get; }
 
@@ -36,10 +36,10 @@ namespace DurableTask.EventSourced
             if (segment.Count <= maxFragmentSize)
                 throw new ArgumentException(nameof(segment), "segment must be larger than max fragment size");
 
-            var cohortId = Guid.NewGuid();
             var list = new List<IEventFragment>();
             int offset = segment.Offset;
             int length = segment.Count;
+            int count = 0;
             while (length > 0)
             {
                 int portion = Math.Min(length, maxFragmentSize);
@@ -49,8 +49,9 @@ namespace DurableTask.EventSourced
                     {
                         ClientId = clientEvent.ClientId,
                         RequestId = clientEvent.RequestId,
-                        CohortId = cohortId,
+                        OriginalEventId = original.EventId,
                         Bytes = new ArraySegment<byte>(segment.Array, offset, portion).ToArray(),
+                        Fragment = count++,
                         IsLast = (portion == length),
                     });
                 }
@@ -59,8 +60,9 @@ namespace DurableTask.EventSourced
                     list.Add(new PartitionEventFragment()
                     {
                         PartitionId = partitionEvent.PartitionId,
-                        CohortId = cohortId,
+                        OriginalEventId = original.EventId,
                         Bytes = new ArraySegment<byte>(segment.Array, offset, portion).ToArray(),
+                        Fragment = count++,
                         IsLast = (portion == length),
                     });
                 }
@@ -70,7 +72,7 @@ namespace DurableTask.EventSourced
             return list;
         }
 
-        public static Event Reassemble(IEnumerable<IEventFragment> earlierFragments, IEventFragment lastFragment)
+        public static TEvent Reassemble<TEvent>(IEnumerable<IEventFragment> earlierFragments, IEventFragment lastFragment)
         {
             using (var stream = new MemoryStream())
             {
@@ -79,8 +81,7 @@ namespace DurableTask.EventSourced
                     stream.Write(x.Bytes, 0, x.Bytes.Length);
                 }
                 stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
-                var evt = Serializer.DeserializeEvent(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position));
-                //evt.QueuePosition = lastFragment.QueuePosition;
+                Serializer.DeserializePacket<TEvent>(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position), out var eventId, out var evt);
                 return evt;
             }
         }

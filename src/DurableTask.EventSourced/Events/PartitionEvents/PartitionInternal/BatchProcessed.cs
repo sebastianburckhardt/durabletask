@@ -21,7 +21,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class BatchProcessed : PartitionEvent, IPartitionEventWithSideEffects
+    internal class BatchProcessed : PartitionInternalEvent
     {
         [DataMember]
         public long SessionId { get; set; }
@@ -59,15 +59,18 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public OrchestrationWorkItem CachedWorkItem { get; set; }
 
-        public void DetermineEffects(EffectTracker effects)
+        [IgnoreDataMember]
+        public override string CorrelationId => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
+
+        public override void DetermineEffects(EffectTracker effects)
         {
             // start on the sessions object; further effects are determined from there
             effects.Add(TrackedObjectKey.Sessions);
         }
 
-        protected override void TraceInformation(StringBuilder s)
+        protected override void ExtraTraceInformation(StringBuilder s)
         {
-            base.TraceInformation(s);
+            base.ExtraTraceInformation(s);
 
             if (State != null)
             {
@@ -78,10 +81,5 @@ namespace DurableTask.EventSourced
             s.Append(' ');
             s.Append(this.InstanceId);
         }
-
-        [IgnoreDataMember]
-        public override string WorkItem => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
-
     }
-
 }

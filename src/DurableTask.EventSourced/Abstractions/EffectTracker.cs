@@ -11,7 +11,13 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using Dynamitey.DynamicObjects;
+using FASTER.core;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
@@ -22,9 +28,16 @@ namespace DurableTask.EventSourced
     /// </summary>
     internal class EffectTracker : List<TrackedObjectKey>
     {
-        public EffectTracker(Partition Partition)
+        private readonly Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore;
+        private readonly Func<(ulong, ulong)> getPositions;
+        private readonly Action<ulong, ulong> setPositions;
+
+        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(ulong, ulong)> getPositions, Action<ulong, ulong> setPositions)
         {
-            this.Partition = Partition;
+            this.Partition = partition;
+            this.applyToStore = applyToStore;
+            this.getPositions = getPositions;
+            this.setPositions = setPositions;
         }
 
         /// <summary>
@@ -46,12 +59,109 @@ namespace DurableTask.EventSourced
 
         /// <summary>
         /// Applies the event to the given tracked object, using dynamic dispatch to 
-        /// select the correct Process method overload for the event.
+        /// select the correct Process method overload for the event. 
         /// </summary>
         /// <param name="trackedObject"></param>
         public void ProcessEffectOn(dynamic trackedObject)
         {
             trackedObject.Process(Effect, this);
+        }
+
+        public async Task ProcessUpdate(PartitionEvent partitionEvent)
+        {
+            (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
+
+            using (Partition.TraceContext(commitLogPosition, partitionEvent.EventIdString))
+            {
+                try
+                {
+                    this.Partition.Assert(partitionEvent is IPartitionEventWithSideEffects);
+                    this.Partition.TraceProcess(commitLogPosition, partitionEvent, this.IsReplaying);
+
+                    this.Effect = partitionEvent;
+
+                    // collect the initial list of targets
+                    ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(this);
+
+                    // process until there are no more targets
+                    while (this.Count > 0)
+                    {
+                        await ProcessRecursively();
+                    }
+
+                    async ValueTask ProcessRecursively()
+                    {
+                        var startPos = this.Count - 1;
+                        var key = this[startPos];
+
+                        this.Partition.DetailTracer?.TraceDetail($"Process on [{key}]");
+
+                        // start with processing the event on this object 
+                        await this.applyToStore(key, this);
+
+                        // recursively process all additional objects to process
+                        while (this.Count - 1 > startPos)
+                        {
+                            await ProcessRecursively();
+                        }
+
+                        // pop this object now since we are done processing
+                        this.RemoveAt(startPos);
+                    }
+
+                    // update the commit log and input queue positions
+                    if (partitionEvent.NextCommitLogPosition.HasValue)
+                    {
+                        this.Partition.Assert(partitionEvent.NextCommitLogPosition.Value > commitLogPosition);
+                        commitLogPosition = partitionEvent.NextCommitLogPosition.Value;
+                    }
+                    if (partitionEvent.NextInputQueuePosition.HasValue)
+                    {
+                        this.Partition.Assert(partitionEvent.NextInputQueuePosition.Value > inputQueuePosition);
+                        inputQueuePosition = partitionEvent.NextInputQueuePosition.Value;
+                    }
+                    this.setPositions(commitLogPosition, inputQueuePosition);
+
+                    this.Effect = null;
+                    this.Partition.DetailTracer?.TraceDetail("finished processing event");
+                }
+                catch (OperationCanceledException)
+                {
+                    // o.k. during termination
+                }
+                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                {
+                    // for robustness, swallow exceptions, but report them
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Processing Update {partitionEvent}", exception, false, false);
+                }
+            }
+        }
+
+        public void ProcessRead(StorageAbstraction.IInternalReadonlyEvent readContinuation, TrackedObject target)
+        {
+            (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
+
+            using (Partition.TraceContext(commitLogPosition, readContinuation.EventIdString))
+            {
+                try
+                {
+                    this.Partition.TraceProcess(commitLogPosition, readContinuation);
+                    this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
+
+                    readContinuation.OnReadComplete(target);
+
+                    this.Partition.DetailTracer?.TraceDetail("finished processing read event");
+                }
+                catch (OperationCanceledException)
+                {
+                    // o.k. during termination
+                }
+                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                {
+                    // for robustness, swallow exceptions, but report them
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Processing Read {readContinuation.ToString()}", exception, false, false);
+                }
+            }
         }
     }
 }

@@ -1,25 +1,18 @@
-﻿using System;
+﻿using FASTER.core;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Drawing;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using DurableTask.Core;
-using DurableTask.Core.Tracking;
-using FASTER.core;
-using Microsoft.Win32.SafeHandles;
-using Mono.Posix;
 
 namespace DurableTask.EventSourced.Faster
 {
     internal class FasterKV
     {
-        private FasterKV<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> fht;
+        private FasterKV<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, Functions> fht;
 
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, Functions> mainSession;
+        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, Functions> mainSession;
         private readonly CancellationToken terminationToken;
 
         public FasterKV(Partition partition, BlobManager blobManager)
@@ -27,7 +20,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.blobManager = blobManager;
  
-            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation, FasterKV.Functions>(
+            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, FasterKV.Functions>(
                 1L << 16,
                 new Functions(partition),
                 blobManager.StoreLogSettings,
@@ -87,10 +80,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public bool TakeFullCheckpoint(out Guid checkpointGuid)
+        public bool TakeFullCheckpoint(ulong commitLogPosition, ulong inputQueuePosition, out Guid checkpointGuid)
         {
             try
             {
+                this.blobManager.CheckpointCommitLogPosition = commitLogPosition;
+                this.blobManager.CheckpointInputQueuePosition = inputQueuePosition;
                 return this.fht.TakeFullCheckpoint(out checkpointGuid);
             }
             catch (Exception terminationException)
@@ -131,10 +126,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public Guid StartStoreCheckpoint()
+        public Guid StartStoreCheckpoint(ulong commitLogPosition, ulong inputQueuePosition)
         {
             try
             {
+                this.blobManager.CheckpointCommitLogPosition = commitLogPosition;
+                this.blobManager.CheckpointInputQueuePosition = inputQueuePosition;
                 bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 
                 if (!success)
@@ -155,7 +152,7 @@ namespace DurableTask.EventSourced.Faster
         public EffectTracker NoInput = null;
 
         // fast path read, synchronous, on the main session
-        public void Read(StorageAbstraction.IReadContinuation readContinuation, Partition partition)
+        public void Read(StorageAbstraction.IInternalReadonlyEvent readContinuation, EffectTracker effectTracker)
         {
             try
             {
@@ -163,13 +160,13 @@ namespace DurableTask.EventSourced.Faster
                 TrackedObject target = null;
 
                 // try to read directly (fast path)
-                var status = this.mainSession.Read(ref key, ref NoInput, ref target, readContinuation, 0);
+                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readContinuation, 0);
 
                 switch (status)
                 {
                     case Status.NOTFOUND:
                     case Status.OK:
-                        ExecuteRead(readContinuation, partition, target);
+                        effectTracker.ProcessRead(readContinuation, target);
                         break;
 
                     case Status.PENDING:
@@ -187,30 +184,13 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        private static void ExecuteRead(StorageAbstraction.IReadContinuation readContinuation, Partition partition, TrackedObject target)
-        {
-            var partitionEvent = readContinuation as PartitionEvent;
-
-            if (partitionEvent != null)
-            {
-                partition.TraceProcess(partitionEvent, false);
-            }
-
-            readContinuation.OnReadComplete(target);
-
-            if (partitionEvent != null)
-            {
-                partition.DetailTracer?.TraceDetail("finished processing read event");
-                Partition.ClearTraceContext();
-            }
-        }
-
          // retrieve or create the tracked object, asynchronously if necessary, on the main session
         public async ValueTask<TrackedObject> GetOrCreate(Key key)
         {
             try
             {
-                var (status, target) = await this.mainSession.ReadAsync(key, NoInput, false, this.terminationToken);
+                var (status, target) = await this.mainSession.ReadAsync(key, null, false, this.terminationToken);
+
                 if (status == Status.NOTFOUND)
                 {
                     target = TrackedObjectKey.Factory(key);
@@ -218,7 +198,7 @@ namespace DurableTask.EventSourced.Faster
                 }
                 else if (status != Status.OK)
                 {
-                    throw new Exception("Faster"); //TODO
+                    throw new Exception("Faster semantics?"); //TODO
                 }
 
                 target.Partition = this.partition;
@@ -232,10 +212,16 @@ namespace DurableTask.EventSourced.Faster
         }
 
         public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
-        {       
-            // we are not wrapping termination exceptions on this one, rather do it in caller
-            // because we expect many calls to this while processing an event
-            return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
+        {
+            try
+            {
+                return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
+            }
+            catch (Exception terminationException)
+               when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            {
+                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+            }
         }
 
         private async Task<StateDump> DumpCurrentState()
@@ -257,16 +243,13 @@ namespace DurableTask.EventSourced.Faster
                 // read the current value of each
                 foreach (var k in keysToLookup)
                 {
-                    Key key = k;
-                    TrackedObject target = null;
-                    var status = this.mainSession.Read(ref key, ref NoInput, ref target, result, 0);
+                    (Status status, TrackedObject target) = await this.mainSession.ReadAsync(k, null, false, this.terminationToken);
                     if (status == Status.OK)
                     {
                         result.OnReadComplete(target);
                     }
                 }
 
-                await this.mainSession.CompletePendingAsync(true, this.terminationToken);
                 return result;
             }
             catch (Exception terminationException)
@@ -372,7 +355,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IReadContinuation>
+        public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent>
         {
             private readonly Partition partition;
 
@@ -441,18 +424,18 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, StorageAbstraction.IReadContinuation ctx, Status status)
+            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, StorageAbstraction.IInternalReadonlyEvent ctx, Status status)
             {
                 partition.Assert(ctx != null);
 
                 switch (status)
                 {
                     case Status.NOTFOUND:
-                        ExecuteRead(ctx, partition, null);
+                        input.ProcessRead(ctx, null);
                         break;
 
                     case Status.OK:
-                        ExecuteRead(ctx, partition, output);
+                        input.ProcessRead(ctx, output);
                         break;
 
                     case Status.PENDING:
@@ -462,9 +445,9 @@ namespace DurableTask.EventSourced.Faster
             }
 
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void RMWCompletionCallback(ref Key key, ref EffectTracker input, StorageAbstraction.IReadContinuation ctx, Status status) { }
-            public void UpsertCompletionCallback(ref Key key, ref Value value, StorageAbstraction.IReadContinuation ctx) { }
-            public void DeleteCompletionCallback(ref Key key, StorageAbstraction.IReadContinuation ctx) { }
+            public void RMWCompletionCallback(ref Key key, ref EffectTracker input, StorageAbstraction.IInternalReadonlyEvent ctx, Status status) { }
+            public void UpsertCompletionCallback(ref Key key, ref Value value, StorageAbstraction.IInternalReadonlyEvent ctx) { }
+            public void DeleteCompletionCallback(ref Key key, StorageAbstraction.IInternalReadonlyEvent ctx) { }
         }
     }
 }

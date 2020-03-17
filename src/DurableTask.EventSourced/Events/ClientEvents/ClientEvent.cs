@@ -26,5 +26,7 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public long RequestId { get; set; }
+
+        public override EventId EventId => EventId.MakeClientResponseEventId(ClientId, RequestId);
     }
 }

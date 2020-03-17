@@ -23,9 +23,18 @@ namespace DurableTask.EventSourced
     [KnownTypeAttribute("KnownTypes")]
     internal abstract class Event
     {
+        private string eventIdString;
+
+        /// <summary>
+        /// A unique identifier for this event.
+        /// </summary>
+        [IgnoreDataMember]
+        public abstract EventId EventId { get; }
+
         /// <summary>
         /// For events entering the commit log, the position of the next event after this one.
         /// </summary>
+        /// <remarks>We do not persist this in the log since it is implicit, nor transmit this in packets since it has only local meaning.</remarks>
         [IgnoreDataMember]
         public ulong? NextCommitLogPosition { get; set; }
 
@@ -35,19 +44,29 @@ namespace DurableTask.EventSourced
         [DataMember]
         public ulong? NextInputQueuePosition { get; set; }
 
+        /// <summary>
+        /// Listeners to be notified when this event is durably persisted or sent.
+        /// </summary>
         [IgnoreDataMember]
         public AckListeners AckListeners;
+
+        /// <summary>
+        /// A string identifiying this event, suitable for tracing (cached to avoid excessive formatting)
+        /// </summary>
+        [IgnoreDataMember]
+        public string EventIdString => this.eventIdString ?? (this.eventIdString = this.EventId.ToString());
 
         public override string ToString()
         {
             var s = new StringBuilder();
             s.Append(this.GetType().Name);
-            this.TraceInformation(s);
+            this.ExtraTraceInformation(s);
             return s.ToString();
         }
 
-        protected virtual void TraceInformation(StringBuilder s)
+        protected virtual void ExtraTraceInformation(StringBuilder s)
         {
+            // subclasses can override this to add extra information to the trace
         }
 
         public static IEnumerable<Type> KnownTypes()
@@ -91,12 +110,5 @@ namespace DurableTask.EventSourced
                 return true; 
             }
         }
-
-        #region ETW trace properties
-
-        [IgnoreDataMember]
-        public virtual string WorkItem => string.Empty;
-
-        #endregion
     }
 }

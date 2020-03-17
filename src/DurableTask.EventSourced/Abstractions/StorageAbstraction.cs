@@ -70,25 +70,26 @@ namespace DurableTask.EventSourced
             /// Queues a single event for processing on this partition state.
             /// </summary>
             /// <param name="evt">The event to process.</param>
-            void Submit(PartitionEvent evt);
+            void SubmitEvent(PartitionEvent evt);
 
             /// <summary>
-            /// Queues a collection of events for processing on this partition state.
+            /// Queues a collection of external events for processing on this partition state.
             /// </summary>
             /// <param name="evt">The collection of events to process.</param>
-            void SubmitInputEvents(IEnumerable<PartitionEvent> evt);
+            void SubmitExternalEvents(IEnumerable<PartitionEvent> evt);
 
             /// <summary>
-            /// Queues a read operation for processing on this partition state.
+            /// Queues a internal read-only event for processing on this partition state.
             /// </summary>
-            /// <param name="readContinuation">The read operation to process.</param>
-            void ScheduleRead(IReadContinuation readContinuation);
+            /// <param name="readEvent">The readonly event to process.</param>
+            void SubmitInternalReadonlyEvent(IInternalReadonlyEvent readEvent);
         }
 
         /// <summary>
-        /// An interface for objects representing a read operation on storage
+        /// An interface for events representing internal read-only operation on storage. Since this kind of
+        /// event does not need to be serialized, it is kept simple and outside the Event class hierarchy.
         /// </summary>
-        public interface IReadContinuation
+        public interface IInternalReadonlyEvent
         {
             /// <summary>
             /// The target of the read operation.
@@ -100,6 +101,11 @@ namespace DurableTask.EventSourced
             /// </summary>
             /// <param name="target">The current value of the tracked object for this key, or null if not present</param>
             void OnReadComplete(TrackedObject target);
+
+            /// <summary>
+            /// An id for this read event, for diagnostic purposes
+            /// </summary>
+            string EventIdString { get; }
         }
     }
 }

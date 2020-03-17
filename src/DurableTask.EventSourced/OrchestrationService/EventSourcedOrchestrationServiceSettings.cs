@@ -145,9 +145,14 @@ namespace DurableTask.EventSourced
         public bool TakeStateCheckpointWhenStoppingPartition { get; set; } = true;
 
         /// <summary>
-        /// An limit on how many bytes to append to the commit log before initiating another state checkpoint.
+        /// A limit on how many bytes to append to the log before initiating another state checkpoint.
         /// </summary>
-        public ulong MaxLogDistanceBetweenCheckpointsInBytes { get; set; } = 5000000ul;
+        public ulong MaxNumberBytesBetweenCheckpoints { get; set; } = 200 * 1024 * 1024;
+
+        /// <summary>
+        /// A limit on how many events to append to the log before initiating another state checkpoint.
+        /// </summary>
+        public ulong MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
 
         /// <inheritdoc/>

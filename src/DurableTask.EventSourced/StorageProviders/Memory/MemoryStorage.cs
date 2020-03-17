@@ -26,7 +26,9 @@ namespace DurableTask.EventSourced
     {
         private Partition partition;
         private ulong nextSubmitPosition = 0;
-        private ulong nextCommitPosition = 0;
+        private ulong commitPosition = 0;
+        private ulong inputQueuePosition = 0;
+
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
 
@@ -41,13 +43,13 @@ namespace DurableTask.EventSourced
         }
         public CancellationToken Termination => CancellationToken.None;
 
-        public void Submit(PartitionEvent entry)
+        public void SubmitEvent(PartitionEvent entry)
         {
             entry.NextCommitLogPosition = nextSubmitPosition++;
             base.Submit(entry);
         }
 
-        public void SubmitInputEvents(IEnumerable<PartitionEvent> entries)
+        public void SubmitExternalEvents(IEnumerable<PartitionEvent> entries)
         {
             foreach (var entry in entries)
             {
@@ -57,7 +59,7 @@ namespace DurableTask.EventSourced
             base.SubmitIncomingBatch(entries);
         }
 
-        public void ScheduleRead(StorageAbstraction.IReadContinuation readContinuation)
+        public void SubmitInternalReadonlyEvent(StorageAbstraction.IInternalReadonlyEvent readContinuation)
         {
             this.Submit(readContinuation);
         }
@@ -79,9 +81,11 @@ namespace DurableTask.EventSourced
             return Task.FromResult(0UL);
         }
 
-        public Task CleanShutdown(bool takeFinalStateCheckpoint)
+        public async Task CleanShutdown(bool takeFinalStateCheckpoint)
         {
-            return Task.Delay(10);
+            await Task.Delay(10);
+            
+            this.partition.ErrorHandler.TerminateNormally();
         }
 
         private TrackedObject GetOrAdd(TrackedObjectKey key)
@@ -91,9 +95,14 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        protected override Task Process(IList<object> batch)
+        protected override async Task Process(IList<object> batch)
         {
-            var effects = new EffectTracker(this.partition);
+            var effects = new EffectTracker(
+                this.partition, 
+                this.ApplyToStore,
+                () => (this.commitPosition, this.inputQueuePosition),
+                (c, i) => { this.commitPosition = c; this.inputQueuePosition = i; }
+            );
 
             if (batch.Count != 0)
             {
@@ -101,44 +110,16 @@ namespace DurableTask.EventSourced
                 {
                     try
                     {
-                        if (o is StorageAbstraction.IReadContinuation readContinuation)
+                        if (o is StorageAbstraction.IInternalReadonlyEvent readContinuation)
                         {
                             var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
-                            
-                            var partitionEvent = readContinuation as PartitionEvent;
-
-                            if (partitionEvent != null)
-                            {
-                                partition.TraceProcess(partitionEvent, false);
-                            }
-
-                            readContinuation.OnReadComplete(readTarget);
-
-                            if (partitionEvent != null)
-                            {
-                                Partition.ClearTraceContext();
-                            }
+                            effects.ProcessRead(readContinuation, readTarget);
                         }
                         else
                         {
-                            partition.Assert(o is IPartitionEventWithSideEffects);
                             var partitionEvent = (PartitionEvent)o;
-
-                            partitionEvent.NextCommitLogPosition = nextCommitPosition++;
-                            partition.TraceProcess(partitionEvent, false);
-                            effects.Effect = partitionEvent;
-
-                            // determine the effects and apply all the updates
-                            ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(effects);
-                            while (effects.Count > 0)
-                            {
-                                this.ProcessRecursively(partitionEvent, effects);
-                            }
-
-                            partition.DetailTracer?.TraceDetail("finished processing event");
-                            effects.Effect = null;
-                            Partition.ClearTraceContext();
-
+                            partitionEvent.NextCommitLogPosition = commitPosition + 1;
+                            await effects.ProcessUpdate(partitionEvent);
                             AckListeners.Acknowledge(partitionEvent);
                         }
                     }
@@ -148,29 +129,12 @@ namespace DurableTask.EventSourced
                     }
                 }
             }
-
-            return Task.CompletedTask;
         }
 
-        public void ProcessRecursively(PartitionEvent evt, EffectTracker effects)
+        public ValueTask ApplyToStore(TrackedObjectKey key, EffectTracker tracker)
         {
-            // process the last effect in the list, and recursively any effects it adds
-            var startPos = effects.Count - 1;
-            var key = effects[startPos];
-
-            this.partition.DetailTracer?.TraceDetail($"Process on [{key}]");
-
-            // start with processing the event on this object, which
-            // updates its state and can flag more objects to process on
-            effects.ProcessEffectOn(this.GetOrAdd(key));
-
-            // recursively process all additional objects to process
-            while (effects.Count - 1 > startPos)
-            {
-                this.ProcessRecursively(evt, effects);
-            }
-
-            effects.RemoveAt(startPos);
+            tracker.ProcessEffectOn(this.GetOrAdd(key));
+            return default;
         }
     }
 }

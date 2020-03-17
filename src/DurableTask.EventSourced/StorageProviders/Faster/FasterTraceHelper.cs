@@ -37,10 +37,10 @@ namespace DurableTask.EventSourced.Faster
             EtwSource.Log.FasterCheckpointPersisted(partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMs);
         }
 
-        public void FasterLogPersisted(long commitPosition, long numBytes, long elapsedMs)
+        public void FasterLogPersisted(ulong commitPosition, ulong numEvents, ulong numBytes, long elapsedMs)
         {
-            logger.LogDebug("Part{partition:D2} Persisted Log, commitPosition={commitPosition} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, numBytes, elapsedMs);
-            EtwSource.Log.FasterLogPersisted(partitionId, commitPosition, numBytes, elapsedMs);
+            logger.LogDebug("Part{partition:D2} Persisted Log, commitPosition={commitPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, numEvents, numBytes, elapsedMs);
+            EtwSource.Log.FasterLogPersisted(partitionId, commitPosition, numEvents, numBytes, elapsedMs);
         }
 
          public void FasterCheckpointLoaded(ulong commitPosition, ulong inputPosition, long elapsedMs)
@@ -49,10 +49,10 @@ namespace DurableTask.EventSourced.Faster
             EtwSource.Log.FasterCheckpointLoaded(partitionId, commitPosition, inputPosition, elapsedMs);
         }
 
-        public void FasterLogReplayed(ulong commitPosition, ulong inputPosition, long elapsedMs)
+        public void FasterLogReplayed(ulong commitPosition, ulong inputPosition, ulong numEvents, ulong numBytes, long elapsedMs)
         {
-            logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, elapsedMs);
-            EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitPosition={commitPosition} inputPosition={inputPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);
+            EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);
         }
 
         public void FasterStorageError(string operation, Exception exception)
@@ -63,13 +63,13 @@ namespace DurableTask.EventSourced.Faster
 
         public void FasterBlobStorageError(string operation, CloudBlob blob, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={} {exception}", partitionId, operation, blob?.Name, exception);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={blobName} {exception}", partitionId, operation, blob?.Name, exception);
             EtwSource.Log.FasterBlobStorageError(partitionId, operation, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty);
         }
 
         public void FasterBlobStorageWarning(string operation, CloudBlob blob, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={} {exception}", partitionId, operation, blob?.Name, exception);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={blobName} {exception}", partitionId, operation, blob?.Name, exception);
             EtwSource.Log.FasterBlobStorageWarning(partitionId, operation, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty);
         }
 

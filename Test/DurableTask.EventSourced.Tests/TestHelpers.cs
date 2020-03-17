@@ -27,7 +27,8 @@ namespace DurableTask.EventSourced.Tests
                 StorageConnectionString = GetStorageConnectionString(),
                 TaskHubName = GetTestTaskHubName(),
                 TakeStateCheckpointWhenStoppingPartition = true,  // set to false for testing recovery from log
-                MaxLogDistanceBetweenCheckpointsInBytes = long.MaxValue,
+                //MaxNumberBytesBetweenCheckpoints = 10000000, // set this low for testing frequent checkpointing
+                //MaxNumberEventsBetweenCheckpoints = 10, // set this low for testing frequent checkpointing
             };
         }
 
@@ -52,7 +53,7 @@ namespace DurableTask.EventSourced.Tests
 
         public const string DurableTaskTestPrefix = "DurableTaskTest";
 
-        public static bool DeleteStorageBeforeRunningTests => true;
+        public static bool DeleteStorageBeforeRunningTests => false; // set to false for testing log-based recovery
 
         public static string GetAzureStorageConnectionString() => GetTestSetting("StorageConnectionString", true);
 

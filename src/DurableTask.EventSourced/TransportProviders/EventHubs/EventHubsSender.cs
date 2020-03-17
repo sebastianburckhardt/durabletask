@@ -18,6 +18,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Runtime.Serialization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
@@ -29,18 +30,22 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly PartitionSender sender;
         private readonly TransportAbstraction.IHost host;
         private readonly ILogger logger;
+        private readonly string eventHubName;
+        private readonly string eventHubPartition;
+
+        private TimeSpan backoff = TimeSpan.FromSeconds(5);
+        private const int maxFragmentSize = 500 * 1024; // account for very non-optimal serialization of event
+        private MemoryStream stream = new MemoryStream(); // reused for all packets
 
         public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender)
         {
             this.host = host;
             this.sender = sender;
             this.logger = host.TransportLogger;
+            this.eventHubName = this.sender.EventHubClient.EventHubName;
+            this.eventHubPartition = this.sender.PartitionId;
         }
    
-        private TimeSpan backoff = TimeSpan.FromSeconds(5);
-        private const int maxFragmentSize = 500 * 1024; // account for very non-optimal serialization of event
-        private MemoryStream stream = new MemoryStream();
-
         protected override async Task Process(IList<Event> toSend)
         {
             if (toSend.Count == 0)
@@ -59,42 +64,58 @@ namespace DurableTask.EventSourced.EventHubs
 
                 for (int i = 0; i < toSend.Count; i++)
                 {
-                    stream.Seek(0, SeekOrigin.Begin);
-                    Serializer.SerializeEvent(toSend[i], stream);
-
-                    var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position);
+                    long startPos = stream.Position;
+                    var evt = toSend[i];
+                    Serializer.SerializePacket(evt, stream);
+                    int length = (int)(stream.Position - startPos);
+                    var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), (int)startPos, length);
                     var eventData = new EventData(arraySegment);
-                    bool tooBig = arraySegment.Count > maxFragmentSize;
+                    bool tooBig = length > maxFragmentSize;
 
                     if (!tooBig && batch.TryAdd(eventData))
                     {
+                        this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} added packet to batch ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, eventData.Body.Count, evt, evt.EventIdString);
                         continue;
-                    }
-                    else if (batch.Count > 0)
-                    {
-                        // backtrack one
-                        i--;
-                        // send the batch we have so far
-                        maybeSent = i;
-                        await sender.SendAsync(batch);
-                        sentSuccessfully = i;
-
-                        // create a fresh batch
-                        batch = sender.CreateBatch();
                     }
                     else
                     {
-                        // the message is too big. Break it into fragments, and send each individually.
-                        var fragments = FragmentationAndReassembly.Fragment(arraySegment, toSend[i], maxFragmentSize);
-                        maybeSent = i;
-                        foreach (var fragment in fragments)
+                        if (batch.Count > 0)
                         {
-                            //TODO send bytes directly instead of as events (which causes significant space overhead)
-                            stream.Seek(0, SeekOrigin.Begin);
-                            Serializer.SerializeEvent((Event)fragment, stream);
-                            await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position)));
+                            // send the batch we have so far
+                            maybeSent = i - 1;
+                            await sender.SendAsync(batch);
+                            sentSuccessfully = i - 1;
+
+                            this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent batch", this.eventHubName, this.eventHubPartition);
+
+                            // create a fresh batch
+                            batch = sender.CreateBatch();
                         }
-                        sentSuccessfully = i;
+
+                        if (tooBig)
+                        {
+                            // the message is too big. Break it into fragments, and send each individually.
+                            var fragments = FragmentationAndReassembly.Fragment(arraySegment, evt, maxFragmentSize);
+                            maybeSent = i;
+                            foreach (var fragment in fragments)
+                            {
+                                //TODO send bytes directly instead of as events (which causes significant space overhead)
+                                stream.Seek(0, SeekOrigin.Begin);
+                                Serializer.SerializePacket((Event)fragment, stream);
+                                length = (int)stream.Position;
+                                await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length)));
+                                this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
+                            }
+                            sentSuccessfully = i;
+                        }
+                        else
+                        {
+                            // back up one
+                            i--;
+                        }
+
+                        // the buffer can be reused now
+                        stream.Seek(0, SeekOrigin.Begin);
                     }
                 }
 
@@ -103,11 +124,16 @@ namespace DurableTask.EventSourced.EventHubs
                     maybeSent = toSend.Count - 1;
                     await sender.SendAsync(batch);
                     sentSuccessfully = toSend.Count - 1;
+
+                    this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent batch", this.eventHubName, this.eventHubPartition);
+
+                    // the buffer can be reused now
+                    stream.Seek(0, SeekOrigin.Begin);
                 }
             }
             catch (Exception e)
             {
-                this.logger.LogWarning(e, "Could not send messages to EventHub {eventHubName}, partition {partitionId}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.logger.LogWarning(e, "EventHubsSender {eventHubName}/{partitionId} failed to send", this.eventHubName, this.eventHubPartition, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 senderException = e;
             }
             finally
@@ -141,7 +167,7 @@ namespace DurableTask.EventSourced.EventHubs
                         (requeue ?? (requeue = new List<Event>())).Add(evt);
                         requeued++;
                     }
-                    else 
+                    else
                     {
                         // the event may have been sent or maybe not, report problem to listener
                         // this is used by clients who can give the exception back to the caller
@@ -158,29 +184,11 @@ namespace DurableTask.EventSourced.EventHubs
                     this.Requeue(requeue);
                 }
 
-                if (this.logger.IsEnabled(LogLevel.Debug))
-                {
-                    this.logger.LogDebug("Sender has confirmed {confirmed}, requeued {requeued}, dropped {dropped} messages for EventHub {eventHubName}, partition {partitionId}", confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
-                }
-
+                this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} messages", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
             }
             catch (Exception exception)
             {
-                this.logger.LogError("Internal error while trying to confirm messages for EventHub {eventHubName}, partition {partitionId}: {exception}", this.sender.EventHubClient.EventHubName, this.sender.PartitionId, exception);
-            }
-        }
-
-        private IEnumerable<EventData> Serialize(IEnumerable<Event> events)
-        {
-            using (var stream = new MemoryStream())
-            {
-                foreach (var evt in events)
-                {
-                    stream.Seek(0, SeekOrigin.Begin);
-                    Serializer.SerializeEvent(evt, stream);
-                    var length = (int)stream.Position;
-                    yield return new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length));
-                }
+                this.logger.LogError("EventHubsSender {eventHubName}/{partitionId} encountered an error while trying to confirm messages: {exception}", this.eventHubName, this.eventHubPartition, exception);
             }
         }
     }

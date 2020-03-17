@@ -19,6 +19,7 @@ namespace DurableTask.EventSourced
             }
             catch (OperationCanceledException)
             {
+            
             }
         }
 

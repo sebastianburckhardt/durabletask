@@ -13,22 +13,36 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ClientEventFragment : ClientEvent, FragmentationAndReassembly.IEventFragment
+    internal class ActivityCompleted : PartitionInternalEvent
     {
         [DataMember]
-        public Guid CohortId { get; set; }
+        public long ActivityId { get; set; }
 
         [DataMember]
-        public byte[] Bytes { get; set; }
+        public TaskMessage Response { get; set; }
 
         [DataMember]
-        public bool IsLast { get; set; }
+        public DateTime Timestamp { get; set; }
+
+        [DataMember]
+        public uint OriginPartitionId { get; set; }
+
+        [IgnoreDataMember]
+        public int ReportedLoad { get; set; }
+
+        [IgnoreDataMember]
+        public override string CorrelationId => (this.PartitionId == OriginPartitionId) ? $"A{ActivityId:D6}" : $"{OriginPartitionId:D2}-A{ActivityId:D6}";
+
+        public override void DetermineEffects(EffectTracker effects)
+        {
+            effects.Add(TrackedObjectKey.Activities);
+        }
     }
 }

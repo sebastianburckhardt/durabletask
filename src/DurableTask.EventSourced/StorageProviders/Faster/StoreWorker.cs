@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly Partition partition;
         private readonly FasterTraceHelper traceHelper;
 
-        private readonly EffectTracker effects;
+        private readonly EffectTracker effectTracker;
 
         private volatile TaskCompletionSource<bool> shutdownWaiter;
 
@@ -39,6 +39,7 @@ namespace DurableTask.EventSourced.Faster
         private Task pendingIndexCheckpoint;
         private Task<ulong> pendingStoreCheckpoint;
         private ulong lastCheckpointedPosition;
+        private ulong numberEventsSinceLastCheckpoint;
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -47,37 +48,38 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.traceHelper = traceHelper;
 
-            // we are reusing the same effect tracker for all calls to reduce allocations
-            this.effects = new EffectTracker(this.partition);
+            // construct an effect tracker that we use to apply effects to the store
+            this.effectTracker = new EffectTracker(
+                this.partition,
+                (key, tracker) => store.ProcessEffectOnTrackedObject(key, tracker),
+                () => (this.CommitLogPosition, this.InputQueuePosition),
+                (c, i) => { this.CommitLogPosition = c; this.InputQueuePosition = i; }
+            );
         }
 
         public async Task Initialize(ulong initialInputQueuePosition)
         {
+            this.InputQueuePosition = initialInputQueuePosition;
+            this.CommitLogPosition = 0;
+
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
                 var target = await store.GetOrCreate(key);
-
                 target.OnFirstInitialization();
-
-                if (target is DedupState dedupState)
-                {
-                    this.InputQueuePosition = dedupState.InputQueuePosition = initialInputQueuePosition;
-                    this.CommitLogPosition = dedupState.CommitLogPosition = 0;
-                }
             }
 
             this.lastCheckpointedPosition = this.CommitLogPosition;
+            this.numberEventsSinceLastCheckpoint = 0;
         }
 
-        public async Task Recover()
+        public void ReadCheckpointPositions(BlobManager blobManager)
         {
-            var dedupState = (DedupState) await store.GetOrCreate(TrackedObjectKey.Dedup);
-
-            this.InputQueuePosition = dedupState.InputQueuePosition;
-            this.CommitLogPosition = dedupState.CommitLogPosition;
+            this.InputQueuePosition = blobManager.CheckpointInputQueuePosition;
+            this.CommitLogPosition = blobManager.CheckpointCommitLogPosition;
 
             this.lastCheckpointedPosition = this.CommitLogPosition;
-        }
+            this.numberEventsSinceLastCheckpoint = 0;
+        }    
 
         public async Task CancelAndShutdown()
         {
@@ -90,26 +92,9 @@ namespace DurableTask.EventSourced.Faster
             }
 
             // waits for the currently processing entry to finish processing
-            await TaskHelpers.WaitForTaskOrCancellation(this.shutdownWaiter.Task, this.cancellationToken);
-
-            await this.SaveCurrentPositions();
+            await this.shutdownWaiter.Task;
 
             this.traceHelper.FasterProgress("stopped StoreWorker");
-        }
-
-        private async Task SaveCurrentPositions()
-        {
-            try
-            {
-                // write back the queue and log positions
-                this.effects.Effect = this;
-                await store.ProcessEffectOnTrackedObject(TrackedObjectKey.Dedup, this.effects);
-            }
-            catch (Exception terminationException)
-                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
-            {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.cancellationToken);
-            }
         }
 
         protected override async Task Process(IList<object> batch)
@@ -121,7 +106,6 @@ namespace DurableTask.EventSourced.Faster
                     if (this.IsShuttingDown)
                     {
                         // immediately stop processing requests and exit
-                        this.shutdownWaiter?.TrySetResult(true);
                         return;
                     }
 
@@ -129,27 +113,19 @@ namespace DurableTask.EventSourced.Faster
                     this.store.CompletePending();
 
                     // now process the read or update
-                    if (o is StorageAbstraction.IReadContinuation readContinuation)
+                    if (o is StorageAbstraction.IInternalReadonlyEvent readContinuation)
                     {
-                        try
-                        {
-                            this.store.Read(readContinuation, this.partition);
-                        }
-                        catch (Exception readException)
-                        {
-                            this.partition.ErrorHandler.HandleError("StoreWorker.Process", "Could not process read", readException, false, false);
-                        }
+                        // we don't await async reads, they complete when CompletePending() is called
+                        this.store.Read(readContinuation, this.effectTracker);
                     }
                     else
                     {
-                        partition.Assert(o is IPartitionEventWithSideEffects);
-                        await this.ProcessEvent((PartitionEvent)o);
+                        await this.ProcessUpdate((PartitionEvent)o);
                     }
                 }
 
                 if (this.IsShuttingDown)
                 {
-                    this.shutdownWaiter?.TrySetResult(true);
                     return;
                 }
 
@@ -168,12 +144,13 @@ namespace DurableTask.EventSourced.Faster
                     {
                         await this.pendingIndexCheckpoint; // observe exceptions here
                         this.pendingIndexCheckpoint = null;
-                        await this.SaveCurrentPositions(); // must be stored back to dedup before taking store checkpoint
-                        var token = this.store.StartStoreCheckpoint();
+                        var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
                         this.pendingStoreCheckpoint = this.WaitForCheckpointAsync("store checkpoint", token);
+                        this.numberEventsSinceLastCheckpoint = 0;
                     }
                 }
-                else if (this.lastCheckpointedPosition + this.partition.Settings.MaxLogDistanceBetweenCheckpointsInBytes <= this.CommitLogPosition)
+                else if (this.lastCheckpointedPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition
+                    || this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
                 {
                     var token = this.store.StartIndexCheckpoint();
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync("index checkpoint", token);
@@ -186,6 +163,10 @@ namespace DurableTask.EventSourced.Faster
             catch (Exception exception)
             {
                 this.partition.ErrorHandler.HandleError("StoreWorker.Process", "unexpected error", exception, true, false);
+            }
+            finally
+            {
+                this.shutdownWaiter?.TrySetResult(true);
             }
         }     
 
@@ -204,86 +185,32 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {
+            this.traceHelper.FasterProgress("replaying log");
+
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
             var startPosition = this.CommitLogPosition;
-            this.effects.IsReplaying = true;
+            this.effectTracker.IsReplaying = true;
             await logWorker.ReplayCommitLog(startPosition, this);
             stopwatch.Stop();
-            this.partition.DetailTracer?.TraceDetail($"Event log replayed ({(this.CommitLogPosition - startPosition)/1024}kB) in {stopwatch.Elapsed.TotalSeconds}s");
-            this.effects.IsReplaying = false;
+            this.effectTracker.IsReplaying = false;
+
+            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
         }
 
-        public async ValueTask ProcessEvent(PartitionEvent partitionEvent)
+        public async ValueTask ProcessUpdate(PartitionEvent partitionEvent)
         {
+            // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
+            // (note that it may not be the very next in the sequence since readonly events are not persisted in the store)
             if (partitionEvent.NextInputQueuePosition.HasValue && partitionEvent.NextInputQueuePosition.Value <= this.InputQueuePosition)
             {
-                partition.DetailTracer?.TraceDetail($"Skipping duplicate input {partitionEvent.NextInputQueuePosition}");
+                this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate input", null, false, false);
                 return;
             }
 
-            try
-            {
-                this.partition.TraceProcess(partitionEvent, this.effects.IsReplaying);
-                this.effects.Effect = partitionEvent;
-
-                // collect the initial list of targets
-                ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(this.effects);
-
-                // process until there are no more targets
-                while (this.effects.Count > 0)
-                {
-                    await this.ProcessRecursively(partitionEvent);
-                }
-
-                // update the commit log and input queue positions
-                if (partitionEvent.NextCommitLogPosition.HasValue)
-                {
-                    this.partition.Assert(partitionEvent.NextCommitLogPosition.Value > this.CommitLogPosition);
-                    this.CommitLogPosition = partitionEvent.NextCommitLogPosition.Value;
-                }
-                if (partitionEvent.NextInputQueuePosition.HasValue)
-                {
-                    this.partition.Assert(partitionEvent.NextInputQueuePosition.Value > this.InputQueuePosition);
-                    this.InputQueuePosition = partitionEvent.NextInputQueuePosition.Value;
-                }
-
-                partition.DetailTracer?.TraceDetail("finished processing event");
-                this.effects.Effect = null;
-                Partition.ClearTraceContext();
-            }
-            // convert various storage errors that happen during termination into a uniform OperationCanceledException
-            catch (Exception terminationException)
-                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
-            {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.cancellationToken);
-            }
-            // for robustness, swallow exceptions that occur while an event is processed 
-            catch (Exception updateException) when (!(updateException is OutOfMemoryException))
-            {
-                this.partition.ErrorHandler.HandleError(nameof(ProcessEvent), $"Processing Update {partitionEvent}", updateException, false, false);
-            }
-        }
-    
-        public async ValueTask ProcessRecursively(PartitionEvent evt)
-        {
-            var startPos = this.effects.Count - 1;
-            var key = this.effects[startPos];
-
-            this.partition.DetailTracer?.TraceDetail($"Process on [{key}]");
-
-            // start with processing the event on this object 
-            await store.ProcessEffectOnTrackedObject(key, this.effects);
-             
-            // recursively process all additional objects to process
-            while (effects.Count - 1 > startPos)
-            {
-                await this.ProcessRecursively(evt);
-            }
-
-            // pop this object as we are done processing
-            effects.RemoveAt(startPos);
+            await this.effectTracker.ProcessUpdate(partitionEvent);
+            this.numberEventsSinceLastCheckpoint++;
         }
     }
 }

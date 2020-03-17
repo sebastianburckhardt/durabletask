@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced
     internal class ReassemblyState : TrackedObject
     {
         [DataMember]
-        public Dictionary<Guid, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<Guid, List<PartitionEventFragment>>();
+        public Dictionary<string, List<PartitionEventFragment>> Fragments { get; private set; } = new Dictionary<string, List<PartitionEventFragment>>();
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Reassembly);
@@ -40,21 +40,23 @@ namespace DurableTask.EventSourced
 
         public override void Process(PartitionEventFragment evt, EffectTracker effects)
         {
+            var originalEventString = evt.OriginalEventId.ToString();
+
             if (evt.IsLast)
             {
-                evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble(this.Fragments[evt.CohortId], evt);
+                evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);
                 
                 this.Partition.DetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
 
-                this.Fragments.Remove(evt.CohortId);
+                this.Fragments.Remove(originalEventString);
 
                 ((IPartitionEventWithSideEffects) evt.ReassembledEvent).DetermineEffects(effects);
             }
             else
             {
-                if (!this.Fragments.TryGetValue(evt.CohortId, out var list))
+                if (!this.Fragments.TryGetValue(originalEventString, out var list))
                 {
-                    this.Fragments[evt.CohortId] = list = new List<PartitionEventFragment>();
+                    this.Fragments[originalEventString] = list = new List<PartitionEventFragment>();
                 }
                 list.Add(evt);
             }

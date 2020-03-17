@@ -81,18 +81,21 @@ namespace DurableTask.EventSourced
 
             if (listeners != null)
             {
-                if (listeners is TransportAbstraction.IAckListener listener)
+                using (Partition.TraceContext(null, evt.EventIdString))
                 {
-                    listener.Acknowledge(evt);
-                }
-                else if (listeners is List<TransportAbstraction.IAckListener> list)
-                {
-                    foreach(var l in list)
+                    if (listeners is TransportAbstraction.IAckListener listener)
                     {
-                        l.Acknowledge(evt);
+                        listener.Acknowledge(evt);
+                    }
+                    else if (listeners is List<TransportAbstraction.IAckListener> list)
+                    {
+                        foreach (var l in list)
+                        {
+                            l.Acknowledge(evt);
+                        }
                     }
                 }
-            }
+            }       
         }
 
         public static void ReportException(Event evt, Exception e)

@@ -60,14 +60,16 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = this.RequestId
             };
-            effects.Partition.State.ScheduleRead(new QueryWaiter(effects.Partition, this, response));
+            effects.Partition.State.SubmitInternalReadonlyEvent(new QueryWaiter(effects.Partition, this, response));
         }
 
-        private class QueryWaiter : StorageAbstraction.IReadContinuation
+        private class QueryWaiter : StorageAbstraction.IInternalReadonlyEvent
         {
             private readonly Partition partition;
             private readonly InstanceQueryReceived query;
             private readonly QueryResponseReceived response;
+
+            public string EventIdString => query.EventIdString;
 
             public QueryWaiter(Partition partition, InstanceQueryReceived query, QueryResponseReceived response)
             { 
@@ -103,12 +105,12 @@ namespace DurableTask.EventSourced
                 {
                     // For now the query is implemented as an enumeration over the singleton IndexState's InstanceIds;
                     // read the InstanceState and compare state fields.
-                    this.partition.State.ScheduleRead(new ResponseWaiter(this.partition, this.query, instanceId, this.response));
+                    this.partition.State.SubmitInternalReadonlyEvent(new ResponseWaiter(this.partition, this.query, instanceId, this.response));
                 }
             }
         }
 
-        private class ResponseWaiter : StorageAbstraction.IReadContinuation
+        private class ResponseWaiter : StorageAbstraction.IInternalReadonlyEvent
         {
             private readonly Partition partition;
             private readonly InstanceQueryReceived query;
@@ -121,6 +123,8 @@ namespace DurableTask.EventSourced
                 this.response = response;
                 this.ReadTarget = TrackedObjectKey.Instance(instanceId);
             }
+
+            public string EventIdString => query.EventIdString;
 
             public TrackedObjectKey ReadTarget { get; private set; }
 

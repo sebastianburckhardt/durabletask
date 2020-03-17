@@ -80,8 +80,6 @@ namespace DurableTask.EventSourced.Emulated
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
-          
-
             // create all partitions
             Parallel.For(0, this.settings.MemoryPartitions, (iteration) =>
             {

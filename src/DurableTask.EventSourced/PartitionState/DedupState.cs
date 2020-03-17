@@ -26,12 +26,6 @@ namespace DurableTask.EventSourced
     internal class DedupState : TrackedObject
     {
         [DataMember]
-        public ulong InputQueuePosition { get; set; } // this is read and written directly by storage backend
-
-        [DataMember]
-        public ulong CommitLogPosition { get; set; } // this is read and written directly by storage backend
-
-        [DataMember]
         public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
 
         [IgnoreDataMember]
@@ -52,13 +46,6 @@ namespace DurableTask.EventSourced
 
                 effects.Add(TrackedObjectKey.Sessions);
             }
-        }
-
-        // the storage layer updates these positions before writing a checkpoint
-        public void Process(StoreWorker storeWorker, EffectTracker _)
-        {
-            this.InputQueuePosition = storeWorker.InputQueuePosition;
-            this.CommitLogPosition = storeWorker.CommitLogPosition;
         }
     }
 }

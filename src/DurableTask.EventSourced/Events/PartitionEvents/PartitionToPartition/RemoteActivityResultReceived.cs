@@ -16,18 +16,27 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class SendConfirmed : PartitionEvent, IPartitionEventWithSideEffects
+    internal class RemoteActivityResultReceived : PartitionMessageReceived
     {
         [DataMember]
-        public long Position { get; set; }
+        public TaskMessage Result { get; set; }
 
-        public void DetermineEffects(EffectTracker effects)
-        {
-            effects.Add(TrackedObjectKey.Outbox);
-        }
+        [DataMember]
+        public long ActivityId { get; set; }
+
+        [DataMember]
+        public int ActivitiesQueueSize { get; set; }
+
+        [DataMember]
+        public DateTime Timestamp { get; set; }
+
+        [IgnoreDataMember]
+        public override string CorrelationId => $"A{ActivityId:D6}R";
     }
 }

@@ -13,34 +13,49 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TaskMessagesReceived : PartitionMessageReceived
+    internal class PartitionEventFragment : 
+        PartitionEvent, 
+        IPartitionEventWithSideEffects, 
+        FragmentationAndReassembly.IEventFragment
     {
         [DataMember]
-        public List<TaskMessage> TaskMessages { get; set; }
+        public EventId OriginalEventId { get; set; }
 
-        protected override void TraceInformation(StringBuilder s)
+        [DataMember]
+        public byte[] Bytes { get; set; }
+
+        [DataMember]
+        public int Fragment { get; set; }
+
+        [DataMember]
+        public bool IsLast { get; set; }
+
+        [IgnoreDataMember]
+        public PartitionEvent ReassembledEvent;
+
+        public override EventId EventId => EventId.MakeFragmentEventId(this.OriginalEventId, this.Fragment);
+
+        protected override void ExtraTraceInformation(StringBuilder s)
         {
             s.Append(' ');
-            if (TaskMessages.Count == 1)
+            s.Append(this.Bytes.Length);
+            if (this.IsLast)
             {
-                s.Append(TaskMessages[0].Event.EventType);
+                s.Append(" last");
             }
-            else
-            {
-                s.Append('[');
-                s.Append(TaskMessages.Count);
-                s.Append(']');
-            }
-            s.Append($" from: Part{OriginPartition:D2}.{OriginPosition:D10}");
+        }
+
+
+        public void DetermineEffects(EffectTracker effects)
+        {
+            effects.Add(TrackedObjectKey.Reassembly);
         }
     }
 }

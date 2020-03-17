@@ -36,13 +36,16 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override byte[] Serialize(PartitionEvent evt)
         {
+            var stream = new MemoryStream();
+            Serializer.SerializePacket(evt, stream);
             AckListeners.Acknowledge(evt);
-            return Serializer.SerializeEvent(evt);
+            return stream.ToArray();
         }
 
         protected override PartitionEvent Deserialize(byte[] bytes)
         {
-            return (PartitionEvent) Serializer.DeserializeEvent(bytes);
+            Serializer.DeserializePacket<PartitionEvent>(new ArraySegment<byte>(bytes, 0, bytes.Length), out var eventId, out var partitionEvent);
+            return partitionEvent;
         }
 
         protected override void Deliver(PartitionEvent evt)

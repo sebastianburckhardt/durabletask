@@ -22,15 +22,23 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class RemoteActivityResultReceived : PartitionMessageReceived
+    internal abstract class PartitionMessageReceived : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
-        public TaskMessage Result { get; set; }
+        public uint OriginPartition { get; set; }
 
         [DataMember]
-        public int ActivitiesQueueSize { get; set; }
+        public long OriginPosition { get; set; }
 
-        [DataMember]
-        public DateTime Timestamp { get; set; }
+        [IgnoreDataMember]
+        public abstract string CorrelationId { get; }
+
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId(this.PartitionId, this.CorrelationId);
+
+        public void DetermineEffects(EffectTracker effects)
+        {
+            effects.Add(TrackedObjectKey.Dedup);
+        }
     }
 }

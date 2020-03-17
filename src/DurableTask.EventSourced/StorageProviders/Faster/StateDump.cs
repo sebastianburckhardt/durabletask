@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced.Faster
 {
     // Useful for debugging.
-    internal class StateDump : StorageAbstraction.IReadContinuation, IComparer<TrackedObjectKey>
+    internal class StateDump : StorageAbstraction.IInternalReadonlyEvent, IComparer<TrackedObjectKey>
     {
         private readonly SortedDictionary<TrackedObjectKey, TrackedObject> results;
 
@@ -31,6 +31,8 @@ namespace DurableTask.EventSourced.Faster
         }
 
         public TrackedObjectKey ReadTarget => throw new NotImplementedException(); // not used
+
+        public string EventIdString => "";
 
         public int Compare(TrackedObjectKey x, TrackedObjectKey y)
         {
