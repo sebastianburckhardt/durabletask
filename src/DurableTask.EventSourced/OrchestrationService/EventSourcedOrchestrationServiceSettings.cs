@@ -147,12 +147,12 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// A limit on how many bytes to append to the log before initiating another state checkpoint.
         /// </summary>
-        public ulong MaxNumberBytesBetweenCheckpoints { get; set; } = 200 * 1024 * 1024;
+        public long MaxNumberBytesBetweenCheckpoints { get; set; } = 200 * 1024 * 1024;
 
         /// <summary>
         /// A limit on how many events to append to the log before initiating another state checkpoint.
         /// </summary>
-        public ulong MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
+        public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
 
         /// <inheritdoc/>

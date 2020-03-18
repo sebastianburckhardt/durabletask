@@ -77,17 +77,17 @@ namespace DurableTask.EventSourced
         }
 
         [Event(22, Level = EventLevel.Error, Version = 1)]
-        public void PartitionError(int partitionId, string where, bool isFatal, string message, string exception)
+        public void PartitionError(int partitionId, string where, bool terminatePartition, string message, string exception)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(22, partitionId, where, isFatal, message, exception);
+            this.WriteEvent(22, partitionId, where, terminatePartition, message, exception);
         }
 
         [Event(23, Level = EventLevel.Warning, Version = 1)]
-        public void PartitionWarning(int partitionId, string where, bool isFatal, string message, string exception)
+        public void PartitionWarning(int partitionId, string where, bool terminatePartition, string message, string exception)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(23, partitionId, where, isFatal, message, exception);
+            this.WriteEvent(23, partitionId, where, terminatePartition, message, exception);
         }
 
         [Event(24, Level = EventLevel.Verbose, Version = 1)]
@@ -100,21 +100,21 @@ namespace DurableTask.EventSourced
         // ----- partition event processing
 
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventProcessed(int partitionId, ulong commitLogPosition, string eventId, string eventInfo, ulong nextCommitLogPosition, ulong nextInputQueuePosition, bool replaying)
+        public void PartitionEventProcessed(int partitionId, long commitLogPosition, string eventId, string eventInfo, long nextCommitLogPosition, long nextInputQueuePosition, bool replaying)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(30, partitionId, commitLogPosition, eventId, eventInfo, nextCommitLogPosition, nextInputQueuePosition, replaying);
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventSent(int partitionId, ulong commitLogPosition, string context, string eventId, string eventInfo)
+        public void PartitionEventSent(int partitionId, long commitLogPosition, string context, string eventId, string eventInfo)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(31, partitionId, commitLogPosition, context, eventId, eventInfo);
         }
 
         [Event(32, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventDetail(int partitionId, ulong commitLogPosition, string context, string details)
+        public void PartitionEventDetail(int partitionId, long commitLogPosition, string context, string details)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(32, partitionId, commitLogPosition, context, details);
@@ -162,42 +162,42 @@ namespace DurableTask.EventSourced
         // ----- faster storage events
 
         [Event(70, Level = EventLevel.Informational, Version = 1)]
-        public void FasterStoreCreated(int partitionId, ulong inputPosition, long elapsedMilliseconds)
+        public void FasterStoreCreated(int partitionId, long inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(70, partitionId, inputPosition, elapsedMilliseconds);
         }
 
         [Event(71, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointStarted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition)
+        public void FasterCheckpointStarted(int partitionId, Guid checkpointGuid, string reason, long commitPosition, long inputPosition)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(71, partitionId, checkpointGuid, reason, commitPosition, inputPosition);
         }
 
         [Event(72, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointPersisted(int partitionId, Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void FasterCheckpointPersisted(int partitionId, Guid checkpointGuid, string reason, long commitPosition, long inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(72, partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(73, Level = EventLevel.Verbose, Version = 1)]
-        public void FasterLogPersisted(int partitionId, ulong commitPosition, ulong numEvents, ulong numBytes, long elapsedMilliseconds)
+        public void FasterLogPersisted(int partitionId, long commitPosition, long numEvents, long numBytes, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(73, partitionId, commitPosition, numEvents, numBytes, elapsedMilliseconds);
         }
 
         [Event(74, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointLoaded(int partitionId, ulong commitPosition, ulong inputPosition, long elapsedMilliseconds)
+        public void FasterCheckpointLoaded(int partitionId, long commitPosition, long inputPosition, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(74, partitionId, commitPosition, inputPosition, elapsedMilliseconds);
         }
 
         [Event(75, Level = EventLevel.Informational, Version = 1)]
-        public void FasterLogReplayed(int partitionId, ulong commitPosition, ulong inputPosition, ulong numEvents, ulong numBytes, long elapsedMilliseconds)
+        public void FasterLogReplayed(int partitionId, long commitPosition, long inputPosition, long numEvents, long numBytes, long elapsedMilliseconds)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(75, partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMilliseconds);

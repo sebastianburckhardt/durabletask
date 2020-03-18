@@ -25,9 +25,9 @@ namespace DurableTask.EventSourced
     internal class MemoryStorage : BatchWorker<object>, StorageAbstraction.IPartitionState
     {
         private Partition partition;
-        private ulong nextSubmitPosition = 0;
-        private ulong commitPosition = 0;
-        private ulong inputQueuePosition = 0;
+        private long nextSubmitPosition = 0;
+        private long commitPosition = 0;
+        private long inputQueuePosition = 0;
 
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
@@ -45,7 +45,7 @@ namespace DurableTask.EventSourced
 
         public void SubmitEvent(PartitionEvent entry)
         {
-            entry.NextCommitLogPosition = nextSubmitPosition++;
+            entry.NextCommitLogPosition = ++nextSubmitPosition;
             base.Submit(entry);
         }
 
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
         {
             foreach (var entry in entries)
             {
-                entry.NextCommitLogPosition = nextSubmitPosition++;
+                entry.NextCommitLogPosition = ++nextSubmitPosition;
             }
 
             base.SubmitIncomingBatch(entries);
@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced
             this.Submit(readContinuation);
         }
 
-        public Task<ulong> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, ulong initialInputQueuePosition)
+        public Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, long initialInputQueuePosition)
         {
             this.partition = partition;
 
@@ -78,7 +78,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            return Task.FromResult(0UL);
+            return Task.FromResult(0L);
         }
 
         public async Task CleanShutdown(bool takeFinalStateCheckpoint)
@@ -125,7 +125,7 @@ namespace DurableTask.EventSourced
                     }
                     catch(Exception e)
                     {
-                        partition.ErrorHandler.HandleError(nameof(Process), $"error while processing {o}", e, false, false);
+                        partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {o}", e, false, false);
                     }
                 }
             }

@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                partition.ErrorHandler.HandleError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationCompletionTask)}", "unexpected error", e, false, false);
+                partition.ErrorHandler.HandleError($"{nameof(WaitRequestReceived)}.{nameof(WaitForOrchestrationCompletionTask)}", "Encountered exception while waiting for orchestration", e, false, false);
             }
         }
 

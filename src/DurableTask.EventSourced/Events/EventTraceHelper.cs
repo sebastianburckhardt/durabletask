@@ -33,20 +33,20 @@ namespace DurableTask.EventSourced
 
         public bool IsTracingDetails => (this.logger.IsEnabled(LogLevel.Debug) || EtwSource.Log.IsVerboseEnabled);
 
-        public void TraceEvent(ulong commitLogPosition, PartitionEvent evt, bool replaying)
+        public void TraceEvent(long commitLogPosition, PartitionEvent evt, bool replaying)
         {
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition.HasValue ? "external" : "internal")}{(evt.NextCommitLogPosition.HasValue ? "" : " readonly")} event");
-                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, evt.NextCommitLogPosition?.ToString() ?? "_", evt.NextInputQueuePosition?.ToString() ?? "_");
+                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")}{(evt.NextCommitLogPosition > 0 ? "" : " readonly")} event");
+                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, evt.NextCommitLogPosition, evt.NextInputQueuePosition);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventProcessed(this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), evt.NextCommitLogPosition ?? 0UL, evt.NextInputQueuePosition ?? 0UL, replaying);
+                EtwSource.Log.PartitionEventProcessed(this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), evt.NextCommitLogPosition, evt.NextInputQueuePosition, replaying);
             }
         }
 
-        public void TraceEvent(ulong commitLogPosition, StorageAbstraction.IInternalReadonlyEvent evt)
+        public void TraceEvent(long commitLogPosition, StorageAbstraction.IInternalReadonlyEvent evt)
         {
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
@@ -55,17 +55,17 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventProcessed(this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), 0UL, 0UL, false);
+                EtwSource.Log.PartitionEventProcessed(this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), 0L, 0L, false);
             }
         }
 
         // The trace context correlates the processing of an event with the effects of that event
         [ThreadStatic]
-        private static (ulong?, string) traceContext;
+        private static (long, string) traceContext;
 
         private static readonly TraceContextClear traceContextClear = new TraceContextClear();
 
-        public static IDisposable TraceContext(ulong? commitLogPosition, string context)
+        public static IDisposable TraceContext(long commitLogPosition, string context)
         {
             EventTraceHelper.traceContext = (commitLogPosition, context);
             return traceContextClear;
@@ -75,42 +75,42 @@ namespace DurableTask.EventSourced
         {
             public void Dispose()
             {
-                EventTraceHelper.traceContext = (null, null);
+                EventTraceHelper.traceContext = (0L, null);
             }
         }
  
         public static void ClearTraceContext()
         {
-            EventTraceHelper.traceContext = (null, null);
+            EventTraceHelper.traceContext = (0L, null);
         }
 
         public void TraceSend(Event evt)
         {
-            (ulong? commitLogPosition, string context) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string context) = EventTraceHelper.traceContext;
 
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                string prefix = commitLogPosition.HasValue ? $".{commitLogPosition.Value:D10}   " : "";
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
                 this.logger.LogDebug("Part{partition:D2}{prefix} Sending event {eventId} {event}", this.partitionId, prefix, evt.EventIdString, evt);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventSent(this.partitionId, commitLogPosition ?? 0UL, context ?? "", evt.EventIdString, evt.ToString());
+                EtwSource.Log.PartitionEventSent(this.partitionId, commitLogPosition, context ?? "", evt.EventIdString, evt.ToString());
             }
         }
 
         public void TraceDetail(string details)
         {
-            (ulong? commitLogPosition, string context) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string context) = EventTraceHelper.traceContext;
 
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                string prefix = commitLogPosition.HasValue ? $".{commitLogPosition.Value:D10}   " : "";
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
                 this.logger.LogDebug("Part{partition:D2}{prefix} {details}", this.partitionId, prefix, details);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventDetail(this.partitionId, commitLogPosition ?? 0UL, context ?? "", details);
+                EtwSource.Log.PartitionEventDetail(this.partitionId, commitLogPosition, context ?? "", details);
             }
         }
     }

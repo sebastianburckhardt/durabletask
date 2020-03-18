@@ -30,10 +30,10 @@ namespace DurableTask.EventSourced
     internal class EffectTracker : List<TrackedObjectKey>
     {
         private readonly Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore;
-        private readonly Func<(ulong, ulong)> getPositions;
-        private readonly Action<ulong, ulong> setPositions;
+        private readonly Func<(long, long)> getPositions;
+        private readonly Action<long, long> setPositions;
 
-        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(ulong, ulong)> getPositions, Action<ulong, ulong> setPositions)
+        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions, Action<long, long> setPositions)
         {
             this.Partition = partition;
             this.applyToStore = applyToStore;
@@ -71,7 +71,7 @@ namespace DurableTask.EventSourced
 
         public async Task ProcessUpdate(PartitionEvent partitionEvent)
         {
-            (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
+            (long commitLogPosition, long inputQueuePosition) = this.getPositions();
 
             using (EventTraceHelper.TraceContext(commitLogPosition, partitionEvent.EventIdString))
             {
@@ -112,15 +112,15 @@ namespace DurableTask.EventSourced
                     }
 
                     // update the commit log and input queue positions
-                    if (partitionEvent.NextCommitLogPosition.HasValue)
+                    if (partitionEvent.NextCommitLogPosition > 0)
                     {
-                        this.Partition.Assert(partitionEvent.NextCommitLogPosition.Value > commitLogPosition);
-                        commitLogPosition = partitionEvent.NextCommitLogPosition.Value;
+                        this.Partition.Assert(partitionEvent.NextCommitLogPosition > commitLogPosition);
+                        commitLogPosition = partitionEvent.NextCommitLogPosition;
                     }
-                    if (partitionEvent.NextInputQueuePosition.HasValue)
+                    if (partitionEvent.NextInputQueuePosition > 0)
                     {
-                        this.Partition.Assert(partitionEvent.NextInputQueuePosition.Value > inputQueuePosition);
-                        inputQueuePosition = partitionEvent.NextInputQueuePosition.Value;
+                        this.Partition.Assert(partitionEvent.NextInputQueuePosition > inputQueuePosition);
+                        inputQueuePosition = partitionEvent.NextInputQueuePosition;
                     }
                     this.setPositions(commitLogPosition, inputQueuePosition);
 
@@ -134,14 +134,14 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Processing Update {partitionEvent}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Encountered exception while processing update event {partitionEvent}", exception, false, false);
                 }
             }
         }
 
         public void ProcessRead(StorageAbstraction.IInternalReadonlyEvent readContinuation, TrackedObject target)
         {
-            (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
+            (long commitLogPosition, long inputQueuePosition) = this.getPositions();
 
             using (EventTraceHelper.TraceContext(commitLogPosition, readContinuation.EventIdString))
             {
@@ -161,7 +161,7 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Processing Read {readContinuation.ToString()}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readContinuation.ToString()}", exception, false, false);
                 }
             }
         }

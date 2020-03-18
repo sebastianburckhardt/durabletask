@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced
             /// <param name="firstInputQueuePosition">For new partitions, the position of the first message to receive.</param>
             /// <returns>the input queue position from which to resume input processing</returns>
             /// <exception cref="OperationCanceledException">Indicates that termination was signaled before the operation completed.</exception>
-            Task<ulong> CreateOrRestoreAsync(Partition localPartition, IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition);
+            Task<long> CreateOrRestoreAsync(Partition localPartition, IPartitionErrorHandler errorHandler, long firstInputQueuePosition);
 
             /// <summary>
             /// Finish processing events and save the partition state to storage.

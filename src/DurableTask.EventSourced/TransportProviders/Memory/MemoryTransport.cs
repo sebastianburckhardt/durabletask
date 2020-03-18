@@ -153,7 +153,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                partition.ErrorHandler.HandleError(nameof(SendEvents), "could not send events", e, true, false);
+                partition.ErrorHandler.HandleError(nameof(SendEvents), "Encountered exception while trying to send events", e, true, false);
             }
         }
 

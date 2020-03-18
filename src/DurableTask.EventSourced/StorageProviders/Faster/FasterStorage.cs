@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced.Faster
             return BlobManager.DeleteTaskhubStorageAsync(connectionString, taskHubName);
         }
 
-        public async Task<ulong> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition)
+        public async Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
         {
             this.partition = partition;
             this.terminationToken = errorHandler.Token;

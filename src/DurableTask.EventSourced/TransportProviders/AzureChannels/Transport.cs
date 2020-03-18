@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 }
                 catch(Exception e)
                 {
-                    partition.ErrorHandler.HandleError(nameof(ReceiveLoopAsync), "Failure in receive loop", e, true, false);
+                    partition.ErrorHandler.HandleError(nameof(ReceiveLoopAsync), "Encountered exception while processing events", e, true, false);
                 }
             }
         }
@@ -121,26 +121,26 @@ namespace DurableTask.EventSourced.AzureChannels
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
                 // for robustness, swallow exceptions, but report them
-                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Processing Ack for {evt}", exception, false, false);
+                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for {evt} id={evt.EventIdString}", exception, false, false);
             }
         }
 
-        protected override bool HandleFailedSend(Event evt, Exception exception)
+        protected override void HandleFailedSend(Event evt, Exception exception, out bool requeue)
         {
-            this.partition.ErrorHandler.HandleError(nameof(HandleFailedSend), $"could not send {evt}", exception, false, false);
+            this.partition.ErrorHandler.HandleError(nameof(HandleFailedSend), $"Encountered exception while trying to send {evt}", exception, false, false);
 
             if (evt.SafeToDuplicateInTransport())
             {
-                return true;
+                requeue = true;
             }
             else
             {
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
                 AckListeners.ReportException(evt, exception);
-            }
 
-            return false;
+                requeue =  false;
+            }
         }
 
         private class PartitionBatch : List<PartitionEvent>, TransportAbstraction.IAckListener
@@ -197,9 +197,9 @@ namespace DurableTask.EventSourced.AzureChannels
                 {
                     var content = Serializer.SerializeEvent(evt);
 
-                    string source = !evt.NextCommitLogPosition.HasValue ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
+                    string source = evt.NextCommitLogPosition == 0 ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
                     string destination = evt is PartitionEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
-                    long pos = evt.NextCommitLogPosition.HasValue ? (long) evt.NextCommitLogPosition.Value : Interlocked.Increment(ref position);
+                    long pos = evt.NextCommitLogPosition > 0 ? evt.NextCommitLogPosition : Interlocked.Increment(ref position);
                     transport.Send(evt, source, destination, pos, content, evt.ToString());
                 }
             }

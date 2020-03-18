@@ -10,6 +10,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core.Common;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Extensions.Logging;
 //using Microsoft.Extensions.Logging;
@@ -74,7 +75,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                     if (!tooBig && batch.TryAdd(eventData))
                     {
-                        this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} added packet to batch ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, eventData.Body.Count, evt, evt.EventIdString);
+                        this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} added packet to batch ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, eventData.Body.Count, evt, evt.EventIdString);
                         continue;
                     }
                     else
@@ -86,7 +87,7 @@ namespace DurableTask.EventSourced.EventHubs
                             await sender.SendAsync(batch);
                             sentSuccessfully = i - 1;
 
-                            this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent batch", this.eventHubName, this.eventHubPartition);
+                            this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
 
                             // create a fresh batch
                             batch = sender.CreateBatch();
@@ -104,7 +105,7 @@ namespace DurableTask.EventSourced.EventHubs
                                 Packet.Serialize((Event)fragment, stream);
                                 length = (int)stream.Position;
                                 await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length)));
-                                this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
+                                this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
                             }
                             sentSuccessfully = i;
                         }
@@ -125,7 +126,7 @@ namespace DurableTask.EventSourced.EventHubs
                     await sender.SendAsync(batch);
                     sentSuccessfully = toSend.Count - 1;
 
-                    this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent batch", this.eventHubName, this.eventHubPartition);
+                    this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
 
                     // the buffer can be reused now
                     stream.Seek(0, SeekOrigin.Begin);
@@ -133,7 +134,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
             catch (Exception e)
             {
-                this.logger.LogWarning(e, "EventHubsSender {eventHubName}/{partitionId} failed to send", this.eventHubName, this.eventHubPartition, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.logger.LogWarning(e, "EventHubsSender {eventHubName}/{eventHubPartitionId} failed to send", this.eventHubName, this.eventHubPartition, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 senderException = e;
             }
             finally
@@ -184,11 +185,11 @@ namespace DurableTask.EventSourced.EventHubs
                     this.Requeue(requeue);
                 }
 
-                this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} messages", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
             }
-            catch (Exception exception)
+            catch (Exception exception) when (!Utils.IsFatal(exception))
             {
-                this.logger.LogError("EventHubsSender {eventHubName}/{partitionId} encountered an error while trying to confirm messages: {exception}", this.eventHubName, this.eventHubPartition, exception);
+                this.logger.LogError("EventHubsSender {eventHubName}/{eventHubPartitionId} encountered an error while trying to confirm messages: {exception}", this.eventHubName, this.eventHubPartition, exception);
             }
         }
     }

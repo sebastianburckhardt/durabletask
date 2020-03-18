@@ -72,7 +72,7 @@ namespace DurableTask.EventSourced
             this.eventTraceHelper = new EventTraceHelper(host.Logger, this);
         }
 
-        public async Task<ulong> StartAsync(IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition)
+        public async Task<long> StartAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
         {
             EventTraceHelper.ClearTraceContext();
             this.DetailTracer?.TraceDetail("starting partition");
@@ -99,7 +99,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.ErrorHandler.HandleError(nameof(StartAsync), "could not start partition", e, true, false);
+                this.ErrorHandler.HandleError(nameof(StartAsync), "Could not start partition", e, true, false);
                 throw;
             }
         }
@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced
 
                 var stacktrace = System.Environment.StackTrace;
 
-                this.ErrorHandler.HandleError(stacktrace, "assertion failed", null, false, false);
+                this.ErrorHandler.HandleError(stacktrace, "Assertion failed", null, false, false);
             }
         }
 
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.ErrorHandler.HandleError(nameof(StopAsync), "could not shut down partition state cleanly", e, true, false);
+                this.ErrorHandler.HandleError(nameof(StopAsync), "Could not shut down partition state cleanly", e, true, false);
             }
 
             // at this point, the partition has been terminated (either cleanly or by exception)
@@ -166,7 +166,7 @@ namespace DurableTask.EventSourced
             }
             catch (Exception e)
             {
-                this.ErrorHandler.HandleError("TimersFired", "Submitting Partition Timers", e, true, false);
+                this.ErrorHandler.HandleError("TimersFired", "Encountered exception while firing partition timers", e, true, false);
             }
         }
 

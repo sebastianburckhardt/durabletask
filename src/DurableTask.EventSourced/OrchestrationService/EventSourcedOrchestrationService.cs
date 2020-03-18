@@ -446,7 +446,7 @@ namespace DurableTask.EventSourced
             catch(OperationCanceledException e)
             {
                 // we get here if the partition was terminated. The work is thrown away. It's unavoidable by design, but let's at least create a warning.
-                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync), "discarding completed orchestration work item because of partition termination", e, false, true);
+                partition.ErrorHandler.HandleError( nameof(IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync), "Canceling completed orchestration work item because of partition termination", e, false, true);
             }
 
             return Task.CompletedTask;
@@ -529,7 +529,7 @@ namespace DurableTask.EventSourced
             catch (OperationCanceledException e)
             {
                 // we get here if the partition was terminated. The work is thrown away. It's unavoidable by design, but let's at least create a warning.
-                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskActivityWorkItemAsync), "discarding completed activity work item because of partition termination", e, false, true);
+                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskActivityWorkItemAsync), "Canceling completed activity work item because of partition termination", e, false, true);
             }
 
             return Task.CompletedTask;

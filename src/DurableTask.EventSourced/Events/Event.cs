@@ -32,17 +32,17 @@ namespace DurableTask.EventSourced
         public abstract EventId EventId { get; }
 
         /// <summary>
-        /// For events entering the commit log, the position of the next event after this one.
+        /// For events in the commit log, the position of the next event after this one. For read-only events, zero.
         /// </summary>
         /// <remarks>We do not persist this in the log since it is implicit, nor transmit this in packets since it has only local meaning.</remarks>
         [IgnoreDataMember]
-        public ulong? NextCommitLogPosition { get; set; }
+        public long NextCommitLogPosition { get; set; }
 
         /// <summary>
-        /// For events coming from the input queue, the next input queue position after this event.
+        /// For events coming from the input queue, the next input queue position after this event. For internal events, zero.
         /// </summary>
         [DataMember]
-        public ulong? NextInputQueuePosition { get; set; }
+        public long NextInputQueuePosition { get; set; }
 
         /// <summary>
         /// Listeners to be notified when this event is durably persisted or sent.

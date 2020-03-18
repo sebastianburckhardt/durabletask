@@ -33,13 +33,13 @@ namespace DurableTask.EventSourced.Faster
 
         private bool IsShuttingDown => this.shutdownWaiter != null || this.cancellationToken.IsCancellationRequested;
 
-        public ulong InputQueuePosition { get; private set; }
-        public ulong CommitLogPosition { get; private set; }
+        public long InputQueuePosition { get; private set; }
+        public long CommitLogPosition { get; private set; }
 
         private Task pendingIndexCheckpoint;
-        private Task<ulong> pendingStoreCheckpoint;
-        private ulong lastCheckpointedPosition;
-        private ulong numberEventsSinceLastCheckpoint;
+        private Task<long> pendingStoreCheckpoint;
+        private long lastCheckpointedPosition;
+        private long numberEventsSinceLastCheckpoint;
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Faster
             );
         }
 
-        public async Task Initialize(ulong initialInputQueuePosition)
+        public async Task Initialize(long initialInputQueuePosition)
         {
             this.InputQueuePosition = initialInputQueuePosition;
             this.CommitLogPosition = 0;
@@ -162,7 +162,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception exception)
             {
-                this.partition.ErrorHandler.HandleError("StoreWorker.Process", "unexpected error", exception, true, false);
+                this.partition.ErrorHandler.HandleError("StoreWorker.Process", "Encountered exception while working on store", exception, true, false);
             }
             finally
             {
@@ -170,7 +170,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }     
 
-        public async Task<ulong> WaitForCheckpointAsync(string description, Guid checkpointToken)
+        public async Task<long> WaitForCheckpointAsync(string description, Guid checkpointToken)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
@@ -203,9 +203,9 @@ namespace DurableTask.EventSourced.Faster
         {
             // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
             // (note that it may not be the very next in the sequence since readonly events are not persisted in the store)
-            if (partitionEvent.NextInputQueuePosition.HasValue && partitionEvent.NextInputQueuePosition.Value <= this.InputQueuePosition)
+            if (partitionEvent.NextInputQueuePosition > 0 && partitionEvent.NextInputQueuePosition <= this.InputQueuePosition)
             {
-                this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate input", null, false, false);
+                this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate event detected", null, false, false);
                 return;
             }
 

@@ -25,25 +25,25 @@ namespace DurableTask.EventSourced
             this.logger = logger;
         }
 
-        public void HandleError(string where, string message, Exception exception, bool isFatal, bool isWarning)
+        public void HandleError(string where, string message, Exception exception, bool terminatePartition, bool isWarning)
         {
             var logLevel = isWarning ? LogLevel.Warning : LogLevel.Error;
             if (this.logger?.IsEnabled(logLevel) == true)
             {
-                this.logger?.Log(logLevel, "Part{partition:D2} !!! {message} in {context}: {exception} isFatal={isFatal}", this.partitionId, message, where, exception, isFatal);
+                this.logger?.Log(logLevel, "Part{partition:D2} !!! {message} in {context}: {exception} terminatePartition={terminatePartition}", this.partitionId, message, where, exception, terminatePartition);
             }
 
                 if (isWarning)
                 {
-                    EtwSource.Log.PartitionWarning(this.partitionId, where, isFatal, message, exception?.ToString() ?? string.Empty);
+                    EtwSource.Log.PartitionWarning(this.partitionId, where, terminatePartition, message, exception?.ToString() ?? string.Empty);
                 }
                 else
                 {
-                    EtwSource.Log.PartitionError(this.partitionId, where, isFatal, message, exception?.ToString() ?? string.Empty);
+                    EtwSource.Log.PartitionError(this.partitionId, where, terminatePartition, message, exception?.ToString() ?? string.Empty);
                 }
                
             // terminate this partition in response to the error
-            if (isFatal && ! cts.IsCancellationRequested)
+            if (terminatePartition && ! cts.IsCancellationRequested)
             {
                 this.Terminate();
             }
@@ -64,12 +64,12 @@ namespace DurableTask.EventSourced
             {
                 foreach (var e in aggregate.InnerExceptions)
                 {
-                    this.HandleError("PartitionErrorHandler.Terminate", "exception while canceling token", e, false, true);
+                    this.HandleError("PartitionErrorHandler.Terminate", "Encountered exeption while canceling token", e, false, true);
                 }
             }
             catch (Exception e)
             {
-                this.HandleError("PartitionErrorHandler.Terminate", "exception while canceling token", e, false, true);
+                this.HandleError("PartitionErrorHandler.Terminate", "Encountered exeption while canceling token", e, false, true);
             }
         }
 

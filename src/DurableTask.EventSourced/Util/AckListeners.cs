@@ -81,7 +81,7 @@ namespace DurableTask.EventSourced
 
             if (listeners != null)
             {
-                using (EventTraceHelper.TraceContext(null, evt.EventIdString))
+                using (EventTraceHelper.TraceContext(0L, evt.EventIdString))
                 {
                     if (listeners is TransportAbstraction.IAckListener listener)
                     {

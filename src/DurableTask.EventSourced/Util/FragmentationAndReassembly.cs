@@ -27,8 +27,6 @@ namespace DurableTask.EventSourced
             byte[] Bytes { get; }
 
             bool IsLast { get; }
-
-            ulong? NextCommitLogPosition { get; }
         }
 
         public static List<IEventFragment> Fragment(ArraySegment<byte> segment, Event original, int maxFragmentSize)

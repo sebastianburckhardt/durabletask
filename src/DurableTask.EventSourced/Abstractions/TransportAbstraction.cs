@@ -129,7 +129,7 @@ namespace DurableTask.EventSourced
             /// Also, it can be used to detect that the partition has terminated for any other reason, 
             /// be it cleanly (after StopAsync) or uncleanly (after losing a lease or hitting a fatal error).
             /// </remarks>
-            Task<ulong> StartAsync(IPartitionErrorHandler termination, ulong firstInputQueuePosition);
+            Task<long> StartAsync(IPartitionErrorHandler termination, long firstInputQueuePosition);
 
             /// <summary>
             /// Clean shutdown: stop processing, save partition state to storage, and release ownership.

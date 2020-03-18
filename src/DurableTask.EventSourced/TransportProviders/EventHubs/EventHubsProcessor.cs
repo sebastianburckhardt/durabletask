@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced.EventHubs
             public IPartitionErrorHandler ErrorHandler;
             public TransportAbstraction.IPartition Partition;
             public Task<CurrentPartition> Next;
-            public ulong NextPacketToReceive;
+            public long NextPacketToReceive;
         }
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.EventHubs
             // this is called after an event has committed (i.e. has been durably persisted in the recovery log).
             // so we know we will never need to deliver it again. We remove it from the local buffer, and also checkpoint
             // with EventHubs occasionally.
-            while (this.packetDeliveryBackup.TryPeek(out var front) && front.evt.NextInputQueuePosition.Value <= evt.NextInputQueuePosition.Value)
+            while (this.packetDeliveryBackup.TryPeek(out var front) && front.evt.NextInputQueuePosition <= evt.NextInputQueuePosition)
             {
                 if (this.packetDeliveryBackup.TryDequeue(out var candidate))
                 {
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.EventHubs
             c.ErrorHandler = this.host.CreateErrorHandler(this.partitionId);
             c.Next = this.StartPartitionAsync(c);
             c.Partition = host.AddPartition(this.partitionId, this.sender);
-            c.NextPacketToReceive = await c.Partition.StartAsync(c.ErrorHandler, (ulong)this.parameters.StartPositions[this.partitionId]);
+            c.NextPacketToReceive = await c.Partition.StartAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
 
             this.logger.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Successfully started EventProcessor (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, incarnation, c.NextPacketToReceive);
 
@@ -153,7 +153,7 @@ namespace DurableTask.EventSourced.EventHubs
                 var batch = packetDeliveryBackup.Select(triple => triple.Item1).Where(evt => evt.NextInputQueuePosition > c.NextPacketToReceive).ToList();
                 if (batch.Count > 0)
                 {
-                    c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition.Value;
+                    c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
                     c.Partition.SubmitInputEvents(batch);
                     this.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} Received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
                 }
@@ -238,7 +238,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     foreach (var eventData in packets)
                     {
-                        var seqno = (ulong)eventData.SystemProperties.SequenceNumber;
+                        var seqno = eventData.SystemProperties.SequenceNumber;
                         if (seqno == current.NextPacketToReceive)
                         {
                             string eventId = null;
@@ -291,7 +291,7 @@ namespace DurableTask.EventSourced.EventHubs
             catch (Exception exception)
             {
                 this.logger.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} Error while processing packets : {exception}", this.eventHubName, this.eventHubPartition, exception);
-                current?.ErrorHandler.HandleError("IEventProcessor.ProcessEventsAsync", "unexpected error", exception, true, false);
+                current?.ErrorHandler.HandleError("IEventProcessor.ProcessEventsAsync", "Encountered exception while processing events", exception, true, false);
             }
         }
     }

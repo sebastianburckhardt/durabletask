@@ -69,7 +69,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     Enqueue(bytes);
 
-                    evt.NextCommitLogPosition = (ulong)this.log.TailAddress;
+                    evt.NextCommitLogPosition = this.log.TailAddress;
 
                     base.Submit(evt);
 
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.Faster
 
                     this.numberEventsProcessed += (uint) batch.Count;
 
-                    this.traceHelper.FasterLogPersisted((ulong) log.CommittedUntilAddress, (ulong) batch.Count, (ulong) (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
 
                     foreach (var evt in batch)
                     {
@@ -156,7 +156,7 @@ namespace DurableTask.EventSourced.Faster
                             catch (Exception exception) when (!(exception is OutOfMemoryException))
                             {
                                 // for robustness, swallow exceptions, but report them
-                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Processing Ack for {evt}", exception, false, false);
+                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
                             }
                         }
                     }
@@ -169,7 +169,7 @@ namespace DurableTask.EventSourced.Faster
                 }
                 catch (Exception e) when (!(e is OutOfMemoryException))
                 {
-                    this.partition.ErrorHandler.HandleError("LogWorker.Process", "unexpected error", e, true, false);
+                    this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
                 }
             }
 
@@ -179,7 +179,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public async Task ReplayCommitLog(ulong from, StoreWorker worker)
+        public async Task ReplayCommitLog(long from, StoreWorker worker)
         {
             // this procedure is called by StoreWorker during recovery. It replays all the events
             // that were committed to the log but are not reflected in the loaded store checkpoint.
@@ -233,7 +233,7 @@ namespace DurableTask.EventSourced.Faster
 
                         if (partitionEvent != null)
                         {
-                            partitionEvent.NextCommitLogPosition = (ulong)iter.NextAddress;
+                            partitionEvent.NextCommitLogPosition = iter.NextAddress;
                             await worker.ProcessUpdate(partitionEvent);
                         }
                     }

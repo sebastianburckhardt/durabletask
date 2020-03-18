@@ -26,9 +26,9 @@ namespace DurableTask.EventSourced
         /// <param name="where">A brief description of the component that observed the error.</param>
         /// <param name="message">A message describing the circumstances.</param>
         /// <param name="e">The exception that was observed, or null.</param>
-        /// <param name="isFatal">whether this partition should be terminated (i.e. recycle and recover from storage).</param>
-        /// <param name="isWarning">whether this error should be reported with the severity of a warning.</param>
-        void HandleError(string where, string message, Exception e, bool isFatal, bool isWarning);
+        /// <param name="terminatePartition">whether this partition should be terminated (i.e. recycle and recover from storage).</param>
+        /// <param name="reportAsWarning">whether this error should be reported with the severity of a warning.</param>
+        void HandleError(string where, string message, Exception e, bool terminatePartition, bool reportAsWarning);
 
         /// <summary>
         /// Terminates the partition normally, after shutdown.

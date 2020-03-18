@@ -56,8 +56,8 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
-        public ulong CheckpointCommitLogPosition { get; set; }
-        public ulong CheckpointInputQueuePosition { get; set; }
+        public long CheckpointCommitLogPosition { get; set; }
+        public long CheckpointInputQueuePosition { get; set; }
 
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
@@ -187,7 +187,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.TraceHelper.FasterBlobStorageError(message, blob, e);
             }
-            this.PartitionErrorHandler.HandleError(where, $"storage error for blob {blob?.Name ?? ""}", e, isFatal, isWarning);
+            this.PartitionErrorHandler.HandleError(where, $"Encountered storage exception for blob {blob?.Name ?? ""}", e, isFatal, isWarning);
         }
 
         // clean shutdown, wait for everything, then terminate
@@ -313,7 +313,7 @@ namespace DurableTask.EventSourced.Faster
                 }
                 catch (Exception e)
                 {
-                    this.PartitionErrorHandler.HandleError(nameof(AcquireOwnership), "could not acquire lease", e, true, false);
+                    this.PartitionErrorHandler.HandleError(nameof(AcquireOwnership), "Could not acquire partition lease", e, true, false);
                     throw;
                 }
             }
@@ -359,11 +359,11 @@ namespace DurableTask.EventSourced.Faster
             catch (StorageException ex) when (LeaseConflict(ex))
             {
                 // We lost the lease to someone else. Terminate ownership immediately.
-                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "lease lost", ex, true, true);
+                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "Lost partition lease", ex, true, true);
             }
             catch (Exception e)
             {
-                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "could not maintain lease", e, true, false);
+                this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "Could not maintain partition lease", e, true, false);
             }
 
             // if this is a clean shutdown try to release the lease
@@ -599,8 +599,8 @@ namespace DurableTask.EventSourced.Faster
                 {
                     using (var reader = new BinaryReader(blobstream))
                     {
-                        this.CheckpointCommitLogPosition = reader.ReadUInt64();
-                        this.CheckpointInputQueuePosition = reader.ReadUInt64();
+                        this.CheckpointCommitLogPosition = reader.ReadInt64();
+                        this.CheckpointInputQueuePosition = reader.ReadInt64();
                         var len = reader.ReadInt32();
                         return reader.ReadBytes(len);
                     }

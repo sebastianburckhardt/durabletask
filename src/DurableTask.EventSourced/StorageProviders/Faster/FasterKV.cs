@@ -81,7 +81,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public bool TakeFullCheckpoint(ulong commitLogPosition, ulong inputQueuePosition, out Guid checkpointGuid)
+        public bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
             try
             {
@@ -127,7 +127,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public Guid StartStoreCheckpoint(ulong commitLogPosition, ulong inputQueuePosition)
+        public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
             try
             {

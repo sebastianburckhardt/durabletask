@@ -19,37 +19,37 @@ namespace DurableTask.EventSourced.Faster
 
         // ----- faster storage provider events
 
-        public void FasterStoreCreated(ulong inputPosition, long elapsedMs)
+        public void FasterStoreCreated(long inputPosition, long elapsedMs)
         {
             logger.LogInformation("Part{partition:D2} Created Store, inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, inputPosition, elapsedMs);
             EtwSource.Log.FasterStoreCreated(partitionId, inputPosition, elapsedMs);
         }
 
-        public void FasterCheckpointStarted(Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition)
+        public void FasterCheckpointStarted(Guid checkpointGuid, string reason, long commitPosition, long inputPosition)
         {
             logger.LogInformation("Part{partition:D2} Started Checkpoint {checkpointGuid}, reason={reason}, commitPosition={commitPosition} inputPosition={inputPosition}", partitionId, checkpointGuid, reason, commitPosition, inputPosition);
             EtwSource.Log.FasterCheckpointStarted(partitionId, checkpointGuid, reason, commitPosition, inputPosition);
         }
 
-        public void FasterCheckpointPersisted(Guid checkpointGuid, string reason, ulong commitPosition, ulong inputPosition, long elapsedMs)
+        public void FasterCheckpointPersisted(Guid checkpointGuid, string reason, long commitPosition, long inputPosition, long elapsedMs)
         {
             logger.LogInformation("Part{partition:D2} Persisted Checkpoint {checkpointGuid}, reason={reason}, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMs);
             EtwSource.Log.FasterCheckpointPersisted(partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMs);
         }
 
-        public void FasterLogPersisted(ulong commitPosition, ulong numEvents, ulong numBytes, long elapsedMs)
+        public void FasterLogPersisted(long commitPosition, long numEvents, long numBytes, long elapsedMs)
         {
             logger.LogDebug("Part{partition:D2} Persisted Log, commitPosition={commitPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, numEvents, numBytes, elapsedMs);
             EtwSource.Log.FasterLogPersisted(partitionId, commitPosition, numEvents, numBytes, elapsedMs);
         }
 
-         public void FasterCheckpointLoaded(ulong commitPosition, ulong inputPosition, long elapsedMs)
+         public void FasterCheckpointLoaded(long commitPosition, long inputPosition, long elapsedMs)
         {
             logger.LogInformation("Part{partition:D2} Loaded Checkpoint, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, elapsedMs);
             EtwSource.Log.FasterCheckpointLoaded(partitionId, commitPosition, inputPosition, elapsedMs);
         }
 
-        public void FasterLogReplayed(ulong commitPosition, ulong inputPosition, ulong numEvents, ulong numBytes, long elapsedMs)
+        public void FasterLogReplayed(long commitPosition, long inputPosition, long numEvents, long numBytes, long elapsedMs)
         {
             logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitPosition={commitPosition} inputPosition={inputPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);
             EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);

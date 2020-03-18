@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced.AzureChannels
         }
 
         protected abstract void HandleSuccessfulSend(TMessage msg);
-        protected abstract bool HandleFailedSend(TMessage msg, Exception exception);
+        protected abstract void HandleFailedSend(TMessage msg, Exception exception, out bool requeue);
 
         public async Task<List<ContentEntity>> Receive()
         {
@@ -210,7 +210,7 @@ namespace DurableTask.EventSourced.AzureChannels
                     var msg = messages[i];
                     if (msg != null)
                     {
-                        bool requeue = this.HandleFailedSend(msg, e);
+                        this.HandleFailedSend(msg, e, out bool requeue);
                         if (requeue)
                         {
                             this.Submit((msg, tableBatch[i]));
