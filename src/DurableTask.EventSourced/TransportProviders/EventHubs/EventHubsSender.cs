@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     long startPos = stream.Position;
                     var evt = toSend[i];
-                    Serializer.SerializePacket(evt, stream);
+                    Packet.Serialize(evt, stream);
                     int length = (int)(stream.Position - startPos);
                     var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), (int)startPos, length);
                     var eventData = new EventData(arraySegment);
@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced.EventHubs
                             {
                                 //TODO send bytes directly instead of as events (which causes significant space overhead)
                                 stream.Seek(0, SeekOrigin.Begin);
-                                Serializer.SerializePacket((Event)fragment, stream);
+                                Packet.Serialize((Event)fragment, stream);
                                 length = (int)stream.Position;
                                 await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length)));
                                 this.logger.LogDebug("EventHubsSender {eventHubName}/{partitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);

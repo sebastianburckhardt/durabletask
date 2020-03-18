@@ -64,24 +64,6 @@ namespace DurableTask.EventSourced
             return (Event)eventSerializer.ReadObject(stream);
         }
 
-        public static void SerializePacket(Event e, Stream s)
-        {
-            var writer = new BinaryWriter(s, Encoding.UTF8);
-            writer.Write(e.EventIdString);
-            writer.Flush();
-            eventSerializer.WriteObject(s, e);
-        }
-
-        public static void DeserializePacket<TEvent>(ArraySegment<byte> segment, out string eventId, out TEvent evt)
-        {
-            using (var stream = new MemoryStream(segment.Array, segment.Offset, segment.Count, false))
-            {
-                var reader = new BinaryReader(stream);
-                eventId = reader.ReadString();
-                evt = (TEvent)eventSerializer.ReadObject(stream);
-            }
-        }
-
         public static void SerializeTrackedObject(TrackedObject trackedObject)
         {
             if (trackedObject.SerializationCache == null)

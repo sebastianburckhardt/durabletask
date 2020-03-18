@@ -235,7 +235,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                         try
                         {
-                            Serializer.DeserializePacket<ClientEvent>(ed.Body, out eventId, out clientEvent);
+                            Packet.Deserialize(ed.Body, out eventId, out clientEvent);
                         }
                         catch (Exception)
                         {

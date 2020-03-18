@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core.Common;
 using FASTER.core;
 
 namespace DurableTask.EventSourced.Faster
@@ -55,10 +56,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 return this.log.Enqueue(entry);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -68,10 +69,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 return this.log.Enqueue(entry);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -81,10 +82,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 await this.log.CommitAsync(this.terminationToken);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 

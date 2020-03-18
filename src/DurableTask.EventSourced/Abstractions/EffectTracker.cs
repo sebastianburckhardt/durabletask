@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core.Common;
 using Dynamitey.DynamicObjects;
 using FASTER.core;
 using Microsoft.Extensions.Logging;
@@ -62,6 +63,7 @@ namespace DurableTask.EventSourced
         /// select the correct Process method overload for the event. 
         /// </summary>
         /// <param name="trackedObject"></param>
+        /// <remarks>Called by the storage layer when this object calls applyToStore.</remarks>
         public void ProcessEffectOn(dynamic trackedObject)
         {
             trackedObject.Process(Effect, this);
@@ -129,7 +131,7 @@ namespace DurableTask.EventSourced
                 {
                     // o.k. during termination
                 }
-                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
                     this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Processing Update {partitionEvent}", exception, false, false);
@@ -156,7 +158,7 @@ namespace DurableTask.EventSourced
                 {
                     // o.k. during termination
                 }
-                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
                     this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Processing Read {readContinuation.ToString()}", exception, false, false);

@@ -14,6 +14,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -41,7 +42,7 @@ namespace DurableTask.EventSourced
 
         private BatchTimer<ResponseWaiter> ResponseTimeouts;
         private ConcurrentDictionary<long, ResponseWaiter> ResponseWaiters;
-        private Dictionary<string, List<ClientEventFragment>> Fragments;
+        private Dictionary<string, MemoryStream> Fragments;
         
         public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
 
@@ -55,7 +56,7 @@ namespace DurableTask.EventSourced
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
-            this.Fragments = new Dictionary<string, List<ClientEventFragment>>();
+            this.Fragments = new Dictionary<string, MemoryStream>();
             this.ResponseTimeouts.Start("ClientTimer");
         }
 
@@ -77,15 +78,15 @@ namespace DurableTask.EventSourced
 
                 if (!fragment.IsLast)
                 {
-                    if (!this.Fragments.TryGetValue(originalEventString, out var list))
+                    if (!this.Fragments.TryGetValue(originalEventString, out var stream))
                     {
-                        this.Fragments[originalEventString] = list = new List<ClientEventFragment>();
+                        this.Fragments[originalEventString] = stream = new MemoryStream();
                     }
-                    list.Add(fragment);
+                    stream.Write(fragment.Bytes, 0, fragment.Bytes.Length);
                 }
                 else
                 {
-                    var reassembledEvent = (ClientEvent)FragmentationAndReassembly.Reassemble<ClientEvent>(this.Fragments[originalEventString], fragment);
+                    var reassembledEvent = FragmentationAndReassembly.Reassemble<ClientEvent>(this.Fragments[originalEventString], fragment);
                     this.Fragments.Remove(fragment.EventIdString);
 
                     ProcessInternal(reassembledEvent);

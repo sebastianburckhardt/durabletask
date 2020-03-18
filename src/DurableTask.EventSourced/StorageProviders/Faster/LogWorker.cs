@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core.Common;
 using FASTER.core;
 using System;
 using System.Collections.Generic;
@@ -238,10 +239,10 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
             }
-            catch (Exception terminationException)
-                when (this.cancellationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.cancellationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.partition.ErrorHandler.Token);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.partition.ErrorHandler.Token);
             }
         }
     }

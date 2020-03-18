@@ -1,4 +1,5 @@
-﻿using FASTER.core;
+﻿using DurableTask.Core.Common;
+using FASTER.core;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -60,10 +61,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.fht.Recover();
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -73,10 +74,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.mainSession.CompletePending(false, false);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -88,10 +89,10 @@ namespace DurableTask.EventSourced.Faster
                 this.blobManager.CheckpointInputQueuePosition = inputQueuePosition;
                 return this.fht.TakeFullCheckpoint(out checkpointGuid);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -101,10 +102,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 await this.fht.CompleteCheckpointAsync(this.terminationToken);
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -119,10 +120,10 @@ namespace DurableTask.EventSourced.Faster
 
                 return token;
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -142,10 +143,10 @@ namespace DurableTask.EventSourced.Faster
 
                 return token;
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -177,10 +178,10 @@ namespace DurableTask.EventSourced.Faster
                         throw new Exception("Faster"); //TODO
                 }
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -204,10 +205,10 @@ namespace DurableTask.EventSourced.Faster
                 target.Partition = this.partition;
                 return target;
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -217,10 +218,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
             }
-            catch (Exception terminationException)
-               when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+               when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 
@@ -252,10 +253,10 @@ namespace DurableTask.EventSourced.Faster
 
                 return result;
             }
-            catch (Exception terminationException)
-                when (this.terminationToken.IsCancellationRequested && !(terminationException is OutOfMemoryException))
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
             {
-                throw new OperationCanceledException("partition was terminated", terminationException, this.terminationToken);
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
         }
 

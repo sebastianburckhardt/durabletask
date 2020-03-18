@@ -72,7 +72,16 @@ namespace DurableTask.EventSourced
             return list;
         }
 
-        public static TEvent Reassemble<TEvent>(IEnumerable<IEventFragment> earlierFragments, IEventFragment lastFragment)
+        public static TEvent Reassemble<TEvent>(MemoryStream stream, IEventFragment lastFragment) where TEvent : Event
+        {
+            stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
+            stream.Seek(0, SeekOrigin.Begin);
+            Packet.Deserialize(stream, out var eventId, out TEvent evt);
+            stream.Dispose();
+            return evt;
+        }
+
+        public static TEvent Reassemble<TEvent>(IEnumerable<IEventFragment> earlierFragments, IEventFragment lastFragment) where TEvent: Event
         {
             using (var stream = new MemoryStream())
             {
@@ -81,7 +90,8 @@ namespace DurableTask.EventSourced
                     stream.Write(x.Bytes, 0, x.Bytes.Length);
                 }
                 stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
-                Serializer.DeserializePacket<TEvent>(new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Position), out var eventId, out var evt);
+                stream.Seek(0, SeekOrigin.Begin);
+                Packet.Deserialize(stream, out var eventId, out TEvent evt);
                 return evt;
             }
         }

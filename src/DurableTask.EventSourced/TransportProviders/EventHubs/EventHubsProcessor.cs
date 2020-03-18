@@ -245,7 +245,7 @@ namespace DurableTask.EventSourced.EventHubs
                             PartitionEvent evt = null;
                             try
                             {
-                                Serializer.DeserializePacket<PartitionEvent>(eventData.Body, out eventId, out evt);
+                                Packet.Deserialize<PartitionEvent>(eventData.Body, out eventId, out evt);
                             }
                             catch (Exception)
                             {

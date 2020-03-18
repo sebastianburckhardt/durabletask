@@ -25,6 +25,8 @@ namespace DurableTask.EventSourced
     /// </summary>
     /// <remarks>
     /// The ETW Provider ID for this event source is {b3b94da0-1edd-53a7-435e-53129d278be4}.
+    /// We list all events from the various layers (transport, storage) in this single file; however,
+    /// we do have separate helper classes for each component.
     /// </remarks>
     [EventSource(Name = "DurableTask-EventSourced")]
     class EtwSource : EventSource
