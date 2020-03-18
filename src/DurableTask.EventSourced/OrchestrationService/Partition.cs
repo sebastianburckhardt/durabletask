@@ -28,6 +28,7 @@ namespace DurableTask.EventSourced
     internal partial class Partition : TransportAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
+        private readonly EventTraceHelper eventTraceHelper;
 
         public uint PartitionId { get; private set; }
         public string TracePrefix { get; private set; }
@@ -46,6 +47,10 @@ namespace DurableTask.EventSourced
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
         public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
 
+        // A little helper property that allows us to easily check the condition for low-level tracing
+        public EventTraceHelper DetailTracer => this.eventTraceHelper.IsTracingDetails ? this.eventTraceHelper : null;
+        public EventTraceHelper EventTraceHelper => this.eventTraceHelper;
+
         public Partition(
             EventSourcedOrchestrationService host,
             uint partitionId,
@@ -57,7 +62,6 @@ namespace DurableTask.EventSourced
             WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue)
         {
             this.host = host;
-            this.logger = host.Logger;
             this.PartitionId = partitionId;
             this.PartitionFunction = partitionFunction;
             this.NumberPartitions = numberPartitions;
@@ -65,12 +69,13 @@ namespace DurableTask.EventSourced
             this.Settings = settings;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
+            this.eventTraceHelper = new EventTraceHelper(host.Logger, this);
         }
 
         public async Task<ulong> StartAsync(IPartitionErrorHandler errorHandler, ulong firstInputQueuePosition)
         {
-            Partition.ClearTraceContext();
-            this.TraceDetail("starting partition");
+            EventTraceHelper.ClearTraceContext();
+            this.DetailTracer?.TraceDetail("starting partition");
 
             this.ErrorHandler = errorHandler;
 

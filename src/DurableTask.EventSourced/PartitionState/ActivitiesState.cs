@@ -296,7 +296,7 @@ namespace DurableTask.EventSourced
             {
                 var reportedRemotes = string.Join(",", 
                     this.ReportedRemoteLoads.Select(x => x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString())));
-                EtwSource.Log.OffloadDecision((int) this.Partition.PartitionId, EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);
+                EtwSource.Log.PartitionOffloadDecision((int) this.Partition.PartitionId, EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);
             }
         }
 

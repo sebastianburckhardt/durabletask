@@ -71,12 +71,12 @@ namespace DurableTask.EventSourced
         {
             (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
 
-            using (Partition.TraceContext(commitLogPosition, partitionEvent.EventIdString))
+            using (EventTraceHelper.TraceContext(commitLogPosition, partitionEvent.EventIdString))
             {
                 try
                 {
                     this.Partition.Assert(partitionEvent is IPartitionEventWithSideEffects);
-                    this.Partition.TraceProcess(commitLogPosition, partitionEvent, this.IsReplaying);
+                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, partitionEvent, this.IsReplaying);
 
                     this.Effect = partitionEvent;
 
@@ -141,11 +141,11 @@ namespace DurableTask.EventSourced
         {
             (ulong commitLogPosition, ulong inputQueuePosition) = this.getPositions();
 
-            using (Partition.TraceContext(commitLogPosition, readContinuation.EventIdString))
+            using (EventTraceHelper.TraceContext(commitLogPosition, readContinuation.EventIdString))
             {
                 try
                 {
-                    this.Partition.TraceProcess(commitLogPosition, readContinuation);
+                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, readContinuation);
                     this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
 
                     readContinuation.OnReadComplete(target);

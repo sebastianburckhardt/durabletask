@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
 
         public void Acknowledge(Event evt)
         {
-            this.Partition.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}");
+            this.Partition.DetailTracer?.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}");
             long commitPosition = (long)evt.NextCommitLogPosition.Value;
             this.Send(this.Outbox[commitPosition]);
         }
@@ -99,7 +99,7 @@ namespace DurableTask.EventSourced
 
             public void Acknowledge(Event evt)
             {
-                this.Partition.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
+                this.Partition.DetailTracer?.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
 
                 if (++numAcks == Count)
                 {

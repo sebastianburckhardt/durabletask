@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(11, hostId);
         }
 
-        // ----- events observed on a partition processor
+        // ----- partition lifecycle, error handling, and periodic tasks
 
         [Event(20, Level = EventLevel.Informational, Version = 1)]
         public void PartitionStarted(int partitionId)
@@ -88,6 +88,15 @@ namespace DurableTask.EventSourced
             this.WriteEvent(23, partitionId, where, isFatal, message, exception);
         }
 
+        [Event(24, Level = EventLevel.Verbose, Version = 1)]
+        public void PartitionOffloadDecision(int partitionId, int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemoteLoad)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(33, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
+        }
+
+        // ----- partition event processing
+
         [Event(30, Level = EventLevel.Verbose, Version = 1)]
         public void PartitionEventProcessed(int partitionId, ulong commitLogPosition, string eventId, string eventInfo, ulong nextCommitLogPosition, ulong nextInputQueuePosition, bool replaying)
         {
@@ -96,27 +105,20 @@ namespace DurableTask.EventSourced
         }
 
         [Event(31, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventSent(int partitionId, ulong commitLogPosition, string contextEventId, string eventId, string eventInfo)
+        public void PartitionEventSent(int partitionId, ulong commitLogPosition, string context, string eventId, string eventInfo)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(31, partitionId, commitLogPosition, contextEventId, eventId, eventInfo);
+            this.WriteEvent(31, partitionId, commitLogPosition, context, eventId, eventInfo);
         }
 
         [Event(32, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionDetail(int partitionId, ulong commitLogPosition, string context, string details)
+        public void PartitionEventDetail(int partitionId, ulong commitLogPosition, string context, string details)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(32, partitionId, commitLogPosition, context, details);
         }
 
-        [Event(33, Level = EventLevel.Verbose, Version = 1)]
-        public void OffloadDecision(int partitionId, int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemoteLoad)
-        {
-            SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(33, partitionId, reportedLocalLoad, pending, backlog, remotes, reportedRemoteLoad);
-        }
-
-        // -----  events observed on a client
+        // -----  client lifecycle, error handling, and periodic tasks
 
         [Event(50, Level = EventLevel.Informational, Version = 1)]
         public void ClientStarted(Guid clientId)
@@ -138,6 +140,8 @@ namespace DurableTask.EventSourced
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(52, clientId, where, exceptionType, message);
         }
+
+        // ----- client event processing
 
         [Event(60, Level = EventLevel.Verbose, Version = 1)]
         public void ClientEventReceived(Guid clientId, string eventInfo)
