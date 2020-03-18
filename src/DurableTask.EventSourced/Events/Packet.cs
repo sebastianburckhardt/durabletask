@@ -50,7 +50,7 @@ namespace DurableTask.EventSourced
         {
             using (var stream = new MemoryStream(arraySegment.Array, arraySegment.Offset, arraySegment.Count, false))
             {
-                Packet.Deserialize(arraySegment, out eventId, out evt);
+                Packet.Deserialize(stream, out eventId, out evt);
             }
         }
     }
