@@ -417,7 +417,7 @@ namespace DurableTask.EventSourced.Tests
             random.NextBytes(bytes);
 
             var client = await host.StartOrchestrationAsync(typeof(Orchestrations.EchoBytes), bytes);
-            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(100)); // can take quite long, especially if partitions are not created yet
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(300)); // can take quite long if EH connection is slow or throttled
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
             Assert.Equal<byte>(bytes, JsonConvert.DeserializeObject<byte[]>(status?.Input));
