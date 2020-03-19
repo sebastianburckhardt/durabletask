@@ -25,12 +25,12 @@ namespace DurableTask.EventSourced
     {
         [DataMember]
         public long TimerId { get; set; }
+        
+        [DataMember]
+        public DateTime Due { get; set; }
 
         [DataMember]
-        public TaskMessage TimerFiredMessage { get; set; }
-
-        [IgnoreDataMember]
-        public TimerFiredEvent TimerFiredEvent => (TimerFiredMessage.Event as TimerFiredEvent);
+        public TaskMessage TaskMessage { get; set; }
 
         [IgnoreDataMember]
         public override string CorrelationId => $"T{TimerId:D6}";

@@ -125,11 +125,9 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // BatchProcessed
-        // may bring in more activities
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // the completed orchestration work item can launch activities
             foreach (var msg in evt.ActivityMessages)
             {
                 var activityId = SequenceNumber++;
@@ -162,11 +160,9 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // ActivityOffloadReceived
-        // may bring in offloaded activities from other partitions
-
         public void Process(ActivityOffloadReceived evt, EffectTracker effects)
         {
+            // may bring in offloaded activities from other partitions
             foreach (var msg in evt.OffloadedActivities)
             {
                 var activityId = SequenceNumber++;
@@ -194,11 +190,10 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // ActivityCompleted
-        // records the result of a finished activity and launches an offload decision
-
         public void Process(ActivityCompleted evt, EffectTracker effects)
         {
+            // records the result of a finished activity and launches an offload decision
+
             Pending.Remove(evt.ActivityId);
 
             if (evt.OriginPartitionId == effects.Partition.PartitionId)
@@ -235,19 +230,16 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // RemoteActivityCompleted
-        // records the reported queue size
-
         public void Process(RemoteActivityResultReceived evt, EffectTracker effects)
         {
+            // records the reported queue size
             this.ReportedRemoteLoads[evt.OriginPartition] = evt.ActivitiesQueueSize;
         }
 
-        // OffloadDecision
-        // check for offload conditions and if satisfied, send batch to remote
-
         public void Process(OffloadDecision offloadDecisionEvent, EffectTracker effects)
         {
+            // check for offload conditions and if satisfied, send batch to remote
+
             if (this.LocalBacklog.Count == 0)
             {
                 return;

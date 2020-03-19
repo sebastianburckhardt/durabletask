@@ -52,7 +52,6 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
 
-
         public override void OnRecoveryCompleted()
         {
             // create work items for all sessions
@@ -119,73 +118,51 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // TaskMessagesReceived
-        // queues task message (from another partition) in a new or existing session
-
         public void Process(TaskMessagesReceived evt, EffectTracker effects)
         {
-            foreach (var group in evt.TaskMessages
+             // queues task message (from another partition) in a new or existing session
+           foreach (var group in evt.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
             {
                 this.AddMessagesToSession(group.Key, group, effects.IsReplaying);
             }
         }
 
-        // ActivityResultReceived
-        // queues task message (from another partition) in a new or existing session
-
         public void Process(RemoteActivityResultReceived evt, EffectTracker effects)
         {
+            // queues task message (from another partition) in a new or existing session
             this.AddMessageToSession(evt.Result, false, effects.IsReplaying);
-            effects.Add(TrackedObjectKey.Activities);
         }
-
-        // ActivityOffloadReceived
-        // does not operate on sessions but on activities
-
-        public void Process(ActivityOffloadReceived evt, EffectTracker effects)
-        {
-            effects.Add(TrackedObjectKey.Activities);
-        }
-
-        // ClientTaskMessagesReceived
-        // queues task message (from a client) in a new or existing session
 
         public void Process(ClientTaskMessagesReceived evt, EffectTracker effects)
         {
+            // queues task message (from a client) in a new or existing session
             var instanceId = evt.TaskMessages[0].OrchestrationInstance.InstanceId;
             this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.IsReplaying);
         }
 
-        // CreationMessageReceived
-        // queues a creation task message in a new or existing session
-
         public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
+            // queues a creation task message in a new or existing session
             this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.IsReplaying);
         }
 
-        // TimerFired
-        // queues a timer fired message in a session
-
         public void Process(TimerFired timerFired, EffectTracker effects)
         {
-            this.AddMessageToSession(timerFired.TimerFiredMessage, false, effects.IsReplaying);
+            // queues a timer fired message in a session
+            this.AddMessageToSession(timerFired.TaskMessage, false, effects.IsReplaying);
         }
-
-        // ActivityCompleted
-        // queues an activity-completed message in a session
 
         public void Process(ActivityCompleted activityCompleted, EffectTracker effects)
         {
+            // queues an activity-completed message in a session
             this.AddMessageToSession(activityCompleted.Response, false, effects.IsReplaying);
         }
 
-        // BatchProcessed
-        // updates the session and other state
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // updates the session and other state
+
             // our instance may already be obsolete if it has been forcefully replaced.
             // This can manifest as the instance having disappeared, or as the current instance having
             // a different session id

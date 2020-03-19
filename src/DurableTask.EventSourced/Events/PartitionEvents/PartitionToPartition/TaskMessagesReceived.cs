@@ -28,6 +28,9 @@ namespace DurableTask.EventSourced
         public List<TaskMessage> TaskMessages { get; set; }
 
         [DataMember]
+        public List<TaskMessage> DelayedTaskMessages { get; set; }
+
+        [DataMember]
         public string OriginCorrelationId { get; set; }
 
         [IgnoreDataMember]
@@ -35,15 +38,22 @@ namespace DurableTask.EventSourced
 
         protected override void ExtraTraceInformation(StringBuilder s)
         {
+            var tCount = this.TaskMessages?.Count ?? 0;
+            var dCount = this.DelayedTaskMessages?.Count ?? 0;
+
             s.Append(' ');
-            if (TaskMessages.Count == 1)
+            if (tCount == 1)
             {
-                s.Append(TaskMessages[0].Event.EventType);
+                s.Append(this.TaskMessages[0].Event.EventType);
+            }
+            else if (dCount == 1)
+            {
+                s.Append(this.DelayedTaskMessages[0].Event.EventType);
             }
             else
             {
                 s.Append('[');
-                s.Append(TaskMessages.Count);
+                s.Append(tCount + dCount);
                 s.Append(']');
             }
         }

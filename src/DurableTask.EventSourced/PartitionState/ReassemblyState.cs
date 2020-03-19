@@ -35,13 +35,10 @@ namespace DurableTask.EventSourced
             return $"Reassembly ({Fragments.Count} pending)";
         }
 
-        // PartitionEventFragment 
-        // stores fragments until the last one is received
-
         public override void Process(PartitionEventFragment evt, EffectTracker effects)
         {
+            // stores fragments until the last one is received
             var originalEventString = evt.OriginalEventId.ToString();
-
             if (evt.IsLast)
             {
                 evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);

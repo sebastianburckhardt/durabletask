@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
+using DurableTask.Core.Common;
 using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
@@ -32,57 +33,77 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Timers);
 
-        public override void OnRecoveryCompleted()
-        {
-            // restore the pending timers
-            foreach (var kvp in PendingTimers)
-            {
-                var expirationEvent = new TimerFired()
-                {
-                    PartitionId = this.Partition.PartitionId,
-                    TimerId = kvp.Key,
-                    TimerFiredMessage = kvp.Value,
-                };
-
-                Partition.DetailTracer?.TraceDetail($"Rescheduled {kvp.Value}");
-                Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
-            }
-        }
-
         public override string ToString()
         {
             return $"Timers ({PendingTimers.Count} pending) next={SequenceNumber:D6}";
         }
 
+        public override void OnRecoveryCompleted()
+        {
+            // restore the pending timers
+            foreach (var kvp in PendingTimers)
+            {
+                this.Schedule(kvp.Key, kvp.Value);
+            }
+        }
 
-        // TimerFired
-        // removes the entry for the pending timer, and then adds it to the sessions queue
+        private void Schedule(long timerId, TaskMessage message)
+        {
+            TimerFired expirationEvent = new TimerFired()
+            {
+                PartitionId = this.Partition.PartitionId,
+                TimerId = timerId,
+                TaskMessage = message,
+            };
+            if (message.Event is TimerFiredEvent timerFiredEvent)
+            {
+                expirationEvent.Due = timerFiredEvent.FireAt;
+            }
+            else if (Entities.IsDelayedEntityMessage(message, out DateTime due))
+            {
+                expirationEvent.Due = due;
+            }
+            else
+            {
+                throw new ArgumentException(nameof(message), "unhandled event type");
+            }
+
+            Partition.DetailTracer?.TraceDetail($"Scheduled {message} due at {expirationEvent.Due:o}, id={expirationEvent.EventIdString}");
+            Partition.PendingTimers.Schedule(expirationEvent.Due, expirationEvent);
+        }
 
         public void Process(TimerFired evt, EffectTracker effects)
         {
-            PendingTimers.Remove(evt.TimerId);
+            // removes the entry for the pending timer, and then adds it to the sessions queue
+            this.PendingTimers.Remove(evt.TimerId);
         }
-
-        // BatchProcessed
-        // starts new timers as specified by the batch
 
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // starts new timers as specified by the batch
             foreach (var t in evt.TimerMessages)
             {
-                var timerId = SequenceNumber++;
-                PendingTimers.Add(timerId, t);
+                var timerId = this.SequenceNumber++;
+                this.PendingTimers.Add(timerId, t);
 
                 if (!effects.IsReplaying)
                 {
-                    var expirationEvent = new TimerFired()
-                    {
-                        PartitionId = this.Partition.PartitionId,
-                        TimerId = timerId,
-                        TimerFiredMessage = t,
-                    };
+                    this.Schedule(timerId, t);
+                }
+            }
+        }
 
-                    Partition.PendingTimers.Schedule(expirationEvent.TimerFiredEvent.FireAt, expirationEvent);
+        public void Process(TaskMessagesReceived evt, EffectTracker effects)
+        {
+            // starts new timers as specified by the batch
+            foreach (var t in evt.DelayedTaskMessages)
+            {
+                var timerId = this.SequenceNumber++;
+                this.PendingTimers.Add(timerId, t);
+
+                if (!effects.IsReplaying)
+                {
+                    this.Schedule(timerId, t);
                 }
             }
         }

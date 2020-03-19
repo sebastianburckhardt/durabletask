@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.Core;
+using DurableTask.Core.Common;
 using DurableTask.Core.History;
 using Microsoft.Extensions.Logging;
 using System;
@@ -392,7 +393,7 @@ namespace DurableTask.EventSourced
             OrchestrationRuntimeState newOrchestrationRuntimeState,
             IList<TaskMessage> outboundMessages,
             IList<TaskMessage> orchestratorMessages,
-            IList<TaskMessage> workItemTimerMessages,
+            IList<TaskMessage> timerMessages,
             TaskMessage continuedAsNewMessage,
             OrchestrationState state)
         {
@@ -413,7 +414,14 @@ namespace DurableTask.EventSourced
                 {
                     if (partition.PartitionId == partition.PartitionFunction(taskMessage.OrchestrationInstance.InstanceId))
                     {
-                        (localMessages ?? (localMessages = new List<TaskMessage>())).Add(taskMessage);
+                        if (Entities.IsDelayedEntityMessage(taskMessage, out _))
+                        {
+                            (timerMessages ?? (timerMessages = new List<TaskMessage>())).Add(taskMessage);
+                        }
+                        else
+                        {
+                            (localMessages ?? (localMessages = new List<TaskMessage>())).Add(taskMessage);
+                        }
                     }
                     else
                     {
@@ -439,14 +447,14 @@ namespace DurableTask.EventSourced
                     ActivityMessages = (List<TaskMessage>)outboundMessages,
                     LocalMessages = localMessages,
                     RemoteMessages = remoteMessages,
-                    TimerMessages = (List<TaskMessage>)workItemTimerMessages,
+                    TimerMessages = (List<TaskMessage>)timerMessages,
                     Timestamp = DateTime.UtcNow,
                 });
             }
             catch(OperationCanceledException e)
             {
                 // we get here if the partition was terminated. The work is thrown away. It's unavoidable by design, but let's at least create a warning.
-                partition.ErrorHandler.HandleError( nameof(IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync), "Canceling completed orchestration work item because of partition termination", e, false, true);
+                partition.ErrorHandler.HandleError(nameof(IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync), "Canceling completed orchestration work item because of partition termination", e, false, true);
             }
 
             return Task.CompletedTask;

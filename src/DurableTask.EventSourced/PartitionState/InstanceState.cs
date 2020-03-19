@@ -39,12 +39,11 @@ namespace DurableTask.EventSourced
             return $"History InstanceId={InstanceId} Status={OrchestrationState?.OrchestrationStatus}";
         }
 
-        // CreationRequestReceived
-        // can create or replace an instance and return a success response, or 
-        // return an error response
-
         public void Process(CreationRequestReceived evt, EffectTracker effects)
         {
+            // can create or replace an instance and return a success response, or 
+            // return an error response
+
             if (this.OrchestrationState != null
                 && evt.DedupeStatuses != null
                 && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
@@ -100,11 +99,9 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // BatchProcessed
-        // updates the state of an orchestration and notifies observers
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // update the state of an orchestration
             this.OrchestrationState = evt.State;
 
             // update the index also

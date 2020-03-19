@@ -21,6 +21,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
+using DurableTask.Core.Common;
 
 namespace DurableTask.EventSourced
 {
@@ -68,7 +69,7 @@ namespace DurableTask.EventSourced
 
         public void Acknowledge(Event evt)
         {
-            this.Partition.DetailTracer?.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}");
+            this.Partition.DetailTracer?.TraceDetail($"store has persisted outbound event {evt} id={evt.EventIdString}");
             long commitPosition = evt.NextCommitLogPosition;
             this.Send(this.Outbox[commitPosition]);
         }
@@ -112,15 +113,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // SendConfirmed
-
         public void Process(SendConfirmed evt, EffectTracker _)
         {
             // we no longer need to keep these events around
             this.Outbox.Remove(evt.Position);
         }
-
-        // ActivityCompleted
 
         public void Process(ActivityCompleted evt, EffectTracker effects)
         {
@@ -135,8 +132,6 @@ namespace DurableTask.EventSourced
             this.SendBatchOnceEventIsPersisted(evt, effects, batch);
         }
 
-        // BatchProcessed
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
             var sorted = new Dictionary<uint, TaskMessagesReceived>();
@@ -149,18 +144,22 @@ namespace DurableTask.EventSourced
                     sorted[destination] = outmessage = new TaskMessagesReceived()
                     {
                         PartitionId = destination,
-                        TaskMessages = new List<TaskMessage>(),
                         OriginCorrelationId = evt.CorrelationId,
                     };
                 }
-                outmessage.TaskMessages.Add(message);
+                if (Entities.IsDelayedEntityMessage(message, out _))
+                {
+                    (outmessage.DelayedTaskMessages ?? (outmessage.DelayedTaskMessages = new List<TaskMessage>())).Add(message);
+                }
+                else
+                {
+                    (outmessage.TaskMessages ?? (outmessage.TaskMessages = new List<TaskMessage>())).Add(message);
+                }
             }
             var batch = new Batch();
             batch.AddRange(sorted.Values);
             this.SendBatchOnceEventIsPersisted(evt, effects, batch);
         }
-
-        // OffloadDecision
 
         public void Process(OffloadDecision evt, EffectTracker effects)
         {

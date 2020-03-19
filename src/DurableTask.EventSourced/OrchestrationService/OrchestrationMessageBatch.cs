@@ -112,28 +112,10 @@ namespace DurableTask.EventSourced
         {
             if (workItem.OrchestrationRuntimeState.ExecutionStartedEvent == null && !this.MessagesToProcess.Any(msg => msg.Event is ExecutionStartedEvent))
             {
-                if (this.InstanceId.StartsWith("@")
-                    && this.MessagesToProcess[0].Event.EventType == EventType.EventRaised
-                    && this.MessagesToProcess[0].OrchestrationInstance.ExecutionId == null)
+                if (DurableTask.Core.Common.Entities.AutoStart(this.InstanceId, this.MessagesToProcess))
                 {
-                    // automatically start this instance
-                    var orchestrationInstance = new OrchestrationInstance
-                    {
-                        InstanceId = this.InstanceId,
-                        ExecutionId = Guid.NewGuid().ToString("N"),
-                    };
-                    var startedEvent = new ExecutionStartedEvent(-1, null)
-                    {
-                        Name = this.InstanceId,
-                        Version = "",
-                        OrchestrationInstance = orchestrationInstance
-                    };
-                    var taskMessage = new TaskMessage()
-                    {
-                        OrchestrationInstance = orchestrationInstance,
-                        Event = startedEvent
-                    };
-                    this.MessagesToProcess.Insert(0, taskMessage);
+                    message = default;
+                    return true;
                 }
                 else
                 {

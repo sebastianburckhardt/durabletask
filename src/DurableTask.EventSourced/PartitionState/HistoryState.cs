@@ -51,11 +51,10 @@ namespace DurableTask.EventSourced
             return $"History InstanceId={InstanceId} ExecutionId={ExecutionId} Events={History.Count}";
         }
 
-        // BatchProcessed
-        // can add events to the history, or replace it with a new history
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // can add events to the history, or replace it with a new history
+
             // update the stored history
             if (this.History == null || evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)
             {
@@ -73,6 +72,5 @@ namespace DurableTask.EventSourced
             // cache the work item for reuse, if supplied
             this.CachedOrchestrationWorkItem = evt.CachedWorkItem;
         }
-
     }
 }

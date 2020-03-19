@@ -40,7 +40,7 @@ namespace DurableTask.EventSourced.Tests
                 orchestrationService.DeleteAsync().GetAwaiter().GetResult();
             }
 
-            orchestrationService.CreateAsync().GetAwaiter().GetResult();
+            orchestrationService.CreateAsync(false).GetAwaiter().GetResult();
 
             this.settings = settings;
 

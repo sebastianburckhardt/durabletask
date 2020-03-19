@@ -29,6 +29,7 @@ namespace DurableTask.EventSourced.Tests
     //using Microsoft.Practices.EnterpriseLibrary.SemanticLogging.Utility;
     using Microsoft.WindowsAzure.Storage;
     using Microsoft.WindowsAzure.Storage.Table;
+    using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
     using Xunit;
     using Xunit.Abstractions;
@@ -416,12 +417,11 @@ namespace DurableTask.EventSourced.Tests
             random.NextBytes(bytes);
 
             var client = await host.StartOrchestrationAsync(typeof(Orchestrations.EchoBytes), bytes);
-            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(100)); // can take quite long, especially if partitions are not created yet
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
-            //Assert.Equal("World", JToken.Parse(status?.Input));
-            //Assert.Equal("Hello, World!", JToken.Parse(status?.Output));
-
+            Assert.Equal<byte>(bytes, JsonConvert.DeserializeObject<byte[]>(status?.Input));
+            Assert.Equal<byte>(bytes, JsonConvert.DeserializeObject<byte[]>(status?.Output));
         }
 
         /// <summary>

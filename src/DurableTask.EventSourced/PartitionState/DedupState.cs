@@ -26,25 +26,58 @@ namespace DurableTask.EventSourced
     internal class DedupState : TrackedObject
     {
         [DataMember]
-        public Dictionary<uint, long> ProcessedOrigins { get; set; } = new Dictionary<uint, long>();
+        public Dictionary<uint, long> LastProcessed { get; set; } = new Dictionary<uint, long>();
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
-        
-        // TaskMessageReceived 
-        // filters any messages that originated on a partition, and whose origin is marked as processed
 
-        public void Process(PartitionMessageReceived evt, EffectTracker effects)
+        private bool IsNotDuplicate(PartitionMessageReceived evt)
         {
-            if (!this.ProcessedOrigins.TryGetValue(evt.OriginPartition, out long alreadyProcessed))
+            // detect duplicates of incoming partition-to-partition events by comparing commit log position of this event against last processed event from same partition
+            this.LastProcessed.TryGetValue(evt.OriginPartition, out long lastProcessed);
+            if (evt.OriginPosition > lastProcessed)
             {
-                alreadyProcessed = -1;
-            }               
-            if (evt.OriginPosition > alreadyProcessed)
+                this.LastProcessed[evt.OriginPartition] = evt.OriginPosition;
+                return true;
+            }
+            else
             {
-                this.ProcessedOrigins[evt.OriginPartition] = evt.OriginPosition;
+                return false;
+            }
+        }
 
+        public void Process(ActivityOffloadReceived evt, EffectTracker effects)
+        {
+            // queues activities originating from a remote partition to execute on this partition
+            if (this.IsNotDuplicate(evt))
+            {
+                effects.Add(TrackedObjectKey.Activities);
+            }
+        }
+
+        public void Process(RemoteActivityResultReceived evt, EffectTracker effects)
+        {
+            // returns a response to an ongoing orchestration, and reports load data to the offload logic
+            if (this.IsNotDuplicate(evt))
+            {
                 effects.Add(TrackedObjectKey.Sessions);
+                effects.Add(TrackedObjectKey.Activities);
+            }
+        }
+
+        public void Process(TaskMessagesReceived evt, EffectTracker effects)
+        {
+            // contains messages to be processed by sessions and/or to be scheduled by timer
+            if (this.IsNotDuplicate(evt))
+            {
+                if (evt.TaskMessages != null)
+                {
+                    effects.Add(TrackedObjectKey.Sessions);
+                }
+                if (evt.DelayedTaskMessages != null)
+                {
+                    effects.Add(TrackedObjectKey.Timers);
+                }
             }
         }
     }
