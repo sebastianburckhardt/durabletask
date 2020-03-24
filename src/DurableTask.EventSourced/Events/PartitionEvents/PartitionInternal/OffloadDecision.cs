@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         public List<TaskMessage> OffloadedActivities { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"O{this.Timestamp:o}";
+        public override string CorrelationId => $"{this.PartitionId:D2}-O{this.Timestamp:o}";
 
         public override void DetermineEffects(EffectTracker effects)
         {

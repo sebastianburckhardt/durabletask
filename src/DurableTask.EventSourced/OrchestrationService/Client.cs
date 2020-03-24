@@ -30,13 +30,16 @@ namespace DurableTask.EventSourced
         private readonly EventSourcedOrchestrationService host;
         private readonly CancellationToken shutdownToken;
         private readonly ILogger logger;
-        private readonly string TracePrefix;
+        private readonly string tracePrefix;
+        private readonly string account;
+        private readonly string taskHub;
+
         private static TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
         public Guid ClientId { get; private set; }
         private TransportAbstraction.ISender BatchSender { get; set; }
 
-        public override string ToString() => TracePrefix;
+        public override string ToString() => tracePrefix;
 
         private long SequenceNumber; // for numbering requests that enter on this client
 
@@ -51,18 +54,24 @@ namespace DurableTask.EventSourced
             this.host = host;
             this.logger = host.Logger;
             this.ClientId = clientId;
-            this.TracePrefix = $"Client.{GetShortId(clientId)}";
+            this.account = host.StorageAccountName;
+            this.taskHub = host.Settings.TaskHubName;
+            this.tracePrefix = $"Client.{GetShortId(clientId)}";
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
             this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
             this.Fragments = new Dictionary<string, MemoryStream>();
             this.ResponseTimeouts.Start("ClientTimer");
+
+            this.logger.LogInformation("{client} Started", this.tracePrefix);
+            EtwSource.Log.ClientStarted(this.account, this.taskHub, this.ClientId, TraceUtils.ExtensionVersion);
         }
 
         public Task StopAsync()
         {
-            EtwSource.Log.ClientStopped(this.ClientId);
+            this.logger.LogInformation("{client} Stopped", this.tracePrefix);
+            EtwSource.Log.ClientStopped(this.account, this.taskHub, this.ClientId, TraceUtils.ExtensionVersion);
             return Task.CompletedTask;
         }
 
@@ -113,11 +122,11 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Error))
             {
-                this.logger.LogError("{client} !!! {context}: {exception}", this.TracePrefix, context, exception);
+                this.logger.LogError("{client} !!! {context}: {exception}", this.tracePrefix, context, exception);
             }
             if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.ClientErrorReported(this.ClientId, context, exception.GetType().Name, exception.Message);
+                EtwSource.Log.ClientErrorReported(this.account, this.taskHub, this.ClientId, context, exception.Message, exception.ToString(), TraceUtils.ExtensionVersion);
             }
         }
 
@@ -125,11 +134,11 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                this.logger.LogTrace("{client} Sending event {eventId}: {event}", this.TracePrefix, "TODO", @event);
+                this.logger.LogTrace("{client} Sending event {eventId}: {event}", this.tracePrefix, @event.EventIdString, @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.ClientEventSent(this.ClientId, @event.ToString());
+                EtwSource.Log.ClientEventSent(this.account, this.taskHub, this.ClientId, @event.EventIdString, @event.ToString(), TraceUtils.ExtensionVersion);
             }
         }
 
@@ -137,11 +146,11 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Trace))
             {
-                this.logger.LogTrace("{client} Processing event {eventId}: {event}", this.TracePrefix, "TODO", @event);
+                this.logger.LogTrace("{client} Processing event {eventId}: {event}", this.tracePrefix, @event.EventIdString, @event);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.ClientEventReceived(this.ClientId, @event.ToString());
+                EtwSource.Log.ClientEventReceived(this.account, this.taskHub, this.ClientId, @event.EventIdString, @event.ToString(), TraceUtils.ExtensionVersion);
             }
         }
 

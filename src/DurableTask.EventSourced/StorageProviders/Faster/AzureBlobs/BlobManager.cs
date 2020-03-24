@@ -33,10 +33,10 @@ namespace DurableTask.EventSourced.Faster
     /// </summary>
     internal class BlobManager : ICheckpointManager, ILogCommitManager
     {
-        private readonly string connectionString;
         private readonly string containerName;
         private readonly uint partitionId;
         private readonly CancellationTokenSource shutDownOrTermination;
+        private readonly CloudStorageAccount cloudStorageAccount;
 
         private CloudBlobContainer blobContainer;
         private CloudBlockBlob eventLogCommitBlob;
@@ -49,6 +49,8 @@ namespace DurableTask.EventSourced.Faster
         private TimeSpan LeaseSafetyBuffer = TimeSpan.FromSeconds(10); // how much time we want left on the lease before issuing a protected access
 
         internal FasterTraceHelper TraceHelper { get; private set; }
+
+        internal bool UseLocalFilesForTestingAndDebugging { get; private set; }
 
         public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
@@ -64,7 +66,7 @@ namespace DurableTask.EventSourced.Faster
         public FasterLogSettings EventLogSettings => new FasterLogSettings
         {
             LogDevice = this.EventLogDevice,
-            LogCommitManager = UseLocalFilesForTestingAndDebugging ?
+            LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
             PageSizeBits = 18, // 128k since we are just writing and often small portions
             SegmentSizeBits = 28,
@@ -84,7 +86,7 @@ namespace DurableTask.EventSourced.Faster
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {
-            CheckpointManager = UseLocalFilesForTestingAndDebugging ?
+            CheckpointManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalCheckpointManager($"{LocalDirectoryPath}\\chkpts{this.partitionId:D2}") : (ICheckpointManager)this,
             CheckPointType = CheckpointType.FoldOver,
         };
@@ -100,38 +102,42 @@ namespace DurableTask.EventSourced.Faster
         };
 
         /// <summary>
-        /// Create new instance of local checkpoint manager at given base directory
+        /// Create a blob manager.
         /// </summary>
-        /// <param name="connectionString">The connection string for the Azure storage account</param>
+        /// <param name="storageAccount">The cloud storage account, or null if using local file paths</param>
         /// <param name="taskHubName">The name of the taskhub</param>
         /// <param name="logger">A logger for logging</param>
         /// <param name="partitionId">The partition id</param>
         /// <param name="errorHandler">A handler for errors encountered in this partition</param>
-        public BlobManager(string connectionString, string taskHubName, ILogger logger, uint partitionId, IPartitionErrorHandler errorHandler)
+        public BlobManager(CloudStorageAccount storageAccount, string taskHubName, ILogger logger, uint partitionId, IPartitionErrorHandler errorHandler)
         {
-            this.connectionString = connectionString;
+            this.cloudStorageAccount = storageAccount;
+            this.UseLocalFilesForTestingAndDebugging = (storageAccount == null);
             this.containerName = GetContainerName(taskHubName);
             this.partitionId = partitionId;
-            this.TraceHelper = new FasterTraceHelper(logger, (int)partitionId);
+
+            if (!this.UseLocalFilesForTestingAndDebugging)
+            {
+                CloudBlobClient serviceClient = this.cloudStorageAccount.CreateCloudBlobClient();
+                this.blobContainer = serviceClient.GetContainerReference(containerName);
+            }
+
+            this.TraceHelper = new FasterTraceHelper(logger, partitionId, this.UseLocalFilesForTestingAndDebugging ? "none" : this.cloudStorageAccount.Credentials.AccountName, taskHubName);
             this.PartitionErrorHandler = errorHandler;
             this.shutDownOrTermination = CancellationTokenSource.CreateLinkedTokenSource(errorHandler.Token);
 
-            if (!UseLocalFilesForTestingAndDebugging)
+            if (!this.UseLocalFilesForTestingAndDebugging)
             {
-                CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
-                CloudBlobClient serviceClient = account.CreateCloudBlobClient();
+                CloudBlobClient serviceClient = this.cloudStorageAccount.CreateCloudBlobClient();
                 this.blobContainer = serviceClient.GetContainerReference(containerName);
             }
-        }
+        } 
 
-        // For testing and debugging with local files, this is the single place the directory name is set.
-        // This must be called before any BlobManager instances are instantiated.
-        internal static void SetLocalFileDirectoryForTestingAndDebugging(bool useLocal) => LocalFileDirectoryForTestingAndDebugging = useLocal ? @"E:\Faster" : null;
-        internal static string LocalFileDirectoryForTestingAndDebugging { get; private set; } = null;
-        private static bool UseLocalFilesForTestingAndDebugging => !string.IsNullOrEmpty(LocalFileDirectoryForTestingAndDebugging);
-
+        // For testing and debugging with local files
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.containerName}";
+
         private string PartitionFolder => $"p{this.partitionId:D2}";
         private const string EventLogBlobName = "evts";
         private const string CommitBlobName = "evts.commit";
@@ -149,7 +155,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task StartAsync()
         {
-            if (UseLocalFilesForTestingAndDebugging)
+            if (this.UseLocalFilesForTestingAndDebugging)
             {
                 Directory.CreateDirectory($"{LocalDirectoryPath}\\{PartitionFolder}");
 
@@ -198,11 +204,11 @@ namespace DurableTask.EventSourced.Faster
             await this.LeaseRenewalLoopTask;
         }
 
-        public static async Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
+        public static async Task DeleteTaskhubStorageAsync(CloudStorageAccount account, string taskHubName)
         {
             var containerName = GetContainerName(taskHubName);
 
-            if (UseLocalFilesForTestingAndDebugging)
+            if (account == null)
             {
                 System.IO.DirectoryInfo di = new DirectoryInfo($"{LocalFileDirectoryForTestingAndDebugging}\\{containerName}");
                 if (di.Exists)
@@ -212,7 +218,6 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
-                CloudStorageAccount account = CloudStorageAccount.Parse(connectionString);
                 CloudBlobClient serviceClient = account.CreateCloudBlobClient();
                 var blobContainer = serviceClient.GetContainerReference(containerName);
 

@@ -22,7 +22,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class PartitionMessageReceived : PartitionEvent, IPartitionEventWithSideEffects
+    internal abstract class PartitionMessageEvent : PartitionEvent, IPartitionEventWithSideEffects
     {
         [DataMember]
         public uint OriginPartition { get; set; }
@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         public abstract string CorrelationId { get; }
 
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionToPartitionEventId(this.PartitionId, this.CorrelationId);
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId(this.CorrelationId);
 
         public void DetermineEffects(EffectTracker effects)
         {

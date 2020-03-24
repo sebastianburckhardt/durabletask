@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced
         public long Position { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"S{Position:D10}";
+        public override string CorrelationId => $"{this.PartitionId:D2}-C{Position:D10}";
 
         public override void DetermineEffects(EffectTracker effects)
         {

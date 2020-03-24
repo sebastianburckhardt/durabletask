@@ -39,11 +39,14 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return this.TaskMessage; } }
+
         public void DetermineEffects(EffectTracker effects)
         {
             // the creation request first checks the state of the instance;
             // it then decides how to proceed from there
-            effects.Add(TrackedObjectKey.Instance(this.InstanceId));
+            effects.Add(TrackedObjectKey.Sessions);
         }
     }
 

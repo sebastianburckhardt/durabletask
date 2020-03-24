@@ -258,6 +258,7 @@ namespace DurableTask.EventSourced
                 // don't pick this same target again until we get a response telling us the current queue size
                 this.ReportedRemoteLoads[target] = RESPONSE_PENDING;
 
+                // we are adding (nonpersisted) information to the event just as a way of passing it to the OutboxState
                 offloadDecisionEvent.DestinationPartitionId = target;
                 offloadDecisionEvent.OffloadedActivities = new List<TaskMessage>();
 
@@ -272,7 +273,7 @@ namespace DurableTask.EventSourced
                     }
                 }
 
-                // process this on outbox so the events get sent
+                // process this on OutboxState so the events get sent
                 effects.Add(TrackedObjectKey.Outbox);
 
                 // try again relatively soon
@@ -284,12 +285,10 @@ namespace DurableTask.EventSourced
                 this.ScheduleNextOffloadDecision(TimeSpan.FromSeconds(10));
             }
 
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                var reportedRemotes = string.Join(",", 
-                    this.ReportedRemoteLoads.Select(x => x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString())));
-                EtwSource.Log.PartitionOffloadDecision((int) this.Partition.PartitionId, EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);
-            }
+            var reportedRemotes = string.Join(",",
+                 this.ReportedRemoteLoads.Select(x => x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString())));
+
+            this.Partition.EventTraceHelper.TracePartitionOffloadDecision(EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);           
         }
 
         private int CountOffloadCandidates(DateTime now)

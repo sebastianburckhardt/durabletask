@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
 
-        private bool IsNotDuplicate(PartitionMessageReceived evt)
+        private bool IsNotDuplicate(PartitionMessageEvent evt)
         {
             // detect duplicates of incoming partition-to-partition events by comparing commit log position of this event against last processed event from same partition
             this.LastProcessed.TryGetValue(evt.OriginPartition, out long lastProcessed);

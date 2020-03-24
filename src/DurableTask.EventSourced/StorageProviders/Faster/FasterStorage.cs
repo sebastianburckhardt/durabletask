@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using Microsoft.Azure.EventHubs.Processor;
+using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -23,8 +24,10 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterStorage : StorageAbstraction.IPartitionState
     {
-        internal const string UseLocalFileStorage = "UseLocalFileStorage";
-        private readonly string connectionString;
+        // if used as a "azure storage connection string", causes Faster to use local file storage instead
+        internal const string LocalFileStorageConnectionString = "UseLocalFileStorage";
+
+        private CloudStorageAccount storageAccount;
         private readonly string taskHubName;
         private readonly ILogger logger;
 
@@ -41,14 +44,18 @@ namespace DurableTask.EventSourced.Faster
 
         public FasterStorage(string connectionString, string taskHubName, ILogger logger)
         {
-            this.connectionString = connectionString;
+            if (connectionString != FasterStorage.LocalFileStorageConnectionString)
+            {
+                this.storageAccount = CloudStorageAccount.Parse(connectionString);
+            }
             this.taskHubName = taskHubName;
             this.logger = logger;
         }
 
         public static Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
         {
-            return BlobManager.DeleteTaskhubStorageAsync(connectionString, taskHubName);
+            var storageAccount = (connectionString != FasterStorage.LocalFileStorageConnectionString) ? CloudStorageAccount.Parse(connectionString) : null;
+            return BlobManager.DeleteTaskhubStorageAsync(storageAccount, taskHubName);
         }
 
         public async Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
@@ -56,14 +63,9 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.terminationToken = errorHandler.Token;
 
-            this.TraceHelper = new FasterTraceHelper(this.logger, (int)partition.PartitionId);
+            this.TraceHelper = new FasterTraceHelper(this.logger, partition.PartitionId, this.storageAccount.Credentials.AccountName, this.taskHubName);
 
-            if (this.connectionString == UseLocalFileStorage)
-            {
-                BlobManager.SetLocalFileDirectoryForTestingAndDebugging(true);
-            }
-
-            this.blobManager = new BlobManager(this.connectionString, this.taskHubName, this.logger, partition.PartitionId, errorHandler);
+            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, partition.PartitionId, errorHandler);
 
             await blobManager.StartAsync();
 
@@ -84,7 +86,7 @@ namespace DurableTask.EventSourced.Faster
                     this.TraceHelper.FasterProgress("creating store");
 
                     // this is a fresh partition
-                    await storeWorker.Initialize(firstInputQueuePosition);
+                    await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition);
 
                     await this.TakeCheckpointAsync("initial checkpoint");
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -132,7 +134,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 // restart pending actitivities, timers, work items etc.
-                using (EventTraceHelper.TraceContext(this.storeWorker.CommitLogPosition, "recover"))
+                using (EventTraceHelper.TraceContext(this.storeWorker.CommitLogPosition, EventTraceHelper.RestartAfterRecoveryEventId))
                 {
                     foreach (var key in TrackedObjectKey.GetSingletons())
                     {

@@ -95,16 +95,14 @@ namespace DurableTask.EventSourced
             Category = EventCategory.ClientResponse
         };
 
-        internal static EventId MakePartitionInternalEventId(uint origin, string correlationId) => new EventId()
+        internal static EventId MakePartitionInternalEventId(string correlationId) => new EventId()
         {
-            PartitionId = origin,
             CorrelationId = correlationId,
             Category = EventCategory.PartitionInternal
         };
 
-        internal static EventId MakePartitionToPartitionEventId(uint origin, string correlationId) => new EventId()
+        internal static EventId MakePartitionToPartitionEventId(string correlationId) => new EventId()
         {
-            PartitionId = origin,
             CorrelationId = correlationId,
             Category = EventCategory.PartitionToPartition
         };
@@ -118,7 +116,6 @@ namespace DurableTask.EventSourced
         /// <inheritdoc/>
         public override string ToString()
         {
-            // note: the total length of this string is always well below 64 bytes, and all characters are ASCII.
             switch (Category)
             {
                 case EventCategory.ClientRequest:
@@ -128,10 +125,10 @@ namespace DurableTask.EventSourced
                     return $"{Client.GetShortId(this.ClientId)}-{this.Number}R{this.FragmentSuffix}";
 
                 case EventCategory.PartitionInternal:
-                    return $"{this.PartitionId:D2}-{this.CorrelationId}{this.FragmentSuffix}";
+                    return $"{this.CorrelationId}{this.FragmentSuffix}";
 
                 case EventCategory.PartitionToPartition:
-                    return $"{this.PartitionId:D2}-{this.CorrelationId}{this.FragmentSuffix}";
+                    return $"{this.CorrelationId}{this.FragmentSuffix}";
 
                 default:
                     throw new InvalidOperationException();

@@ -9,74 +9,78 @@ namespace DurableTask.EventSourced.Faster
     class FasterTraceHelper
     {
         private readonly ILogger logger;
+        private readonly string account;
+        private readonly string taskHub;
         private readonly int partitionId;
 
-        public FasterTraceHelper(ILogger logger, int partitionId)
+        public FasterTraceHelper(ILogger logger, uint partitionId, string storageAccountName, string taskHubName)
         {
             this.logger = logger;
-            this.partitionId = partitionId;
+            this.account = storageAccountName;
+            this.taskHub = taskHubName;
+            this.partitionId = (int) partitionId;
         }
 
         // ----- faster storage provider events
 
-        public void FasterStoreCreated(long inputPosition, long elapsedMs)
+        public void FasterStoreCreated(long inputQueuePosition, long latencyMs)
         {
-            logger.LogInformation("Part{partition:D2} Created Store, inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, inputPosition, elapsedMs);
-            EtwSource.Log.FasterStoreCreated(partitionId, inputPosition, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Created Store, inputQueuePosition={inputQueuePosition} latencyMs={latencyMs}", partitionId, inputQueuePosition, latencyMs);
+            EtwSource.Log.FasterStoreCreated(this.account, this.taskHub, partitionId, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterCheckpointStarted(Guid checkpointGuid, string reason, long commitPosition, long inputPosition)
+        public void FasterCheckpointStarted(Guid checkpointId, string reason, long commitLogPosition, long inputQueuePosition)
         {
-            logger.LogInformation("Part{partition:D2} Started Checkpoint {checkpointGuid}, reason={reason}, commitPosition={commitPosition} inputPosition={inputPosition}", partitionId, checkpointGuid, reason, commitPosition, inputPosition);
-            EtwSource.Log.FasterCheckpointStarted(partitionId, checkpointGuid, reason, commitPosition, inputPosition);
+            logger.LogInformation("Part{partition:D2} Started Checkpoint {checkpointId}, reason={reason}, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}", partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition);
+            EtwSource.Log.FasterCheckpointStarted(this.account, this.taskHub, partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterCheckpointPersisted(Guid checkpointGuid, string reason, long commitPosition, long inputPosition, long elapsedMs)
+        public void FasterCheckpointPersisted(Guid checkpointId, string reason, long commitLogPosition, long inputQueuePosition, long latencyMs)
         {
-            logger.LogInformation("Part{partition:D2} Persisted Checkpoint {checkpointGuid}, reason={reason}, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMs);
-            EtwSource.Log.FasterCheckpointPersisted(partitionId, checkpointGuid, reason, commitPosition, inputPosition, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Persisted Checkpoint {checkpointId}, reason={reason}, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} latencyMs={latencyMs}", partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, latencyMs);
+            EtwSource.Log.FasterCheckpointPersisted(this.account, this.taskHub, partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterLogPersisted(long commitPosition, long numEvents, long numBytes, long elapsedMs)
+        public void FasterLogPersisted(long commitLogPosition, long numberEvents, long sizeInBytes, long latencyMs)
         {
-            logger.LogDebug("Part{partition:D2} Persisted Log, commitPosition={commitPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, numEvents, numBytes, elapsedMs);
-            EtwSource.Log.FasterLogPersisted(partitionId, commitPosition, numEvents, numBytes, elapsedMs);
+            logger.LogDebug("Part{partition:D2} Persisted Log, commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs);
+            EtwSource.Log.FasterLogPersisted(this.account, this.taskHub, partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
         }
 
-         public void FasterCheckpointLoaded(long commitPosition, long inputPosition, long elapsedMs)
+         public void FasterCheckpointLoaded(long commitLogPosition, long inputQueuePosition, long latencyMs)
         {
-            logger.LogInformation("Part{partition:D2} Loaded Checkpoint, commitPosition={commitPosition} inputPosition={inputPosition} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, elapsedMs);
-            EtwSource.Log.FasterCheckpointLoaded(partitionId, commitPosition, inputPosition, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Loaded Checkpoint, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, latencyMs);
+            EtwSource.Log.FasterCheckpointLoaded(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterLogReplayed(long commitPosition, long inputPosition, long numEvents, long numBytes, long elapsedMs)
+        public void FasterLogReplayed(long commitLogPosition, long inputQueuePosition, long numberEvents, long sizeInBytes, long latencyMs)
         {
-            logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitPosition={commitPosition} inputPosition={inputPosition} numEvents={numEvents} numBytes={numBytes} elapsedMs={elapsedMs}", partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);
-            EtwSource.Log.FasterLogReplayed(partitionId, commitPosition, inputPosition, numEvents, numBytes, elapsedMs);
+            logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, latencyMs);
+            EtwSource.Log.FasterLogReplayed(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterStorageError(string operation, Exception exception)
+        public void FasterStorageError(string context, Exception exception)
         {
-            logger.LogError("Part{partition:D2} !!! Faster Storage Error : {operation} : {exception}", partitionId, operation, exception);
-            EtwSource.Log.FasterStorageError(partitionId, operation, exception.ToString());
+            logger.LogError("Part{partition:D2} !!! Faster Storage Error : {context} : {exception}", partitionId, context, exception);
+            EtwSource.Log.FasterStorageError(this.account, this.taskHub, partitionId, context, exception.ToString(), TraceUtils.ExtensionVersion);
         }
 
-        public void FasterBlobStorageError(string operation, CloudBlob blob, Exception exception)
+        public void FasterBlobStorageError(string context, CloudBlob blob, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={blobName} {exception}", partitionId, operation, blob?.Name, exception);
-            EtwSource.Log.FasterBlobStorageError(partitionId, operation, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blob?.Name, exception);
+            EtwSource.Log.FasterBlobStorageError(this.account, this.taskHub, partitionId, context, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterBlobStorageWarning(string operation, CloudBlob blob, Exception exception)
+        public void FasterBlobStorageWarning(string context, CloudBlob blob, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {operation} blobName={blobName} {exception}", partitionId, operation, blob?.Name, exception);
-            EtwSource.Log.FasterBlobStorageWarning(partitionId, operation, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blob?.Name, exception);
+            EtwSource.Log.FasterBlobStorageWarning(this.account, this.taskHub, partitionId, context, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterProgress(string operation)
+        public void FasterProgress(string details)
         {
-            logger.LogDebug("Part{partition:D2} {message}", partitionId, operation);
-            EtwSource.Log.FasterProgress(partitionId, operation);
+            logger.LogDebug("Part{partition:D2} {details}", partitionId, details);
+            EtwSource.Log.FasterProgress(this.account, this.taskHub, partitionId, details, TraceUtils.ExtensionVersion);
         }
 
         // ----- lease management events
@@ -84,25 +88,25 @@ namespace DurableTask.EventSourced.Faster
         public void LeaseAcquired()
         {
             logger.LogInformation("Part{partition:D2} acquired lease", partitionId);
-            EtwSource.Log.LeaseAcquired(partitionId);
+            EtwSource.Log.LeaseAcquired(this.account, this.taskHub, partitionId, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseReleased()
         {
             logger.LogInformation("Part{partition:D2} released lease", partitionId);
-            EtwSource.Log.LeaseReleased(partitionId);
+            EtwSource.Log.LeaseReleased(this.account, this.taskHub, partitionId, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseLost(string operation)
         {
             logger.LogWarning("Part{partition:D2} lease lost in {operation}", partitionId, operation);
-            EtwSource.Log.LeaseLost(partitionId, operation);
+            EtwSource.Log.LeaseLost(this.account, this.taskHub, partitionId, operation, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseProgress(string operation)
         {
             logger.LogDebug("Part{partition:D2} lease progress: {operation}", partitionId, operation);
-            EtwSource.Log.LeaseProgress(partitionId, operation);
+            EtwSource.Log.LeaseProgress(this.account, this.taskHub, partitionId, operation, TraceUtils.ExtensionVersion);
         }
     }
 }

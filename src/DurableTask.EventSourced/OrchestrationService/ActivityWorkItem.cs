@@ -38,6 +38,6 @@ namespace DurableTask.EventSourced
             this.TaskMessage = message;
         }
 
-        public string WorkItemId => $"A{ActivityId:D6}";
+        public string WorkItemId => $"A{ActivityId}";
     }
 }

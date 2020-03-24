@@ -38,6 +38,11 @@ namespace DurableTask.EventSourced
         public string TaskHubName { get; set; }
 
         /// <summary>
+        /// Gets or sets the identifier for the current worker.
+        /// </summary>
+        public string WorkerId { get; set; } = Environment.MachineName;
+
+        /// <summary>
         /// Determines the component to use for message delivery and partition load balancing.
         /// </summary>
         public TransportChoices TransportComponent

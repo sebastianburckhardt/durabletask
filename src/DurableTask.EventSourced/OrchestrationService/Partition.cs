@@ -28,7 +28,6 @@ namespace DurableTask.EventSourced
     internal partial class Partition : TransportAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
-        private readonly EventTraceHelper eventTraceHelper;
 
         public uint PartitionId { get; private set; }
         public string TracePrefix { get; private set; }
@@ -37,6 +36,7 @@ namespace DurableTask.EventSourced
         public IPartitionErrorHandler ErrorHandler { get; private set; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
+        public string StorageAccountName { get; private set; }
 
         public StorageAbstraction.IPartitionState State { get; private set; }
         public TransportAbstraction.ISender BatchSender { get; private set; }
@@ -47,9 +47,12 @@ namespace DurableTask.EventSourced
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
         public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
 
-        // A little helper property that allows us to easily check the condition for low-level tracing
-        public EventTraceHelper DetailTracer => this.eventTraceHelper.IsTracingDetails ? this.eventTraceHelper : null;
-        public EventTraceHelper EventTraceHelper => this.eventTraceHelper;
+        public EventTraceHelper EventTraceHelper { get; }
+
+        public bool RecoveryIsComplete { get; private set; }
+
+        // A little helper property that allows us to conventiently check the condition for low-level event tracing
+        public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingDetails ? this.EventTraceHelper : null;
 
         public Partition(
             EventSourcedOrchestrationService host,
@@ -58,6 +61,7 @@ namespace DurableTask.EventSourced
             Func<uint> numberPartitions,
             TransportAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
+            string storageAccountName,
             WorkItemQueue<TaskActivityWorkItem> activityWorkItemQueue,
             WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue)
         {
@@ -67,15 +71,19 @@ namespace DurableTask.EventSourced
             this.NumberPartitions = numberPartitions;
             this.BatchSender = batchSender;
             this.Settings = settings;
+            this.StorageAccountName = storageAccountName;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
-            this.eventTraceHelper = new EventTraceHelper(host.Logger, this);
+            this.EventTraceHelper = new EventTraceHelper(host.Logger, this);
+
+            host.Logger.LogInformation("Part{partition:D2} Started", this.PartitionId);
+            EtwSource.Log.PartitionStarted(this.StorageAccountName, this.Settings.TaskHubName, (int)this.PartitionId, TraceUtils.ExtensionVersion);
         }
 
-        public async Task<long> StartAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
+        public async Task<long> CreateOrRestoreAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
         {
             EventTraceHelper.ClearTraceContext();
-            this.DetailTracer?.TraceDetail("starting partition");
+            this.EventDetailTracer?.TraceDetail("starting partition");
 
             this.ErrorHandler = errorHandler;
 
@@ -92,23 +100,19 @@ namespace DurableTask.EventSourced
 
                 // goes to storage to create or restore the partition state
                 var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
-                
+
+                this.RecoveryIsComplete = true;
+
                 this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
                 return inputQueuePosition;
             }
             catch (Exception e)
             {
-                this.ErrorHandler.HandleError(nameof(StartAsync), "Could not start partition", e, true, false);
+                this.ErrorHandler.HandleError(nameof(CreateOrRestoreAsync), "Could not start partition", e, true, false);
                 throw;
             }
         }
-
-        public void ProcessAsync(PartitionEvent partitionEvent)
-        {
-            this.State.SubmitEvent(partitionEvent);
-        }
-
        
         [Conditional("DEBUG")]
         public void Assert(bool condition)
@@ -125,7 +129,6 @@ namespace DurableTask.EventSourced
                 this.ErrorHandler.HandleError(stacktrace, "Assertion failed", null, false, false);
             }
         }
-
 
         public async Task StopAsync()
         {
@@ -148,7 +151,9 @@ namespace DurableTask.EventSourced
 
             // at this point, the partition has been terminated (either cleanly or by exception)
             this.Assert(this.ErrorHandler.IsTerminated);
-            EtwSource.Log.PartitionStopped((int)this.PartitionId);
+
+            host.Logger.LogInformation("Part{partition:D2} Stopped", this.PartitionId);
+            EtwSource.Log.PartitionStopped(this.StorageAccountName, this.Settings.TaskHubName, (int) this.PartitionId, TraceUtils.ExtensionVersion);
         }
 
         private void TimersFired(List<PartitionEvent> timersFired)
@@ -198,12 +203,30 @@ namespace DurableTask.EventSourced
 
         public void Send(Event evt)
         {
-            this.DetailTracer?.TraceSend(evt);
+            // trace TaskMessages that are sent to other participants
+            if (this.RecoveryIsComplete)
+            {
+                foreach (var taskMessage in evt.TracedTaskMessages)
+                {
+                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, evt.EventIdString);
+                }
+            }
+
+            this.EventDetailTracer?.TraceSend(evt);
             this.BatchSender.Submit(evt);
         }
 
         public void Submit(PartitionEvent evt)
         {
+            // trace TaskMessages that are "sent" in the sense that the partition sent it to itself
+            if (this.RecoveryIsComplete)
+            {
+                foreach (var taskMessage in evt.TracedTaskMessages)
+                {
+                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, evt.EventIdString);
+                }
+            }
+
             this.State.SubmitEvent(evt);
         }
 
@@ -214,7 +237,7 @@ namespace DurableTask.EventSourced
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
         {
-            this.DetailTracer?.TraceDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
+            this.EventDetailTracer?.TraceDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
  
             this.ActivityWorkItemQueue.Add(item);
         }
@@ -222,7 +245,7 @@ namespace DurableTask.EventSourced
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 
-            this.DetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.CorrelationId}");
+            this.EventDetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.CorrelationId}");
 
             this.OrchestrationWorkItemQueue.Add(item);
         }

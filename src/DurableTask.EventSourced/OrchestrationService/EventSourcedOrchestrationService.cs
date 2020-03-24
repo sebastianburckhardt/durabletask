@@ -14,6 +14,8 @@
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Faster;
+using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -34,7 +36,6 @@ namespace DurableTask.EventSourced
         IDisposable
     {
         private readonly TransportAbstraction.ITaskHub taskHub;
-        private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly ILogger transportLogger;
         private readonly ILogger storageLogger;
 
@@ -47,22 +48,21 @@ namespace DurableTask.EventSourced
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
         internal Client Client { get; private set; }
 
+        internal EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         internal uint NumberPartitions { get; private set; }
         uint TransportAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
+        internal string StorageAccountName { get; private set; }
 
         internal WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
-        internal Guid HostId { get; } = Guid.NewGuid();
-
+        internal Guid ServiceInstanceId { get; } = Guid.NewGuid();
         internal ILogger Logger { get; }
-
-        
 
         /// <inheritdoc/>
         public override string ToString()
         {
-            return $"EventSourcedOrchestrationService on {settings.TransportComponent}Transport and {settings.StorageComponent}Storage";
+            return $"EventSourcedOrchestrationService on {this.Settings.TransportComponent}Transport and {this.Settings.StorageComponent}Storage";
         }
 
         /// <summary>
@@ -70,13 +70,13 @@ namespace DurableTask.EventSourced
         /// </summary>
         public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
-            this.settings = settings;
+            this.Settings = settings;
 
             this.Logger = loggerFactory.CreateLogger(LoggerName);
             this.transportLogger = loggerFactory.CreateLogger(TransportLoggerName);
             this.storageLogger = loggerFactory.CreateLogger(StorageLoggerName);
 
-            switch (this.settings.TransportComponent)
+            switch (this.Settings.TransportComponent)
             {
                 case EventSourcedOrchestrationServiceSettings.TransportChoices.Memory:
                     this.taskHub = new Emulated.MemoryTransport(this, settings);
@@ -93,6 +93,8 @@ namespace DurableTask.EventSourced
                 default:
                     throw new NotImplementedException("no such transport choice");
             }
+
+            this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
         }
 
         private async Task WorkitemExpirationCheck(CancellationToken token)
@@ -111,13 +113,13 @@ namespace DurableTask.EventSourced
 
         StorageAbstraction.IPartitionState StorageAbstraction.IStorageProvider.CreatePartitionState()
         {
-            switch (this.settings.StorageComponent)
+            switch (this.Settings.StorageComponent)
             {
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
                     return new MemoryStorage();
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return new Faster.FasterStorage(settings.StorageConnectionString, this.settings.TaskHubName, this.storageLogger);
+                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.storageLogger);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -126,20 +128,19 @@ namespace DurableTask.EventSourced
 
         Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
-            switch (this.settings.StorageComponent)
+            switch (this.Settings.StorageComponent)
             {
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
                     return Task.Delay(10);
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return Faster.FasterStorage.DeleteTaskhubStorageAsync(settings.StorageConnectionString, this.settings.TaskHubName);
+                    return Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
             }
         }
 
-       
         /******************************/
         // management methods
         /******************************/
@@ -182,7 +183,8 @@ namespace DurableTask.EventSourced
                 return;
             }
 
-            EtwSource.Log.HostStarted(this.HostId, System.Environment.MachineName);
+            this.Logger.LogInformation("Service started, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            EtwSource.Log.ServiceStarted(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
@@ -207,7 +209,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc />
         public async Task StopAsync(bool isForced)
         {
-            if (!this.settings.KeepServiceRunning && this.serviceShutdownSource != null)
+            if (!this.Settings.KeepServiceRunning && this.serviceShutdownSource != null)
             {
                 this.serviceShutdownSource.Cancel();
                 this.serviceShutdownSource.Dispose();
@@ -215,7 +217,8 @@ namespace DurableTask.EventSourced
 
                 await this.taskHub.StopAsync();
 
-                EtwSource.Log.HostStopped(this.HostId);
+                this.Logger.LogInformation("Service stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+                EtwSource.Log.ServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -243,18 +246,13 @@ namespace DurableTask.EventSourced
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
 
             this.Client = new Client(this, clientId, batchSender, this.serviceShutdownSource.Token);
-
-            EtwSource.Log.ClientStarted(clientId);
-
             return this.Client;
         }
 
         TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, TransportAbstraction.ISender batchSender)
         {
-            var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, batchSender, this.settings, 
+            var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, batchSender, this.Settings, this.StorageAccountName,
                 this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue);
-
-            EtwSource.Log.PartitionStarted((int)partitionId);
 
             return partition;
         }
@@ -265,7 +263,7 @@ namespace DurableTask.EventSourced
 
         IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
         {
-            return new PartitionErrorHandler((int) partitionId, this.storageLogger);
+            return new PartitionErrorHandler((int) partitionId, this.storageLogger, this.StorageAccountName, this.Settings.TaskHubName);
         }
 
         /******************************/
@@ -430,8 +428,6 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            bool shouldCacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;
-
             try
             {
                 partition.Submit(new BatchProcessed()
@@ -442,7 +438,7 @@ namespace DurableTask.EventSourced
                     BatchStartPosition = messageBatch.BatchStartPosition,
                     BatchLength = messageBatch.BatchLength,
                     NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
-                    CachedWorkItem = shouldCacheWorkItemForReuse ? orchestrationWorkItem : null,
+                    WorkItem = orchestrationWorkItem,
                     State = state,
                     ActivityMessages = (List<TaskMessage>)outboundMessages,
                     LocalMessages = localMessages,
@@ -496,7 +492,7 @@ namespace DurableTask.EventSourced
             return 0;
         }
 
-        int IOrchestrationService.MaxConcurrentTaskOrchestrationWorkItems => settings.MaxConcurrentTaskOrchestrationWorkItems;
+        int IOrchestrationService.MaxConcurrentTaskOrchestrationWorkItems => this.Settings.MaxConcurrentTaskOrchestrationWorkItems;
 
         int IOrchestrationService.TaskOrchestrationDispatcherCount => 1;
 
@@ -549,7 +545,7 @@ namespace DurableTask.EventSourced
             return Task.FromResult(workItem);
         }
 
-        int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => settings.MaxConcurrentTaskActivityWorkItems;
+        int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => this.Settings.MaxConcurrentTaskActivityWorkItems;
 
         int IOrchestrationService.TaskActivityDispatcherCount => 1;
 

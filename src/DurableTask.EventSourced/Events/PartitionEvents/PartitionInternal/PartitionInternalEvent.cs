@@ -23,7 +23,7 @@ namespace DurableTask.EventSourced
     internal abstract class PartitionInternalEvent : PartitionEvent, IPartitionEventWithSideEffects
     {
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionInternalEventId(this.PartitionId, this.CorrelationId);
+        public override EventId EventId => EventId.MakePartitionInternalEventId(this.CorrelationId);
 
         [IgnoreDataMember]
         public abstract string CorrelationId { get; }

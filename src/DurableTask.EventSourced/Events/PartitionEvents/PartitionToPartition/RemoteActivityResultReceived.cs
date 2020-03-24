@@ -22,7 +22,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class RemoteActivityResultReceived : PartitionMessageReceived
+    internal class RemoteActivityResultReceived : PartitionMessageEvent
     {
         [DataMember]
         public TaskMessage Result { get; set; }
@@ -37,6 +37,9 @@ namespace DurableTask.EventSourced
         public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"A{ActivityId:D6}R";
+        public override string CorrelationId => $"{this.OriginPartition:D2}-A{ActivityId}-{this.PartitionId:D2}R";
+
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return Result; } }
     }
 }

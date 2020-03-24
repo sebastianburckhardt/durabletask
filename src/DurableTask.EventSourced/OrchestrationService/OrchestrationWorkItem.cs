@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
 
         public Partition Partition => MessageBatch.Partition;
 
-        public string WorkItemId => $"S{MessageBatch.SessionId:D6}:{MessageBatch.BatchStartPosition}[{MessageBatch.BatchLength}]";
+        public string WorkItemId => $"S{MessageBatch.SessionId}:{MessageBatch.BatchStartPosition}[{MessageBatch.BatchLength}]";
 
         public OrchestrationWorkItem(OrchestrationMessageBatch messageBatch, List<HistoryEvent> previousHistory = null)
         {

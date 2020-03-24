@@ -38,7 +38,10 @@ namespace DurableTask.EventSourced
         public int ReportedLoad { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => (this.PartitionId == OriginPartitionId) ? $"A{ActivityId:D6}" : $"{OriginPartitionId:D2}-A{ActivityId:D6}";
+        public override string CorrelationId => $"{OriginPartitionId:D2}-A{ActivityId}";
+
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return this.Response; } }
 
         public override void DetermineEffects(EffectTracker effects)
         {

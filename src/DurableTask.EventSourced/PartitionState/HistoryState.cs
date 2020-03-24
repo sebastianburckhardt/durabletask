@@ -36,6 +36,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public List<HistoryEvent> History { get; set; }
 
+        [DataMember]
+        public int Episode { get; set; }
+
         /// <summary>
         /// We cache this so we can resume the execution at the execution cursor.
         /// </summary>
@@ -44,7 +47,6 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.History, this.InstanceId);
-
 
         public override string ToString()
         {
@@ -59,18 +61,39 @@ namespace DurableTask.EventSourced
             if (this.History == null || evt.State.OrchestrationInstance.ExecutionId != this.ExecutionId)
             {
                 this.History = new List<HistoryEvent>();
+                this.Episode = 0;
                 this.ExecutionId = evt.State.OrchestrationInstance.ExecutionId;
             }
 
-            // TODO add some checking here
+            this.Partition.Assert(!string.IsNullOrEmpty(this.InstanceId) || string.IsNullOrEmpty(this.ExecutionId));
 
+            // add all the new events to the history, and update episode number
             if (evt.NewEvents != null)
             {
-                this.History.AddRange(evt.NewEvents);
+                for (int i = 0; i < evt.NewEvents.Count; i++)
+                {
+                    var historyEvent = evt.NewEvents[i];
+                    if (historyEvent.EventType == EventType.OrchestratorStarted)
+                    {
+                        this.Episode++;
+                    }
+                    this.History.Add(evt.NewEvents[i]);
+                }
             }
 
-            // cache the work item for reuse, if supplied
-            this.CachedOrchestrationWorkItem = evt.CachedWorkItem;
+            if (!effects.IsReplaying)
+            {
+                this.Partition.EventTraceHelper.TraceInstanceUpdate(
+                    evt.WorkItem.WorkItemId, 
+                    evt.State.OrchestrationInstance.InstanceId, 
+                    evt.State.OrchestrationInstance.ExecutionId, 
+                    this.History.Count, 
+                    evt.NewEvents, this.Episode);
+
+                // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
+                bool shouldCacheWorkItemForReuse = evt.State.OrchestrationStatus == OrchestrationStatus.Running;
+                this.CachedOrchestrationWorkItem = shouldCacheWorkItemForReuse ? evt.WorkItem : null;
+            }
         }
     }
 }

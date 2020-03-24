@@ -57,10 +57,10 @@ namespace DurableTask.EventSourced.Faster
             );
         }
 
-        public async Task Initialize(long initialInputQueuePosition)
+        public async Task Initialize(long initialCommitLogPosition, long initialInputQueuePosition)
         {
             this.InputQueuePosition = initialInputQueuePosition;
-            this.CommitLogPosition = 0;
+            this.CommitLogPosition = initialCommitLogPosition;
 
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
@@ -69,7 +69,7 @@ namespace DurableTask.EventSourced.Faster
             }
 
             this.lastCheckpointedPosition = this.CommitLogPosition;
-            this.numberEventsSinceLastCheckpoint = 0;
+            this.numberEventsSinceLastCheckpoint = initialCommitLogPosition;
         }
 
         public void ReadCheckpointPositions(BlobManager blobManager)

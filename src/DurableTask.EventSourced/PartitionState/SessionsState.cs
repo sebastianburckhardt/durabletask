@@ -21,6 +21,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using Dynamitey;
 
 namespace DurableTask.EventSourced
 {
@@ -66,6 +67,9 @@ namespace DurableTask.EventSourced
             return $"Sessions ({Sessions.Count} pending) next={SequenceNumber:D6}";
         }
 
+        private string GetSessionPosition(Session session) => $"{this.Partition.PartitionId:D2}-S{session.SessionId}:{session.BatchStartPosition + session.Batch.Count}";
+      
+
         private void AddMessageToSession(TaskMessage message, bool forceNewExecution, bool isReplaying)
         {
             var instanceId = message.OrchestrationInstance.InstanceId;
@@ -74,6 +78,7 @@ namespace DurableTask.EventSourced
             {
                 // A session for this instance already exists, so a work item is in progress already.
                 // We don't need to schedule a work item because we'll notice the new messages when it completes.
+                this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
                 session.Batch.Add(message);
             }
             else
@@ -81,10 +86,13 @@ namespace DurableTask.EventSourced
                 this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
-                    Batch = new List<TaskMessage>() { message },
+                    Batch = new List<TaskMessage>(),
                     BatchStartPosition = 0,
                     ForceNewExecution = forceNewExecution,
                 };
+
+                this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
+                session.Batch.Add(message);
 
                 if (!isReplaying) // we don't start work items until end of recovery
                 {
@@ -98,8 +106,13 @@ namespace DurableTask.EventSourced
             if (this.Sessions.TryGetValue(instanceId, out var session))
             {
                 // A session for this instance already exists, so a work item is in progress already.
-                // We don't need to schedule a work item because we'll notice the new messages when it completes.
-                session.Batch.AddRange(messages);
+                // We don't need to schedule a work item because we'll notice the new messages 
+                // when the previous work item completes.
+                foreach(var message in messages)
+                {
+                    this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));                  
+                    session.Batch.Add(message);
+                }
             }
             else
             {
@@ -107,9 +120,15 @@ namespace DurableTask.EventSourced
                 this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
-                    Batch = messages.ToList(),
+                    Batch = new List<TaskMessage>(),
                     BatchStartPosition = 0
                 };
+
+                foreach (var message in messages)
+                {
+                    this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
+                    session.Batch.Add(message);
+                }
 
                 if (!isReplaying) // we don't start work items until end of recovery
                 {

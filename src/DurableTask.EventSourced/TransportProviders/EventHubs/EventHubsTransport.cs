@@ -34,10 +34,11 @@ namespace DurableTask.EventSourced.EventHubs
         TransportAbstraction.ISender
     {
         private readonly TransportAbstraction.IHost host;
-        private readonly string HostId;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsConnections connections;
+        private readonly CloudStorageAccount cloudStorageAccount;
         private readonly ILogger logger;
+        
 
         private EventProcessorHost eventProcessorHost;
         private TransportAbstraction.IClient client;
@@ -57,11 +58,10 @@ namespace DurableTask.EventSourced.EventHubs
         {
             this.host = host;
             this.settings = settings;
-            this.HostId = $"{Environment.MachineName}-{DateTime.UtcNow:o}";
             this.ClientId = Guid.NewGuid();
             this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString);
             var blobContainerName = $"{settings.EventHubsNamespaceName}-processors";
-            var cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
+            this.cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");

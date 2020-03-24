@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced
         public bool ForceNewExecution;
         public List<TaskMessage> MessagesToProcess;
 
-        public string CorrelationId => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
+        public string CorrelationId => $"S{SessionId}:{BatchStartPosition}[{BatchLength}]";
 
         public string EventIdString => $"{this.Partition.PartitionId:D2}-{CorrelationId}";
 
@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced
 
         public void ScheduleWorkItem(Partition partition)
         {
-            partition.DetailTracer?.TraceDetail($"Prefetching instance={this.InstanceId} batch={this.CorrelationId}");
+            partition.EventDetailTracer?.TraceDetail($"Prefetching instance={this.InstanceId} batch={this.CorrelationId}");
             this.Partition = partition;
 
             // continue when we have the history state loaded, which gives us the latest state and/or cursor
@@ -64,24 +64,24 @@ namespace DurableTask.EventSourced
             if (this.ForceNewExecution || historyState == null)
             {
                 // we either have no previous instance, or want to replace the previous instance
-                this.Partition.DetailTracer?.TraceDetail($"Starting fresh orchestration instance={this.InstanceId} batch={this.CorrelationId}");
+                this.Partition.EventDetailTracer?.TraceDetail($"Starting fresh orchestration instance={this.InstanceId} batch={this.CorrelationId}");
                 workItem = new OrchestrationWorkItem(this);
             }
             else if (historyState.CachedOrchestrationWorkItem != null)
             {
-                this.Partition.DetailTracer?.TraceDetail($"Continuing orchestration from cached cursor instance={this.InstanceId} batch={CorrelationId}");
+                this.Partition.EventDetailTracer?.TraceDetail($"Continuing orchestration from cached cursor instance={this.InstanceId} batch={CorrelationId}");
                 workItem = historyState.CachedOrchestrationWorkItem;
                 workItem.SetNextMessageBatch(this);
             }
             else
             {
-                this.Partition.DetailTracer?.TraceDetail($"Continuing orchestration from saved history instance={this.InstanceId} batch={CorrelationId}");
+                this.Partition.EventDetailTracer?.TraceDetail($"Continuing orchestration from saved history instance={this.InstanceId} batch={CorrelationId}");
                 workItem = new OrchestrationWorkItem(this, historyState.History);
             }
 
             if (!this.IsExecutableInstance(workItem, out var warningMessage))
             {
-                this.Partition.DetailTracer?.TraceDetail($"Discarding messages for non-executable orchestration instance={this.InstanceId} batch={CorrelationId} reason={warningMessage}");
+                this.Partition.EventDetailTracer?.TraceDetail($"Discarding messages for non-executable orchestration instance={this.InstanceId} batch={CorrelationId} reason={warningMessage}");
 
                 // discard the messages, by marking the batch as processed without updating the state
                 this.Partition.Submit(new BatchProcessed()
@@ -93,7 +93,7 @@ namespace DurableTask.EventSourced
                     BatchLength = this.BatchLength,
                     NewEvents = null,
                     State = null,
-                    CachedWorkItem = null,
+                    WorkItem = workItem,
                     ActivityMessages = null,
                     LocalMessages = null,
                     RemoteMessages = null,

@@ -22,10 +22,11 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TaskMessagesReceived : PartitionMessageReceived
+    internal class TaskMessagesReceived : PartitionMessageEvent
     {
         [DataMember]
         public List<TaskMessage> TaskMessages { get; set; }
+
 
         [DataMember]
         public List<TaskMessage> DelayedTaskMessages { get; set; }
@@ -34,7 +35,7 @@ namespace DurableTask.EventSourced
         public string OriginCorrelationId { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.OriginPartition:D2}-{this.OriginCorrelationId}";
+        public override string CorrelationId => $"{this.OriginCorrelationId}-{this.PartitionId:D2}";
 
         protected override void ExtraTraceInformation(StringBuilder s)
         {

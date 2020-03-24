@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.EventSourced.Faster;
+using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
@@ -49,16 +50,14 @@ namespace DurableTask.EventSourced.Tests
             var random = new Random(0);
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
-            var connectionString = TestHelpers.GetAzureStorageConnectionString();
+            var account = useAzure ? CloudStorageAccount.Parse(TestHelpers.GetAzureStorageConnectionString()) : null;
             var logger = loggerFactory.CreateLogger("faster");
 
-            BlobManager.SetLocalFileDirectoryForTestingAndDebugging(!useAzure);
-
-            await BlobManager.DeleteTaskhubStorageAsync(useAzure ? connectionString : null, taskHubName);
+            await BlobManager.DeleteTaskhubStorageAsync(account, taskHubName);
 
             // first, commit some number of random entries to the log and record the commit positions
             {
-                var blobManager = new BlobManager(connectionString, taskHubName, logger, 0, new PartitionErrorHandler(0, logger));
+                var blobManager = new BlobManager(account, taskHubName, logger, 0, new PartitionErrorHandler(0, logger, "account", taskHubName));
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
 
@@ -76,7 +75,7 @@ namespace DurableTask.EventSourced.Tests
 
             // then, read back all the entries, and compare position and content
             {
-                var blobManager = new BlobManager(connectionString, taskHubName, logger, 0, new PartitionErrorHandler(0, logger));
+                var blobManager = new BlobManager(account, taskHubName, logger, 0, new PartitionErrorHandler(0, logger, "account", taskHubName));
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
 

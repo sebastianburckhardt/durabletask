@@ -77,8 +77,8 @@ namespace DurableTask.EventSourced
             {
                 try
                 {
-                    this.Partition.Assert(partitionEvent is IPartitionEventWithSideEffects);
                     this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, partitionEvent, this.IsReplaying);
+                    this.Partition.Assert(partitionEvent is IPartitionEventWithSideEffects);
 
                     this.Effect = partitionEvent;
 
@@ -96,7 +96,7 @@ namespace DurableTask.EventSourced
                         var startPos = this.Count - 1;
                         var key = this[startPos];
 
-                        this.Partition.DetailTracer?.TraceDetail($"Process on [{key}]");
+                        this.Partition.EventDetailTracer?.TraceDetail($"Process on [{key}]");
 
                         // start with processing the event on this object 
                         await this.applyToStore(key, this);
@@ -125,7 +125,7 @@ namespace DurableTask.EventSourced
                     this.setPositions(commitLogPosition, inputQueuePosition);
 
                     this.Effect = null;
-                    this.Partition.DetailTracer?.TraceDetail("finished processing event");
+                    this.Partition.EventDetailTracer?.TraceDetail("finished processing event");
                 }
                 catch (OperationCanceledException)
                 {
@@ -142,17 +142,17 @@ namespace DurableTask.EventSourced
         public void ProcessRead(StorageAbstraction.IInternalReadonlyEvent readContinuation, TrackedObject target)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
+            this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
 
             using (EventTraceHelper.TraceContext(commitLogPosition, readContinuation.EventIdString))
             {
                 try
                 {
                     this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, readContinuation);
-                    this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
 
                     readContinuation.OnReadComplete(target);
 
-                    this.Partition.DetailTracer?.TraceDetail("finished processing read event");
+                    this.Partition.EventDetailTracer?.TraceDetail("finished processing read event");
                 }
                 catch (OperationCanceledException)
                 {

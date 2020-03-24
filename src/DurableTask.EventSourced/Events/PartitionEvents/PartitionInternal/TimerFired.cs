@@ -33,7 +33,10 @@ namespace DurableTask.EventSourced
         public TaskMessage TaskMessage { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"T{TimerId:D6}";
+        public override string CorrelationId => $"{this.PartitionId:D2}-T{TimerId}";
+
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return TaskMessage; } }
 
         public override void DetermineEffects(EffectTracker effects)
         {

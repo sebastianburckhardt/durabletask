@@ -78,7 +78,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            return Task.FromResult(0L);
+            return Task.FromResult(1L);
         }
 
         public async Task CleanShutdown(bool takeFinalStateCheckpoint)

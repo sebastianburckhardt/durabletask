@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
                 kvp.Value.Partition = this.Partition;
 
                 // resend (anything we have recovered is of course persisted)
-                Partition.DetailTracer?.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
+                Partition.EventDetailTracer?.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
             }
         }
@@ -69,7 +69,7 @@ namespace DurableTask.EventSourced
 
         public void Acknowledge(Event evt)
         {
-            this.Partition.DetailTracer?.TraceDetail($"store has persisted outbound event {evt} id={evt.EventIdString}");
+            this.Partition.EventDetailTracer?.TraceDetail($"store has persisted outbound event {evt} id={evt.EventIdString}");
             long commitPosition = evt.NextCommitLogPosition;
             this.Send(this.Outbox[commitPosition]);
         }
@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced
         }
 
         [DataContract]
-        public class Batch : List<PartitionMessageReceived>, TransportAbstraction.IAckListener
+        public class Batch : List<PartitionMessageEvent>, TransportAbstraction.IAckListener
         {
             [IgnoreDataMember]
             public long Position { get; set; }
@@ -100,7 +100,7 @@ namespace DurableTask.EventSourced
 
             public void Acknowledge(Event evt)
             {
-                this.Partition.DetailTracer?.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
+                this.Partition.EventDetailTracer?.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
 
                 if (++numAcks == Count)
                 {

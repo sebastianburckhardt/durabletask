@@ -27,6 +27,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public TaskMessage[] TaskMessages { get; set; }
 
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages => this.TaskMessages;
+
         public void DetermineEffects(EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Sessions);

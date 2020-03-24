@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.EventHubs
             c.ErrorHandler = this.host.CreateErrorHandler(this.partitionId);
             c.Next = this.StartPartitionAsync(c);
             c.Partition = host.AddPartition(this.partitionId, this.sender);
-            c.NextPacketToReceive = await c.Partition.StartAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
+            c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
 
             this.logger.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Successfully started EventProcessor (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, incarnation, c.NextPacketToReceive);
 

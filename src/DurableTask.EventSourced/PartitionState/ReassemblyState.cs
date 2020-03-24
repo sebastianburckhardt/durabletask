@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
             {
                 evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);
                 
-                this.Partition.DetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
+                this.Partition.EventDetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
 
                 this.Fragments.Remove(originalEventString);
 

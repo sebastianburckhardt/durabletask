@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
@@ -55,6 +56,11 @@ namespace DurableTask.EventSourced
         /// </summary>
         [IgnoreDataMember]
         public string EventIdString => this.eventIdString ?? (this.eventIdString = this.EventId.ToString());
+
+        [IgnoreDataMember]
+        public virtual IEnumerable<TaskMessage> TracedTaskMessages => Event.noTaskMessages;
+
+        private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();
 
         public override string ToString()
         {

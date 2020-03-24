@@ -95,7 +95,7 @@ namespace DurableTask.EventSourced.Emulated
             // create or recover all the partitions
             for (uint i = 0; i < this.settings.MemoryPartitions; i++)
             {
-                var nextInputQueuePosition = await partitions[i].StartAsync(this.host.CreateErrorHandler(i), 0);
+                var nextInputQueuePosition = await partitions[i].CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0);
                 partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;
             }
 

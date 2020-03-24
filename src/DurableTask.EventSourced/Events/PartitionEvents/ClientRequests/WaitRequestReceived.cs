@@ -84,12 +84,9 @@ namespace DurableTask.EventSourced
             PubSub<string, OrchestrationState>.IListener,
             StorageAbstraction.IInternalReadonlyEvent
         {
-            private readonly WaitRequestReceived request;
-
             public OrchestrationWaiter(WaitRequestReceived request, Partition partition)
                 : base(partition.ErrorHandler.Token, request, partition)
             {
-                this.request = request;
                 Key = request.InstanceId;
                 partition.InstanceStatePubSub.Subscribe(this);
             }
@@ -98,7 +95,7 @@ namespace DurableTask.EventSourced
 
             public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.Key);
 
-            public string EventIdString => request.EventIdString;
+            public string EventIdString => this.Request.EventIdString;
 
             public void Notify(OrchestrationState value)
             {

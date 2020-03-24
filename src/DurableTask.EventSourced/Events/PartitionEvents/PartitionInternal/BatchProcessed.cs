@@ -57,10 +57,28 @@ namespace DurableTask.EventSourced
         public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public OrchestrationWorkItem CachedWorkItem { get; set; }
+        public OrchestrationWorkItem WorkItem { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"S{SessionId:D6}:{BatchStartPosition}[{BatchLength}]";
+        public override string CorrelationId => $"{this.PartitionId:D2}-S{SessionId}:{BatchStartPosition}[{BatchLength}]";
+
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages 
+        { 
+            get
+            {
+                if (this.ActivityMessages != null)
+                    foreach (var a in this.ActivityMessages)
+                        yield return a;
+                if (this.LocalMessages != null)
+                    foreach (var l in this.LocalMessages)
+                        yield return l;
+                if (this.RemoteMessages != null)
+                    foreach (var r in this.RemoteMessages)
+                        yield return r;
+                // we are not including the timer messages because they are considered "sent" at the time the timer fires, not when it is scheduled
+            }
+        }
 
         public override void DetermineEffects(EffectTracker effects)
         {
