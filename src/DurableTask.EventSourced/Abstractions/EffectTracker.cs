@@ -75,13 +75,13 @@ namespace DurableTask.EventSourced
         public async Task ProcessUpdate(PartitionUpdateEvent updateEvent)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
-            double startedAt = this.stopWatch.ElapsedMilliseconds;
+            double startedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
 
-            using (EventTraceHelper.TraceContext(commitLogPosition, updateEvent.EventIdString))
+            using (EventTraceContext.MakeContext(commitLogPosition, updateEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, updateEvent, this.IsReplaying);
+                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, updateEvent, this.IsReplaying);
 
                     this.Effect = updateEvent;
 
@@ -99,7 +99,7 @@ namespace DurableTask.EventSourced
                         var startPos = this.Count - 1;
                         var key = this[startPos];
 
-                        this.Partition.EventDetailTracer?.TraceDetail($"Process on [{key}]");
+                        this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Process on [{key}]");
 
                         // start with processing the event on this object 
                         await this.applyToStore(key, this);
@@ -128,7 +128,6 @@ namespace DurableTask.EventSourced
                     this.setPositions(commitLogPosition, inputQueuePosition);
 
                     this.Effect = null;
-                    this.Partition.EventDetailTracer?.TraceDetail($"finished processing event, latencyMs={stopWatch.ElapsedMilliseconds - startedAt}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -139,6 +138,11 @@ namespace DurableTask.EventSourced
                     // for robustness, swallow exceptions, but report them
                     this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Encountered exception while processing update event {updateEvent}", exception, false, false);
                 }
+                finally
+                {
+                    double finishedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, updateEvent, startedTimestamp, finishedTimestamp, false);
+                }
             }
         }
 
@@ -146,17 +150,16 @@ namespace DurableTask.EventSourced
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
-            double startedAt = this.stopWatch.Elapsed.TotalMilliseconds;
+            double startedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
 
-            using (EventTraceHelper.TraceContext(commitLogPosition, readEvent.EventIdString))
+            using (EventTraceContext.MakeContext(commitLogPosition, readEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, readEvent, false);
+                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
 
                     readEvent.OnReadComplete(target, this.Partition);
 
-                    this.Partition.EventDetailTracer?.TraceDetail($"finished processing read event, latencyMs={stopWatch.Elapsed.TotalMilliseconds - startedAt}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -166,6 +169,11 @@ namespace DurableTask.EventSourced
                 {
                     // for robustness, swallow exceptions, but report them
                     this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readEvent.ToString()}", exception, false, false);
+                }
+                finally
+                {
+                    double finishedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, readEvent, startedTimestamp, finishedTimestamp, false);
                 }
             }
         }

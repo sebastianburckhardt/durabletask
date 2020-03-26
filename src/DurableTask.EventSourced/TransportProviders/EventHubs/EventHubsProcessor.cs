@@ -234,6 +234,8 @@ namespace DurableTask.EventSourced.EventHubs
                 
                 var batch = new List<PartitionEvent>();
 
+                var receivedTimestamp = current.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+
                 lock (this.packetDeliveryBackup) // must prevent race with a partition that is restarting in the background
                 {
                     foreach (var eventData in packets)
@@ -242,22 +244,22 @@ namespace DurableTask.EventSourced.EventHubs
                         if (seqno == current.NextPacketToReceive)
                         {
                             string eventId = null;
-                            PartitionEvent evt = null;
+                            PartitionEvent partitionEvent = null;
                             try
                             {
-                                Packet.Deserialize(eventData.Body, out eventId, out evt);
+                                Packet.Deserialize(eventData.Body, out eventId, out partitionEvent);
                             }
                             catch (Exception)
                             {
                                 this.logger.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, eventId);
                                 throw;
                             }
-                            this.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, evt, eventId);
+                            this.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {event} id={eventId}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, partitionEvent, eventId);
                             current.NextPacketToReceive = seqno + 1;
-                            evt.NextInputQueuePosition = current.NextPacketToReceive;
-                            batch.Add(evt);
-                            packetDeliveryBackup.Enqueue((evt, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
-                            DurabilityListeners.Register(evt, this);
+                            partitionEvent.NextInputQueuePosition = current.NextPacketToReceive;
+                            batch.Add(partitionEvent);
+                            packetDeliveryBackup.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
+                            DurabilityListeners.Register(partitionEvent, this);
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {

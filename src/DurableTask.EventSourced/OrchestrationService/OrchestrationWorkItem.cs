@@ -27,6 +27,10 @@ namespace DurableTask.EventSourced
 
         public Partition Partition { get; }
 
+        public ExecutionType Type { get; set; }
+
+        public enum ExecutionType { Fresh, ContinueFromHistory, ContinueFromCursor };
+
         public OrchestrationWorkItem(Partition partition, OrchestrationMessageBatch messageBatch, List<HistoryEvent> previousHistory = null)
         {
             this.Partition = partition;

@@ -114,26 +114,40 @@ namespace DurableTask.EventSourced
         }
 
         [Event(32, Level = EventLevel.Informational, Version = 1)]
-        public void TraceInstanceUpdate(string Account, string TaskHub, string InstanceId, string ExecutionId, string WorkItemId, int NewEventCount, int TotalEventCount, string NewEvents, string EventType, int Episode, string ExtensionVersion)
+        public void TaskMessageDiscarded(string Account, string TaskHub, int PartitionId, string Reason, string EventType, int TaskEventId, string InstanceId, string ExecutionId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(32, Account, TaskHub, InstanceId, ExecutionId, WorkItemId, NewEventCount, TotalEventCount, NewEvents, EventType, Episode, ExtensionVersion);
+            this.WriteEvent(32, Account, TaskHub, PartitionId, Reason, EventType, TaskEventId, InstanceId, ExecutionId, WorkItemId, ExtensionVersion);
+        }
+
+        [Event(33, Level = EventLevel.Informational, Version = 1)]
+        public void OrchestrationWorkItemQueued(string Account, string TaskHub, int PartitionId, string ExecutionType, string InstanceId, string WorkItemId, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(33, Account, TaskHub, PartitionId, ExecutionType, InstanceId, WorkItemId, ExtensionVersion);
+        }
+
+        [Event(34, Level = EventLevel.Informational, Version = 1)]
+        public void OrchestrationWorkItemDiscarded(string Account, string TaskHub, int PartitionId, string InstanceId, string WorkItemId, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(34, Account, TaskHub, PartitionId, InstanceId, WorkItemId, ExtensionVersion);
+        }
+
+        [Event(35, Level = EventLevel.Informational, Version = 1)]
+        public void InstanceUpdated(string Account, string TaskHub, string InstanceId, string ExecutionId, string WorkItemId, int NewEventCount, int TotalEventCount, string NewEvents, string EventType, int Episode, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(35, Account, TaskHub, InstanceId, ExecutionId, WorkItemId, NewEventCount, TotalEventCount, NewEvents, EventType, Episode, ExtensionVersion);
         }
 
         // ----- partition event processing
 
         [Event(40, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventProcessed(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, string EventInfo, long NextCommitLogPosition, long NextInputQueuePosition, bool IsReplaying, string ExtensionVersion)
+        public void PartitionEventProcessed(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, string EventInfo, long NextCommitLogPosition, long NextInputQueuePosition, double QueueLatencyMs, double FetchLatencyMs, double LatencyMs, bool IsReplaying, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(40, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, EventInfo, NextCommitLogPosition, NextInputQueuePosition, IsReplaying, ExtensionVersion);
-        }
-
-        [Event(41, Level = EventLevel.Verbose, Version = 1)]
-        public void PartitionEventSent(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, string SentMessageId, string EventInfo, string ExtensionVersion)
-        {
-            SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(41, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, SentMessageId, EventInfo, ExtensionVersion);
+            this.WriteEvent(40, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, EventInfo, NextCommitLogPosition, NextInputQueuePosition, QueueLatencyMs, FetchLatencyMs, LatencyMs, IsReplaying, ExtensionVersion);
         }
 
         [Event(42, Level = EventLevel.Verbose, Version = 1)]

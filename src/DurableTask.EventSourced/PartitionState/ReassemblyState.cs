@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
             {
                 evt.ReassembledEvent =  FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);
                 
-                this.Partition.EventDetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
+                this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Reassembled {evt.ReassembledEvent}");
 
                 this.Fragments.Remove(originalEventString);
 
@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced
                         break;
 
                     default:
-                        throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                        throw new InvalidCastException("Could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
                 }
             }
             else

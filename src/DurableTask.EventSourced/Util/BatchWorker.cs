@@ -85,7 +85,7 @@ namespace DurableTask.EventSourced
 
         private async Task Work()
         {
-            EventTraceHelper.ClearTraceContext();
+            EventTraceContext.Clear();
 
             lock (this.thisLock)
             {

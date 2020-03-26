@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                foreach (var o in batch)
+                foreach (var partitionEvent in batch)
                 {
                     if (this.IsShuttingDown)
                     {
@@ -112,8 +112,11 @@ namespace DurableTask.EventSourced.Faster
                     // if there are IO responses ready to process, do that first
                     this.store.CompletePending();
 
+                    // record the current time, for measuring latency in the event processing pipeline
+                    partitionEvent.IssuedTimestamp = this.partition.Stopwatch.Elapsed.TotalMilliseconds;
+
                     // now process the read or update
-                    switch (o)
+                    switch (partitionEvent)
                     {
                         case PartitionReadEvent readEvent:
                             readEvent.OnReadIssued(this.partition);

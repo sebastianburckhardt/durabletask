@@ -190,7 +190,7 @@ namespace DurableTask.EventSourced
             // a different session id
             if (!this.Sessions.TryGetValue(evt.InstanceId, out var session) || session.SessionId != evt.SessionId)
             {
-                return;           
+                this.Partition.EventTraceHelper.TraceOrchestrationWorkItemDiscarded(evt);    
             };
 
             if (evt.ActivityMessages?.Count > 0)

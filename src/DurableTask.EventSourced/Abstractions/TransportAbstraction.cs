@@ -14,6 +14,7 @@ using Dynamitey.DynamicObjects;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -153,6 +154,12 @@ namespace DurableTask.EventSourced
             /// The error handler for this partition.
             /// </summary>
             IPartitionErrorHandler ErrorHandler { get; }
+
+            /// <summary>
+            /// A constantly running stopwatch for taking timestamps
+            /// </summary>
+
+            Stopwatch Stopwatch { get; }
         }
 
         /// <summary>

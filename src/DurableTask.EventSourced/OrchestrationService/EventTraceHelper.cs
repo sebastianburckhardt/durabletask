@@ -42,65 +42,25 @@ namespace DurableTask.EventSourced
 
         public bool IsTracingDetails => (this.logger.IsEnabled(LogLevel.Debug) || EtwSource.Log.IsVerboseEnabled);
 
-        public void TraceEvent(long commitLogPosition, PartitionEvent evt, bool replaying)
+        public void TraceEventProcessingStarted(long commitLogPosition, PartitionEvent evt, bool replaying)
         {
+            System.Diagnostics.Debug.Assert(IsTracingDetails);
             long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
+            var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event {evt} id={evt.EventIdString}");
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event");
-                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, nextCommitLogPosition, evt.NextInputQueuePosition);
+                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details}", this.partitionId, commitLogPosition, details);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, replaying, TraceUtils.ExtensionVersion);
+                EtwSource.Log.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString ?? "", details, TraceUtils.ExtensionVersion);
             }
         }
 
-        // The trace context correlates the processing of an event with the effects of that event
-        [ThreadStatic]
-        private static (long commitLogPosition, string eventId) traceContext;
-
-        internal const string RestartAfterRecoveryEventId = "RestartAfterRecovery"; // a pseudo eventId used as the context during restart
-
-        private static readonly TraceContextClear traceContextClear = new TraceContextClear();
-
-        public static IDisposable TraceContext(long commitLogPosition, string eventId)
+        public void TraceEventProcessingDetail(string details)
         {
-            EventTraceHelper.traceContext = (commitLogPosition, eventId);
-            return traceContextClear;
-        }
-
-        private class TraceContextClear : IDisposable
-        {
-            public void Dispose()
-            {
-                EventTraceHelper.traceContext = (0L, null);
-            }
-        }
-
-        public static void ClearTraceContext()
-        {
-            EventTraceHelper.traceContext = (0L, null);
-        }
-
-        public void TraceSend(Event evt)
-        {
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
-
-            if (this.logger.IsEnabled(LogLevel.Debug))
-            {
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Sending event {eventId} {event}", this.partitionId, prefix, evt.EventIdString, evt);
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventSent(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", evt.EventIdString, evt.ToString(), TraceUtils.ExtensionVersion);
-            }
-        }
-
-        public void TraceDetail(string details)
-        {
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
+            System.Diagnostics.Debug.Assert(IsTracingDetails);
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
@@ -113,9 +73,28 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public void TraceEventProcessed(long commitLogPosition, PartitionEvent evt, double startedTimestamp, double finishedTimestamp, bool replaying)
+        {
+            long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
+            double queueLatencyMs = evt.IssuedTimestamp - evt.ReceivedTimestamp;
+            double fetchLatencyMs = startedTimestamp - evt.IssuedTimestamp;
+            double latencyMs = finishedTimestamp - startedTimestamp;
+
+            if (this.logger.IsEnabled(LogLevel.Debug))
+            {
+                var details = string.Format($"{(replaying ? "Replayed" : "Processed")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event");
+                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition}) latency=({queueLatencyMs:F1},{fetchLatencyMs:F3},{latencyMs:F3})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs);
+            }
+
+            if (EtwSource.Log.IsVerboseEnabled)
+            {
+                EtwSource.Log.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
+            }
+        }
+
         public void TracePartitionOffloadDecision(int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemotes)
         {
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
             string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
             this.logger.LogInformation("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
@@ -126,24 +105,21 @@ namespace DurableTask.EventSourced
 
         public void TraceTaskMessageReceived(TaskMessage message, string sessionPosition)
         {
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-            if (eventId != RestartAfterRecoveryEventId)
+            if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                if (this.logger.IsEnabled(LogLevel.Debug))
-                {
-                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} received TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId} sessionPosition={SessionPosition}",
-                        this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, eventId, sessionPosition);
-                }
-
-                EtwSource.Log.TaskMessageReceived(this.account, this.taskHub, this.partitionId, commitLogPosition, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", eventId, sessionPosition, TraceUtils.ExtensionVersion);
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                this.logger.LogDebug("Part{partition:D2}{prefix} received TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId} sessionPosition={SessionPosition}",
+                    this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, eventId, sessionPosition);
             }
+
+            EtwSource.Log.TaskMessageReceived(this.account, this.taskHub, this.partitionId, commitLogPosition, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", eventId, sessionPosition, TraceUtils.ExtensionVersion);
         }
 
         public void TraceTaskMessageSent(TaskMessage message, string sentEventId)
         {
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
@@ -154,6 +130,50 @@ namespace DurableTask.EventSourced
 
             EtwSource.Log.TaskMessageSent(this.account, this.taskHub, this.partitionId, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", sentEventId, TraceUtils.ExtensionVersion);
         }
+
+        public void TraceTaskMessageDiscarded(TaskMessage message, string reason, string workItemId)
+        {
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
+
+            if (this.logger.IsEnabled(LogLevel.Debug))
+            {
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                this.logger.LogDebug("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
+                    this.partitionId, prefix, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, workItemId);
+            }
+
+            EtwSource.Log.TaskMessageDiscarded(this.account, this.taskHub, this.partitionId, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", workItemId, TraceUtils.ExtensionVersion);
+        }
+
+
+        public void TraceOrchestrationWorkItemQueued(OrchestrationWorkItem workItem)
+        {
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
+
+            if (this.logger.IsEnabled(LogLevel.Debug))
+            {
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                this.logger.LogDebug("Part{partition:D2}{prefix} Queued {executionType} OrchestrationWorkItem {workItemId} instanceId={instanceId} ",
+                    this.partitionId, prefix, workItem.Type, workItem.MessageBatch.WorkItemId, workItem.InstanceId);
+            }
+
+            EtwSource.Log.OrchestrationWorkItemQueued(this.account, this.taskHub, this.partitionId, workItem.Type.ToString(), workItem.InstanceId, workItem.MessageBatch.WorkItemId, TraceUtils.ExtensionVersion);
+        }
+
+        public void TraceOrchestrationWorkItemDiscarded(BatchProcessed evt)
+        {
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
+
+            if (this.logger.IsEnabled(LogLevel.Debug))
+            {
+                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                this.logger.LogDebug("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
+                    this.partitionId, prefix, evt.WorkItemId, evt.InstanceId);
+            }
+
+            EtwSource.Log.OrchestrationWorkItemDiscarded(this.account, this.taskHub, this.partitionId, evt.InstanceId, evt.WorkItemId, TraceUtils.ExtensionVersion);
+        }
+
 
         public void TraceInstanceUpdate(string workItemId, string instanceId, string executionId, int totalEventCount, List<HistoryEvent> newEvents, int episode)
         {
@@ -199,7 +219,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            (long commitLogPosition, string eventId) = EventTraceHelper.traceContext;
+            (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
@@ -208,7 +228,7 @@ namespace DurableTask.EventSourced
                     this.partitionId, prefix, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode);
             }
 
-            EtwSource.Log.TraceInstanceUpdate(this.account, this.taskHub, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
+            EtwSource.Log.InstanceUpdated(this.account, this.taskHub, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
         }
 
         public void TraceInstanceFetch(string workItemId, string instanceId, string executionId, bool history, bool state)

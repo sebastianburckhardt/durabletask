@@ -35,5 +35,11 @@ namespace DurableTask.EventSourced
         /// </summary>
         [DataMember]
         public long NextInputQueuePosition { get; set; }
+
+        [IgnoreDataMember]
+        public double ReceivedTimestamp { get; set; }
+
+        [IgnoreDataMember]
+        public double IssuedTimestamp { get; set; }
     }
 }

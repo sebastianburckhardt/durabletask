@@ -85,8 +85,8 @@ namespace DurableTask.EventSourced
 
         public async Task<long> CreateOrRestoreAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
         {
-            EventTraceHelper.ClearTraceContext();
-            this.EventDetailTracer?.TraceDetail("starting partition");
+            EventTraceContext.Clear();
+            this.EventDetailTracer?.TraceEventProcessingDetail("starting partition");
 
             this.ErrorHandler = errorHandler;
 
@@ -179,12 +179,15 @@ namespace DurableTask.EventSourced
 
         public void Send(ClientEvent clientEvent)
         {
-            this.EventDetailTracer?.TraceSend(clientEvent);
+            this.EventDetailTracer?.TraceEventProcessingDetail($"Sending client event {clientEvent} id={clientEvent.EventId}");
+
             this.BatchSender.Submit(clientEvent);
         }
 
         public void Send(PartitionUpdateEvent updateEvent)
         {
+            this.EventDetailTracer?.TraceEventProcessingDetail($"Sending partition update event {updateEvent} id={updateEvent.EventId}");
+
             // trace DTFx TaskMessages that are sent to other participants
             if (this.RecoveryIsComplete)
             {
@@ -194,9 +197,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            this.EventDetailTracer?.TraceSend(updateEvent);
             this.BatchSender.Submit(updateEvent);
-
         }
 
         public void SubmitInternalEvent(PartitionUpdateEvent updateEvent)
@@ -226,7 +227,7 @@ namespace DurableTask.EventSourced
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
         {
-            this.EventDetailTracer?.TraceDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
+            this.EventDetailTracer?.TraceEventProcessingDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
  
             this.ActivityWorkItemQueue.Add(item);
         }
@@ -234,7 +235,7 @@ namespace DurableTask.EventSourced
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 
-            this.EventDetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.WorkItemId}");
+            this.EventDetailTracer?.TraceEventProcessingDetail($"Enqueueing OrchestrationWorkItem {item.MessageBatch.WorkItemId}");
 
             this.OrchestrationWorkItemQueue.Add(item);
         }

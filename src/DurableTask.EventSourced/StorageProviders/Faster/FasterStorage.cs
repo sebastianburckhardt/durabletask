@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 // restart pending actitivities, timers, work items etc.
-                using (EventTraceHelper.TraceContext(this.storeWorker.CommitLogPosition, EventTraceHelper.RestartAfterRecoveryEventId))
+                using (EventTraceContext.MakeContext(this.storeWorker.CommitLogPosition, string.Empty))
                 {
                     foreach (var key in TrackedObjectKey.GetSingletons())
                     {

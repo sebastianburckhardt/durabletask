@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
                 kvp.Value.Partition = this.Partition;
 
                 // resend (anything we have recovered is of course persisted)
-                Partition.EventDetailTracer?.TraceDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
+                Partition.EventDetailTracer?.TraceEventProcessingDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
             }
         }
@@ -70,7 +70,7 @@ namespace DurableTask.EventSourced
         public void ConfirmDurable(Event evt)
         {
             long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
-            this.Partition.EventDetailTracer?.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}, now sending messages");
+            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
             this.Send(this.Outbox[commitPosition]);
         }
 
@@ -100,7 +100,7 @@ namespace DurableTask.EventSourced
 
             public void ConfirmDurable(Event evt)
             {
-                this.Partition.EventDetailTracer?.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
+                this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Transport has confirmed event {evt} id={evt.EventIdString}");
 
                 if (++numAcks == Count)
                 {
@@ -115,7 +115,7 @@ namespace DurableTask.EventSourced
 
         public void Process(SendConfirmed evt, EffectTracker _)
         {
-            this.Partition.EventDetailTracer?.TraceDetail($"store has sent all outbound messages by event {evt} id={evt.EventIdString}");
+            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has sent all outbound messages by event {evt} id={evt.EventIdString}");
 
             // we no longer need to keep these events around
             this.Outbox.Remove(evt.Position);

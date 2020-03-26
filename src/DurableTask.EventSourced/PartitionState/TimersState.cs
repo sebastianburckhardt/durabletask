@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
                 throw new ArgumentException(nameof(message), "unhandled event type");
             }
 
-            Partition.EventDetailTracer?.TraceDetail($"Scheduled {message} due at {expirationEvent.Due:o}, id={expirationEvent.EventIdString}");
+            Partition.EventDetailTracer?.TraceEventProcessingDetail($"Scheduled {message} due at {expirationEvent.Due:o}, id={expirationEvent.EventIdString}");
             Partition.PendingTimers.Schedule(expirationEvent.Due, expirationEvent);
         }
 
