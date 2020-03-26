@@ -26,8 +26,6 @@ namespace DurableTask.EventSourced
 
         public long ActivityId;
 
-        public EventId IssuingEvent;
-
         public ActivityWorkItem(Partition partition, long activityId, TaskMessage message)
         {
             this.Partition = partition;
