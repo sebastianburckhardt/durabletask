@@ -13,10 +13,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
@@ -24,26 +22,40 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class StateRequestReceived : ClientRequestEvent, IReadonlyPartitionEvent
+    internal class TaskMessagesReceived : PartitionMessageEvent
     {
         [DataMember]
-        public string InstanceId { get; set; }
+        public List<TaskMessage> TaskMessages { get; set; }
+
+        [DataMember]
+        public List<TaskMessage> DelayedTaskMessages { get; set; }
+
+        [DataMember]
+        public string WorkItemId { get; set; }
 
         [IgnoreDataMember]
-        public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId(this.WorkItemId, this.PartitionId);
 
-        public void OnReadComplete(TrackedObject target)
+        protected override void ExtraTraceInformation(StringBuilder s)
         {
-            var orchestrationState = ((InstanceState)target)?.OrchestrationState;
+            var tCount = this.TaskMessages?.Count ?? 0;
+            var dCount = this.DelayedTaskMessages?.Count ?? 0;
 
-            var response = new StateResponseReceived()
+            s.Append(' ');
+            if (tCount == 1)
             {
-                ClientId = this.ClientId,
-                RequestId = this.RequestId,
-                OrchestrationState = orchestrationState,
-            };
-
-            target.Partition.Send(response);
+                s.Append(this.TaskMessages[0].Event.EventType);
+            }
+            else if (dCount == 1)
+            {
+                s.Append(this.DelayedTaskMessages[0].Event.EventType);
+            }
+            else
+            {
+                s.Append('[');
+                s.Append(tCount + dCount);
+                s.Append(']');
+            }
         }
     }
 }

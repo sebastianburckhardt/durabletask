@@ -34,6 +34,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public bool IsLast { get; set; }
 
-        public override EventId EventId => EventId.MakeFragmentEventId(this.OriginalEventId, this.Fragment);
+        public override EventId EventId => EventId.MakeSubEventId(this.OriginalEventId, this.Fragment);
     }
 }

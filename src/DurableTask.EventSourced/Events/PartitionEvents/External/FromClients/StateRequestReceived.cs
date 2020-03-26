@@ -13,8 +13,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
@@ -22,24 +24,26 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class RemoteActivityResultReceived : PartitionMessageEvent
+    internal class StateRequestReceived : ClientReadRequestEvent
     {
         [DataMember]
-        public TaskMessage Result { get; set; }
-
-        [DataMember]
-        public long ActivityId { get; set; }
-
-        [DataMember]
-        public int ActivitiesQueueSize { get; set; }
-
-        [DataMember]
-        public DateTime Timestamp { get; set; }
+        public string InstanceId { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.OriginPartition:D2}-A{ActivityId}-{this.PartitionId:D2}R";
+        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
 
-        [IgnoreDataMember]
-        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return Result; } }
+        public override void OnReadComplete(TrackedObject target, Partition partition)
+        {
+            var orchestrationState = ((InstanceState)target)?.OrchestrationState;
+
+            var response = new StateResponseReceived()
+            {
+                ClientId = this.ClientId,
+                RequestId = this.RequestId,
+                OrchestrationState = orchestrationState,
+            };
+
+            target.Partition.Send(response);
+        }
     }
 }

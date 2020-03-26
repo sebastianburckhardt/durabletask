@@ -22,32 +22,17 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class CreationRequestReceived : ClientRequestEvent, IPartitionEventWithSideEffects
+    internal class ClientTaskMessagesReceived : ClientUpdateRequestEvent
     {
         [DataMember]
-        public OrchestrationStatus[] DedupeStatuses { get; set; }
-
-        [DataMember]
-        public DateTime Timestamp { get; set; }
-
-        [DataMember]
-        public TaskMessage TaskMessage { get; set; }
+        public TaskMessage[] TaskMessages { get; set; }
 
         [IgnoreDataMember]
-        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
+        public override IEnumerable<TaskMessage> TracedTaskMessages => this.TaskMessages;
 
-        [IgnoreDataMember]
-        public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
-
-        [IgnoreDataMember]
-        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return this.TaskMessage; } }
-
-        public void DetermineEffects(EffectTracker effects)
+        public override void DetermineEffects(EffectTracker effects)
         {
-            // the creation request first checks the state of the instance;
-            // it then decides how to proceed from there
             effects.Add(TrackedObjectKey.Sessions);
         }
     }
-
 }

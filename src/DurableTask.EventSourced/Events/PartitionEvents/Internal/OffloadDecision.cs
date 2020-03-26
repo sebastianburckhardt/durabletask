@@ -16,32 +16,31 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TimerFired : PartitionInternalEvent
+    internal class OffloadDecision : PartitionUpdateEvent
     {
         [DataMember]
-        public long TimerId { get; set; }
-        
-        [DataMember]
-        public DateTime Due { get; set; }
-
-        [DataMember]
-        public TaskMessage TaskMessage { get; set; }
+        public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.PartitionId:D2}-T{TimerId}";
+        public uint DestinationPartitionId { get; set; }
 
         [IgnoreDataMember]
-        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return TaskMessage; } }
+        public List<TaskMessage> OffloadedActivities { get; set; }
+
+        public static string GetWorkItemId(uint partition, DateTime timestamp) => $"{partition:D2}-O{timestamp:o}";
+
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakePartitionInternalEventId(GetWorkItemId(this.PartitionId, this.Timestamp));
 
         public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Sessions);
-            effects.Add(TrackedObjectKey.Timers);
+            // start processing on activities, which makes the decision, 
+            // and if offloading, fills in the fields, and adds the outbox to the effects
+            effects.Add(TrackedObjectKey.Activities);
         }
     }
 }

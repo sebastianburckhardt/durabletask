@@ -15,19 +15,11 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
-    [DataContract]
-    internal abstract class PartitionInternalEvent : PartitionEvent, IPartitionEventWithSideEffects
+    internal abstract class InternalReadEvent : PartitionReadEvent
     {
-        [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionInternalEventId(this.CorrelationId);
-
-        [IgnoreDataMember]
-        public abstract string CorrelationId { get; }
-
-        public abstract void DetermineEffects(EffectTracker effects);
+       
     }
 }

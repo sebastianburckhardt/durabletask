@@ -141,13 +141,13 @@ namespace DurableTask.EventSourced
             /// Queues a single event for processing on this partition.
             /// </summary>
             /// <param name="partitionEvent">The event to process.</param>
-            void Submit(PartitionEvent partitionEvent);
+            void SubmitInternalEvent(PartitionUpdateEvent partitionEvent);
 
             /// <summary>
             /// Queues a batch of incoming external events for processing on this partition.
             /// </summary>
-            /// <param name="inputBatch">The events to process.</param>
-            void SubmitInputEvents(IEnumerable<PartitionEvent> inputBatch);
+            /// <param name="partitionEvents">The events to process.</param>
+            void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents);
 
             /// <summary>
             /// The error handler for this partition.
@@ -202,20 +202,20 @@ namespace DurableTask.EventSourced
         /// A listener abstraction, used by clients and partitions, to receive acks after events have been
         /// durably processed.
         /// </summary>
-        public interface IAckListener
+        public interface IDurabilityListener
         {
             /// <summary>
             /// Indicates that this event has been durably persisted (incoming events) or sent (outgoing events).
             /// </summary>
             /// <param name="evt">The event that has been durably processed.</param>
-            void Acknowledge(Event evt);
+            void ConfirmDurable(Event evt);
         }
 
         /// <summary>
-        /// An <see cref="IAckListener"/> that is also listening for exceptions. Used on the client
+        /// An <see cref="IDurabilityListener"/> that is also listening for exceptions. Used on the client
         /// to make transport errors visible to the calling code.
         /// </summary>
-        public interface IAckOrExceptionListener : IAckListener
+        public interface IDurabilityOrExceptionListener : IDurabilityListener
         {
             /// <summary>
             /// Indicates that there was an error while trying to send this event.

@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
                         IsLast = (portion == length),
                     });
                 }
-                else if (original is PartitionEvent partitionEvent)
+                else if (original is PartitionUpdateEvent partitionEvent)
                 {
                     list.Add(new PartitionEventFragment()
                     {

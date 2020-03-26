@@ -49,6 +49,8 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Activities);
 
+        public static string GetWorkItemId(uint partition, long activityId) => $"{partition:D2}-A{activityId}";
+
         public override void OnFirstInitialization()
         {
             this.Pending = new Dictionary<long, TaskMessage>();

@@ -13,10 +13,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
@@ -33,34 +31,16 @@ namespace DurableTask.EventSourced
         public abstract EventId EventId { get; }
 
         /// <summary>
-        /// For events in the commit log, the position of the next event after this one. For read-only events, zero.
-        /// </summary>
-        /// <remarks>We do not persist this in the log since it is implicit, nor transmit this in packets since it has only local meaning.</remarks>
-        [IgnoreDataMember]
-        public long NextCommitLogPosition { get; set; }
-
-        /// <summary>
-        /// For events coming from the input queue, the next input queue position after this event. For internal events, zero.
-        /// </summary>
-        [DataMember]
-        public long NextInputQueuePosition { get; set; }
-
-        /// <summary>
         /// Listeners to be notified when this event is durably persisted or sent.
         /// </summary>
         [IgnoreDataMember]
-        public AckListeners AckListeners;
+        public DurabilityListeners DurabilityListeners;
 
         /// <summary>
         /// A string identifiying this event, suitable for tracing (cached to avoid excessive formatting)
         /// </summary>
         [IgnoreDataMember]
         public string EventIdString => this.eventIdString ?? (this.eventIdString = this.EventId.ToString());
-
-        [IgnoreDataMember]
-        public virtual IEnumerable<TaskMessage> TracedTaskMessages => Event.noTaskMessages;
-
-        private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();
 
         public override string ToString()
         {
@@ -89,6 +69,7 @@ namespace DurableTask.EventSourced
             yield return typeof(WaitRequestReceived);
             yield return typeof(ActivityCompleted);
             yield return typeof(BatchProcessed);
+            yield return typeof(CreationRequestProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
             yield return typeof(ActivityOffloadReceived);
@@ -100,20 +81,18 @@ namespace DurableTask.EventSourced
 
         public bool SafeToDuplicateInTransport()
         {
-            if (this is ClientEvent)
+            if (this is ClientUpdateRequestEvent)
             {
-                // duplicate responses sent to clients are simply ignored
-                return true; 
-            }
-            else if (this is ClientRequestEvent)
-            {
-                // requests from clients are safe to duplicate if and only if they are read-only
-                return this is IReadonlyPartitionEvent;
+                return false;
             }
             else
             {
-                // all partition events are safe to duplicate because they are perfectly deduplicated by Dedup
-                return true; 
+                // all others are safe to duplicate:
+                // -   duplicate responses sent to clients are simply ignored
+                // -   duplicate read requests cause no harm (other than redundant work)
+                // -   duplicate partition events are deduplicated by Dedup
+
+                return true;
             }
         }
     }

@@ -20,16 +20,16 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal struct AckListeners
+    internal struct DurabilityListeners
     {
         private volatile object status;
         private static object MarkAsSuccessfullyCompleted = new object();
 
-        public static void Register(Event evt, TransportAbstraction.IAckListener listener)
+        public static void Register(Event evt, TransportAbstraction.IDurabilityListener listener)
         {
             
             // fast path: status is null, replace it with the listener
-            if (Interlocked.CompareExchange(ref evt.AckListeners.status, listener, null) == null)
+            if (Interlocked.CompareExchange(ref evt.DurabilityListeners.status, listener, null) == null)
             {
                 return;
             }
@@ -37,18 +37,18 @@ namespace DurableTask.EventSourced
             // slower path: there are some listener(s) already, or the event is acked already
             while (true)
             {
-                var current = evt.AckListeners.status;
+                var current = evt.DurabilityListeners.status;
 
                 // if the current status indicates the ack has happened already, notify the listener
                 // right now
 
                 if (current == MarkAsSuccessfullyCompleted)
                 {
-                    listener.Acknowledge(evt);
+                    listener.ConfirmDurable(evt);
                     return;
                 }
 
-                if (current is Exception e && listener is TransportAbstraction.IAckOrExceptionListener exceptionListener)
+                if (current is Exception e && listener is TransportAbstraction.IDurabilityOrExceptionListener exceptionListener)
                 {
                     exceptionListener.ReportException(evt, e);
                     return;
@@ -56,42 +56,42 @@ namespace DurableTask.EventSourced
 
                 // add the listener to the list of listeners
 
-                List<TransportAbstraction.IAckListener> list;
+                List<TransportAbstraction.IDurabilityListener> list;
 
-                if (current is TransportAbstraction.IAckListener existing)
+                if (current is TransportAbstraction.IDurabilityListener existing)
                 {
-                    list = new List<TransportAbstraction.IAckListener>() { existing, listener };
+                    list = new List<TransportAbstraction.IDurabilityListener>() { existing, listener };
                 }
                 else
                 {
-                    list = (List<TransportAbstraction.IAckListener>) current;
+                    list = (List<TransportAbstraction.IDurabilityListener>) current;
                     list.Add(listener);
                 }
 
-                if (Interlocked.CompareExchange(ref evt.AckListeners.status, list, current) == current)
+                if (Interlocked.CompareExchange(ref evt.DurabilityListeners.status, list, current) == current)
                 {
                     return;
                 }     
             }
         }
 
-        public static void Acknowledge(Event evt)
+        public static void ConfirmDurable(Event evt)
         {
-            var listeners = Interlocked.Exchange(ref evt.AckListeners.status, MarkAsSuccessfullyCompleted);
+            var listeners = Interlocked.Exchange(ref evt.DurabilityListeners.status, MarkAsSuccessfullyCompleted);
 
             if (listeners != null)
             {
                 using (EventTraceHelper.TraceContext(0L, evt.EventIdString))
                 {
-                    if (listeners is TransportAbstraction.IAckListener listener)
+                    if (listeners is TransportAbstraction.IDurabilityListener listener)
                     {
-                        listener.Acknowledge(evt);
+                        listener.ConfirmDurable(evt);
                     }
-                    else if (listeners is List<TransportAbstraction.IAckListener> list)
+                    else if (listeners is List<TransportAbstraction.IDurabilityListener> list)
                     {
                         foreach (var l in list)
                         {
-                            l.Acknowledge(evt);
+                            l.ConfirmDurable(evt);
                         }
                     }
                 }
@@ -105,19 +105,19 @@ namespace DurableTask.EventSourced
                 throw new ArgumentNullException(nameof(e));
             }
 
-            var listeners = Interlocked.Exchange(ref evt.AckListeners.status, e);
+            var listeners = Interlocked.Exchange(ref evt.DurabilityListeners.status, e);
 
             if (listeners != null)
             {
-                if (listeners is TransportAbstraction.IAckListener listener)
+                if (listeners is TransportAbstraction.IDurabilityListener listener)
                 {
-                    listener.Acknowledge(evt);
+                    listener.ConfirmDurable(evt);
                 }
-                else if (listeners is List<TransportAbstraction.IAckListener> list)
+                else if (listeners is List<TransportAbstraction.IDurabilityListener> list)
                 {
                     foreach (var l in list)
                     {
-                        l.Acknowledge(evt);
+                        l.ConfirmDurable(evt);
                     }
                 }
             }

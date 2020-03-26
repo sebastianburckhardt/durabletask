@@ -18,6 +18,9 @@ using System.Text;
 
 namespace DurableTask.EventSourced
 {
+    /// <summary>
+    /// An event that is processed by a partition
+    /// </summary>
     [DataContract]
     internal abstract class PartitionEvent : Event
     {
@@ -26,19 +29,11 @@ namespace DurableTask.EventSourced
 
         [IgnoreDataMember]
         public ArraySegment<byte> Serialized;
-    }
 
-    // all partition events must implement exactly one of the following two interfaces, 
-    // depending on whether the event updates the store state or only reads it
-
-    internal interface IPartitionEventWithSideEffects
-    {
-          // determines the set of tracked objects on which to process this event
-        void DetermineEffects(EffectTracker effects);
-    }
-
-    internal interface IReadonlyPartitionEvent : StorageAbstraction.IInternalReadonlyEvent
-    {
-
+        /// <summary>
+        /// For events coming from the input queue, the next input queue position after this event. For internal events, zero.
+        /// </summary>
+        [DataMember]
+        public long NextInputQueuePosition { get; set; }
     }
 }

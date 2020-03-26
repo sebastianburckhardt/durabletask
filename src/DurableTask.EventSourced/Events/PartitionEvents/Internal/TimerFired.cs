@@ -13,48 +13,38 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class PartitionEventFragment : 
-        PartitionUpdateEvent, 
-        FragmentationAndReassembly.IEventFragment
+    internal class TimerFired : PartitionUpdateEvent
     {
         [DataMember]
-        public EventId OriginalEventId { get; set; }
+        public long TimerId { get; set; }
+        
+        [DataMember]
+        public DateTime Due { get; set; }
 
         [DataMember]
-        public byte[] Bytes { get; set; }
-
-        [DataMember]
-        public int Fragment { get; set; }
-
-        [DataMember]
-        public bool IsLast { get; set; }
+        public TaskMessage TaskMessage { get; set; }
 
         [IgnoreDataMember]
-        public PartitionEvent ReassembledEvent;
+        public string WorkItemId => $"{this.PartitionId:D2}-T{TimerId}";
 
-        public override EventId EventId => EventId.MakeSubEventId(this.OriginalEventId, this.Fragment);
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakePartitionInternalEventId(this.WorkItemId);
 
-        protected override void ExtraTraceInformation(StringBuilder s)
-        {
-            s.Append(' ');
-            s.Append(this.Bytes.Length);
-            if (this.IsLast)
-            {
-                s.Append(" last");
-            }
-        }
-
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return TaskMessage; } }
 
         public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Reassembly);
+            effects.Add(TrackedObjectKey.Sessions);
+            effects.Add(TrackedObjectKey.Timers);
         }
     }
 }

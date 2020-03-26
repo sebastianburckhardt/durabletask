@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubClient _partitionEventHubsClient;
         public Dictionary<uint, EventHubClient> _clientEventHubsClients = new Dictionary<uint, EventHubClient>();
-        public Dictionary<uint, EventHubsSender<PartitionEvent>> _partitionSenders = new Dictionary<uint, EventHubsSender<PartitionEvent>>();
+        public Dictionary<uint, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new Dictionary<uint, EventHubsSender<PartitionUpdateEvent>>();
         public Dictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new Dictionary<Guid, EventHubsSender<ClientEvent>>();
 
         public PartitionReceiver ClientReceiver { get; private set; }
@@ -96,15 +96,15 @@ namespace DurableTask.EventSourced.EventHubs
             return ClientReceiver = client.CreateReceiver(ClientsConsumerGroup, (clientBucket % NumPartitionsPerClientPath).ToString(), EventPosition.FromEnd());
         }
       
-        public EventHubsSender<PartitionEvent> GetPartitionSender(uint partitionId)
+        public EventHubsSender<PartitionUpdateEvent> GetPartitionSender(uint partitionId)
         {
-            lock (_partitionSenders)
+            lock (_partitionSenders) // TODO optimize using array and lock on slow path only
             {
                 if (!_partitionSenders.TryGetValue(partitionId, out var sender))
                 {
                     var client = GetPartitionEventHubsClient();
                     var partitionSender = client.CreatePartitionSender(partitionId.ToString());
-                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionEvent>(host, partitionSender);
+                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionUpdateEvent>(host, partitionSender);
                     //System.Diagnostics.Trace.TraceInformation($"Created PartitionSender {partitionSender.ClientId} from {client.ClientId}");
                 }
                 return sender;
@@ -113,7 +113,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubsSender<ClientEvent> GetClientSender(Guid clientId)
         {
-            lock (_clientSenders)
+            lock (_clientSenders) // TODO optimize using array and lock on slow path only
             {
                 if (!_clientSenders.TryGetValue(clientId, out var sender))
                 {

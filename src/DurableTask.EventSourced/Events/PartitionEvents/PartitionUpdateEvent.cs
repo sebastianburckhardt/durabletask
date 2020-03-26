@@ -11,34 +11,30 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OffloadDecision : PartitionInternalEvent
+    internal abstract class PartitionUpdateEvent : PartitionEvent
     {
-        [DataMember]
-        public DateTime Timestamp { get; set; }
+        /// <summary>
+        /// The position of the next event after this one. For read-only events, zero.
+        /// </summary>
+        /// <remarks>We do not persist this in the log since it is implicit, nor transmit this in packets since it has only local meaning.</remarks>
+        [IgnoreDataMember]
+        public long NextCommitLogPosition { get; set; }
 
         [IgnoreDataMember]
-        public uint DestinationPartitionId { get; set; }
+        public virtual IEnumerable<TaskMessage> TracedTaskMessages => PartitionUpdateEvent.noTaskMessages;
 
-        [IgnoreDataMember]
-        public List<TaskMessage> OffloadedActivities { get; set; }
+        private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();
 
-        [IgnoreDataMember]
-        public override string CorrelationId => $"{this.PartitionId:D2}-O{this.Timestamp:o}";
-
-        public override void DetermineEffects(EffectTracker effects)
-        {
-            // start processing on activities, which makes the decision, 
-            // and if offloading, fills in the fields, and adds the outbox to the effects
-            effects.Add(TrackedObjectKey.Activities);
-        }
+        public abstract void DetermineEffects(EffectTracker effects);
     }
 }

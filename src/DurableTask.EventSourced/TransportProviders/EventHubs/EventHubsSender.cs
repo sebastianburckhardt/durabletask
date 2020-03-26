@@ -159,7 +159,7 @@ namespace DurableTask.EventSourced.EventHubs
                     if (i <= sentSuccessfully)
                     {
                         // the event was definitely sent successfully
-                        AckListeners.Acknowledge(evt);
+                        DurabilityListeners.ConfirmDurable(evt);
                         confirmed++;
                     }
                     else if (i > maybeSent || evt.SafeToDuplicateInTransport())
@@ -172,7 +172,7 @@ namespace DurableTask.EventSourced.EventHubs
                     {
                         // the event may have been sent or maybe not, report problem to listener
                         // this is used by clients who can give the exception back to the caller
-                        AckListeners.ReportException(evt, senderException);
+                        DurabilityListeners.ReportException(evt, senderException);
                         dropped++;
                     }
                 }

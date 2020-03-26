@@ -16,29 +16,24 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class PartitionMessageEvent : PartitionEvent, IPartitionEventWithSideEffects
+    internal class SendConfirmed : PartitionUpdateEvent
     {
         [DataMember]
-        public uint OriginPartition { get; set; }
-
-        [DataMember]
-        public long OriginPosition { get; set; }
+        public long Position { get; set; }
 
         [IgnoreDataMember]
-        public abstract string CorrelationId { get; }
+        public string WorkItemId => $"{this.PartitionId:D2}-C{Position:D10}";
 
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionToPartitionEventId(this.CorrelationId);
+        public override EventId EventId => EventId.MakePartitionInternalEventId(this.WorkItemId);
 
-        public void DetermineEffects(EffectTracker effects)
+        public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Dedup);
+            effects.Add(TrackedObjectKey.Outbox);
         }
     }
 }

@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => TrackedObjectKey.Index;
 
-        public void Process(CreationRequestReceived evt, EffectTracker _)
+        public void Process(CreationRequestProcessed evt, EffectTracker _)
         {
             // Track the instanceId of the created object.
             InstanceIds.Add(evt.InstanceId);

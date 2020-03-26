@@ -203,17 +203,22 @@ namespace DurableTask.EventSourced.EventHubs
 
         void TransportAbstraction.ISender.Submit(Event evt)
         {
-            if (evt is ClientEvent clientEvent)
+            switch (evt)
             {
-                var clientId = clientEvent.ClientId;
-                var sender = this.connections.GetClientSender(clientEvent.ClientId);
-                sender.Submit(clientEvent);
-            }
-            else if (evt is PartitionEvent partitionEvent)
-            {
-                var partitionId = partitionEvent.PartitionId;
-                var sender = this.connections.GetPartitionSender(partitionId);
-                sender.Submit(partitionEvent);
+                case ClientEvent clientEvent:
+                    var clientId = clientEvent.ClientId;
+                    var clientSender = this.connections.GetClientSender(clientEvent.ClientId);
+                    clientSender.Submit(clientEvent);
+                    break;
+
+                case PartitionEvent partitionEvent:
+                    var partitionId = partitionEvent.PartitionId;
+                    var partitionSender = this.connections.GetPartitionSender(partitionId);
+                    partitionSender.Submit(partitionEvent);
+                    break;
+
+                default:
+                    throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
             }
         }
 

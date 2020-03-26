@@ -23,15 +23,13 @@ namespace DurableTask.EventSourced
 {
     internal class OrchestrationWorkItem : TaskOrchestrationWorkItem
     {
-
         public OrchestrationMessageBatch MessageBatch { get; set; }
 
-        public Partition Partition => MessageBatch.Partition;
+        public Partition Partition { get; }
 
-        public string WorkItemId => $"S{MessageBatch.SessionId}:{MessageBatch.BatchStartPosition}[{MessageBatch.BatchLength}]";
-
-        public OrchestrationWorkItem(OrchestrationMessageBatch messageBatch, List<HistoryEvent> previousHistory = null)
+        public OrchestrationWorkItem(Partition partition, OrchestrationMessageBatch messageBatch, List<HistoryEvent> previousHistory = null)
         {
+            this.Partition = partition;
             this.MessageBatch = messageBatch;
             this.InstanceId = messageBatch.InstanceId;
             this.NewMessages = messageBatch.MessagesToProcess;

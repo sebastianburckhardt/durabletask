@@ -53,12 +53,15 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
 
+        public static string GetWorkItemId(uint partition, long session, long position, int length) => $"{partition:D2}-S{session}:{position}[{length}]";
+
+
         public override void OnRecoveryCompleted()
         {
             // create work items for all sessions
             foreach(var kvp in Sessions)
             {
-                new OrchestrationMessageBatch(kvp.Key, kvp.Value).ScheduleWorkItem(this.Partition);
+                new OrchestrationMessageBatch(kvp.Key, kvp.Value, this.Partition);
             }
         }
 
@@ -96,7 +99,7 @@ namespace DurableTask.EventSourced
 
                 if (!isReplaying) // we don't start work items until end of recovery
                 {
-                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
+                    new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
             }
         }
@@ -132,7 +135,7 @@ namespace DurableTask.EventSourced
 
                 if (!isReplaying) // we don't start work items until end of recovery
                 {
-                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
+                    new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
             }
         }
@@ -160,12 +163,6 @@ namespace DurableTask.EventSourced
             this.AddMessagesToSession(instanceId, evt.TaskMessages, effects.IsReplaying);
         }
 
-        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
-        {
-            // queues a creation task message in a new or existing session
-            this.AddMessageToSession(creationRequestReceived.TaskMessage, true, effects.IsReplaying);
-        }
-
         public void Process(TimerFired timerFired, EffectTracker effects)
         {
             // queues a timer fired message in a session
@@ -178,6 +175,12 @@ namespace DurableTask.EventSourced
             this.AddMessageToSession(activityCompleted.Response, false, effects.IsReplaying);
         }
 
+        public void Process(CreationRequestProcessed creationRequestProcessed, EffectTracker effects)
+        {
+            // queues the execution started message
+            this.AddMessageToSession(creationRequestProcessed.TaskMessage, true, effects.IsReplaying);
+        }
+        
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
             // updates the session and other state
@@ -242,7 +245,7 @@ namespace DurableTask.EventSourced
                 if (!inRecovery) // we don't start work items until end of recovery
                 {
                     // there are more messages. Prepare another work item.
-                    new OrchestrationMessageBatch(instanceId, session).ScheduleWorkItem(this.Partition);
+                    new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
             }
         }

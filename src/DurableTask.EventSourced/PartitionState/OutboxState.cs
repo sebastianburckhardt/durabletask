@@ -26,7 +26,7 @@ using DurableTask.Core.Common;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OutboxState : TrackedObject, TransportAbstraction.IAckListener
+    internal class OutboxState : TrackedObject, TransportAbstraction.IDurabilityListener
     {
         [DataMember]
         public SortedDictionary<long, Batch> Outbox { get; private set; } = new SortedDictionary<long, Batch>();
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
             return $"Outbox ({Outbox.Count} pending)";
         }
 
-        private void SendBatchOnceEventIsPersisted(PartitionEvent evt, EffectTracker effects, Batch batch)
+        private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
         {
             // put the messages in the outbox where they are kept until actually sent
             var commitPosition = evt.NextCommitLogPosition;
@@ -63,14 +63,14 @@ namespace DurableTask.EventSourced
 
             if (!effects.IsReplaying)
             {
-                AckListeners.Register(evt, this); // we need to continue the send after this event is durable
+                DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
             }
         }
 
-        public void Acknowledge(Event evt)
+        public void ConfirmDurable(Event evt)
         {
-            this.Partition.EventDetailTracer?.TraceDetail($"store has persisted outbound event {evt} id={evt.EventIdString}");
-            long commitPosition = evt.NextCommitLogPosition;
+            long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
+            this.Partition.EventDetailTracer?.TraceDetail($"store has persisted event {evt} id={evt.EventIdString}, now sending messages");
             this.Send(this.Outbox[commitPosition]);
         }
 
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             // now that we know the sending event is persisted, we can send the messages
             foreach (var outmessage in batch)
             {
-                AckListeners.Register(outmessage, batch);
+                DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
                 Partition.Send(outmessage);
@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced
         }
 
         [DataContract]
-        public class Batch : List<PartitionMessageEvent>, TransportAbstraction.IAckListener
+        public class Batch : List<PartitionMessageEvent>, TransportAbstraction.IDurabilityListener
         {
             [IgnoreDataMember]
             public long Position { get; set; }
@@ -98,13 +98,13 @@ namespace DurableTask.EventSourced
             [IgnoreDataMember]
             private int numAcks = 0;
 
-            public void Acknowledge(Event evt)
+            public void ConfirmDurable(Event evt)
             {
                 this.Partition.EventDetailTracer?.TraceDetail($"transport has confirmed event {evt} id={evt.EventIdString}");
 
                 if (++numAcks == Count)
                 {
-                    Partition.Submit(new SendConfirmed()
+                    Partition.SubmitInternalEvent(new SendConfirmed()
                     {
                         PartitionId = this.Partition.PartitionId,
                         Position = Position,
@@ -115,6 +115,8 @@ namespace DurableTask.EventSourced
 
         public void Process(SendConfirmed evt, EffectTracker _)
         {
+            this.Partition.EventDetailTracer?.TraceDetail($"store has sent all outbound messages by event {evt} id={evt.EventIdString}");
+
             // we no longer need to keep these events around
             this.Outbox.Remove(evt.Position);
         }
@@ -144,7 +146,7 @@ namespace DurableTask.EventSourced
                     sorted[destination] = outmessage = new TaskMessagesReceived()
                     {
                         PartitionId = destination,
-                        OriginCorrelationId = evt.CorrelationId,
+                        WorkItemId = evt.WorkItemId,
                     };
                 }
                 if (Entities.IsDelayedEntityMessage(message, out _))

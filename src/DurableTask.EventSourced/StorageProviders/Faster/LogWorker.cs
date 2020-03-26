@@ -24,7 +24,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class LogWorker : BatchWorker<PartitionEvent>
+    internal class LogWorker : BatchWorker<PartitionUpdateEvent>
     {
         private readonly BlobManager blobManager;
         private readonly FasterLog log;
@@ -57,10 +57,8 @@ namespace DurableTask.EventSourced.Faster
 
         private int maxFragmentSize;
 
-        public override void Submit(PartitionEvent evt)
+        public override void Submit(PartitionUpdateEvent evt)
         {
-            partition.Assert(evt is IPartitionEventWithSideEffects);
-
             byte[] bytes = Serializer.SerializeEvent(evt, first | last);
 
             if (!this.IsShuttingDown)
@@ -81,7 +79,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override void SubmitIncomingBatch(IEnumerable<PartitionEvent> events)
+        public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
         {
             // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
             foreach (var evt in events)
@@ -127,7 +125,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress($"stopped LogWorker");
         }
 
-        protected override async Task Process(IList<PartitionEvent> batch)
+        protected override async Task Process(IList<PartitionUpdateEvent> batch)
         {
             if (batch.Count > 0)
             {
@@ -151,7 +149,7 @@ namespace DurableTask.EventSourced.Faster
                         {
                             try
                             {
-                                AckListeners.Acknowledge(evt);
+                                DurabilityListeners.ConfirmDurable(evt);
                             }
                             catch (Exception exception) when (!(exception is OutOfMemoryException))
                             {
@@ -196,7 +194,7 @@ namespace DurableTask.EventSourced.Faster
 
                     while (!this.cancellationToken.IsCancellationRequested)
                     {
-                        PartitionEvent partitionEvent = null;
+                        PartitionUpdateEvent partitionEvent = null;
 
                         while (!iter.GetNext(out result, out entryLength, out currentAddress))
                         {
@@ -211,7 +209,7 @@ namespace DurableTask.EventSourced.Faster
                         {
                             if ((result[0] & last) != none)
                             {
-                                partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
+                                partitionEvent = (PartitionUpdateEvent)Serializer.DeserializeEvent(new ArraySegment<byte>(result, 1, entryLength - 1));
                             }
                             else
                             {
@@ -226,7 +224,7 @@ namespace DurableTask.EventSourced.Faster
                             if ((result[0] & last) != none)
                             {
                                 reassembly.Position = 0;
-                                partitionEvent = (PartitionEvent)Serializer.DeserializeEvent(reassembly);
+                                partitionEvent = (PartitionUpdateEvent)Serializer.DeserializeEvent(reassembly);
                                 reassembly = null;
                             }
                         }

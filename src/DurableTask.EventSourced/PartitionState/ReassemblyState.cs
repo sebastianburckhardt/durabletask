@@ -41,13 +41,25 @@ namespace DurableTask.EventSourced
             var originalEventString = evt.OriginalEventId.ToString();
             if (evt.IsLast)
             {
-                evt.ReassembledEvent = (PartitionEvent) FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);
+                evt.ReassembledEvent =  FragmentationAndReassembly.Reassemble<PartitionEvent>(this.Fragments[originalEventString], evt);
                 
                 this.Partition.EventDetailTracer?.TraceDetail($"Reassembled {evt.ReassembledEvent}");
 
                 this.Fragments.Remove(originalEventString);
 
-                ((IPartitionEventWithSideEffects) evt.ReassembledEvent).DetermineEffects(effects);
+                switch (evt.ReassembledEvent)
+                {
+                    case PartitionReadEvent readEvent:
+                        this.Partition.SubmitInternalEvent(readEvent);
+                        break;
+
+                    case PartitionUpdateEvent updateEvent:
+                        updateEvent.DetermineEffects(effects);
+                        break;
+
+                    default:
+                        throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                }
             }
             else
             {

@@ -32,6 +32,7 @@ namespace DurableTask.EventSourced
         private readonly Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore;
         private readonly Func<(long, long)> getPositions;
         private readonly Action<long, long> setPositions;
+        private readonly System.Diagnostics.Stopwatch stopWatch;
 
         public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions, Action<long, long> setPositions)
         {
@@ -39,6 +40,8 @@ namespace DurableTask.EventSourced
             this.applyToStore = applyToStore;
             this.getPositions = getPositions;
             this.setPositions = setPositions;
+            this.stopWatch = new System.Diagnostics.Stopwatch();
+            this.stopWatch.Start();
         }
 
         /// <summary>
@@ -69,21 +72,21 @@ namespace DurableTask.EventSourced
             trackedObject.Process(Effect, this);
         }
 
-        public async Task ProcessUpdate(PartitionEvent partitionEvent)
+        public async Task ProcessUpdate(PartitionUpdateEvent updateEvent)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
+            double startedAt = this.stopWatch.ElapsedMilliseconds;
 
-            using (EventTraceHelper.TraceContext(commitLogPosition, partitionEvent.EventIdString))
+            using (EventTraceHelper.TraceContext(commitLogPosition, updateEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, partitionEvent, this.IsReplaying);
-                    this.Partition.Assert(partitionEvent is IPartitionEventWithSideEffects);
+                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, updateEvent, this.IsReplaying);
 
-                    this.Effect = partitionEvent;
+                    this.Effect = updateEvent;
 
                     // collect the initial list of targets
-                    ((IPartitionEventWithSideEffects)partitionEvent).DetermineEffects(this);
+                    updateEvent.DetermineEffects(this);
 
                     // process until there are no more targets
                     while (this.Count > 0)
@@ -112,20 +115,20 @@ namespace DurableTask.EventSourced
                     }
 
                     // update the commit log and input queue positions
-                    if (partitionEvent.NextCommitLogPosition > 0)
+                    if (updateEvent.NextCommitLogPosition > 0)
                     {
-                        this.Partition.Assert(partitionEvent.NextCommitLogPosition > commitLogPosition);
-                        commitLogPosition = partitionEvent.NextCommitLogPosition;
+                        this.Partition.Assert(updateEvent.NextCommitLogPosition > commitLogPosition);
+                        commitLogPosition = updateEvent.NextCommitLogPosition;
                     }
-                    if (partitionEvent.NextInputQueuePosition > 0)
+                    if (updateEvent.NextInputQueuePosition > 0)
                     {
-                        this.Partition.Assert(partitionEvent.NextInputQueuePosition > inputQueuePosition);
-                        inputQueuePosition = partitionEvent.NextInputQueuePosition;
+                        this.Partition.Assert(updateEvent.NextInputQueuePosition > inputQueuePosition);
+                        inputQueuePosition = updateEvent.NextInputQueuePosition;
                     }
                     this.setPositions(commitLogPosition, inputQueuePosition);
 
                     this.Effect = null;
-                    this.Partition.EventDetailTracer?.TraceDetail("finished processing event");
+                    this.Partition.EventDetailTracer?.TraceDetail($"finished processing event, latencyMs={stopWatch.ElapsedMilliseconds - startedAt}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -134,25 +137,26 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Encountered exception while processing update event {partitionEvent}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessUpdate), $"Encountered exception while processing update event {updateEvent}", exception, false, false);
                 }
             }
         }
 
-        public void ProcessRead(StorageAbstraction.IInternalReadonlyEvent readContinuation, TrackedObject target)
+        public void ProcessRead(PartitionReadEvent readEvent, TrackedObject target)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
+            double startedAt = this.stopWatch.Elapsed.TotalMilliseconds;
 
-            using (EventTraceHelper.TraceContext(commitLogPosition, readContinuation.EventIdString))
+            using (EventTraceHelper.TraceContext(commitLogPosition, readEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, readContinuation);
+                    this.Partition.EventTraceHelper.TraceEvent(commitLogPosition, readEvent, false);
 
-                    readContinuation.OnReadComplete(target);
+                    readEvent.OnReadComplete(target, this.Partition);
 
-                    this.Partition.EventDetailTracer?.TraceDetail("finished processing read event");
+                    this.Partition.EventDetailTracer?.TraceDetail($"finished processing read event, latencyMs={stopWatch.Elapsed.TotalMilliseconds - startedAt}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -161,7 +165,7 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readContinuation.ToString()}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readEvent.ToString()}", exception, false, false);
                 }
             }
         }

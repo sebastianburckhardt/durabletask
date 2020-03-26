@@ -21,7 +21,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class BatchProcessed : PartitionInternalEvent
+    internal class BatchProcessed : PartitionUpdateEvent
     {
         [DataMember]
         public long SessionId { get; set; }
@@ -60,7 +60,10 @@ namespace DurableTask.EventSourced
         public OrchestrationWorkItem WorkItem { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.PartitionId:D2}-S{SessionId}:{BatchStartPosition}[{BatchLength}]";
+        public string WorkItemId => SessionsState.GetWorkItemId(this.PartitionId, this.SessionId, this.BatchStartPosition, this.BatchLength);
+
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakePartitionInternalEventId(this.WorkItemId);
 
         [IgnoreDataMember]
         public override IEnumerable<TaskMessage> TracedTaskMessages 

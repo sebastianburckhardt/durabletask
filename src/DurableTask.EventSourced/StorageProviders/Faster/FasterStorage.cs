@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced.Faster
     internal class FasterStorage : StorageAbstraction.IPartitionState
     {
         // if used as a "azure storage connection string", causes Faster to use local file storage instead
-        internal const string LocalFileStorageConnectionString = "UseLocalFileStorage";
+        public const string LocalFileStorageConnectionString = "UseLocalFileStorage";
 
         private CloudStorageAccount storageAccount;
         private readonly string taskHubName;
@@ -192,27 +192,20 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-
-        public void SubmitInternalReadonlyEvent(StorageAbstraction.IInternalReadonlyEvent readContinuation)
-        {
-            this.storeWorker.Submit(readContinuation);
-        }
-
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
-            this.logWorker.SubmitIncomingBatch(evts.Where(e => e is IPartitionEventWithSideEffects));
-            this.storeWorker.SubmitIncomingBatch(evts.Where(e => e is IReadonlyPartitionEvent));
+            this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
+            this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
         }
 
-        public void SubmitEvent(PartitionEvent evt)
+        public void SubmitInternalEvent(PartitionEvent evt)
         {
-            if (evt is IPartitionEventWithSideEffects)
+            if (evt is PartitionUpdateEvent partitionUpdateEvent)
             {
-                this.logWorker.Submit(evt);
+                this.logWorker.Submit(partitionUpdateEvent);
             }
             else
             {
-                partition.Assert(evt is IReadonlyPartitionEvent);
                 this.storeWorker.Submit(evt);
             }
         }

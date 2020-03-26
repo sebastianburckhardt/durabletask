@@ -44,27 +44,15 @@ namespace DurableTask.EventSourced
 
         public void TraceEvent(long commitLogPosition, PartitionEvent evt, bool replaying)
         {
+            long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
             if (this.logger.IsEnabled(LogLevel.Debug))
             {
-                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")}{(evt.NextCommitLogPosition > 0 ? "" : " readonly")} event");
-                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, evt.NextCommitLogPosition, evt.NextInputQueuePosition);
+                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event");
+                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, nextCommitLogPosition, evt.NextInputQueuePosition);
             }
             if (EtwSource.Log.IsVerboseEnabled)
             {
-                EtwSource.Log.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), evt.NextCommitLogPosition, evt.NextInputQueuePosition, replaying, TraceUtils.ExtensionVersion);
-            }
-        }
-
-        public void TraceEvent(long commitLogPosition, StorageAbstraction.IInternalReadonlyEvent evt)
-        {
-            if (this.logger.IsEnabled(LogLevel.Debug))
-            {
-                var details = string.Format($"Processing internal readonly event");
-                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} id={eventId}", this.partitionId, commitLogPosition, details, evt, evt.EventIdString);
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), 0L, 0L, false, TraceUtils.ExtensionVersion);
+                EtwSource.Log.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, replaying, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -207,7 +195,7 @@ namespace DurableTask.EventSourced
                 eventNames = eventNamesBuilder.ToString(0, eventNamesBuilder.Length - 1); // remove trailing comma
                 if (orchestratorEvent != null)
                 {
-                    eventType = orchestratorEvent.ToString();
+                    eventType = orchestratorEvent.EventType.ToString();
                 }
             }
 

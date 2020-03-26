@@ -16,19 +16,14 @@ using DurableTask.Core;
 
 namespace DurableTask.EventSourced
 {
-    [DataContract]
-    internal abstract class ClientRequestEvent : PartitionEvent
+    internal interface IClientRequestEvent
     {
-        [DataMember]
-        public Guid ClientId { get; set; }
+        Guid ClientId { get; set; }
 
-        [DataMember]
-        public long RequestId { get; set; }
+        long RequestId { get; set; }
 
-        [DataMember]
-        public TimeSpan Timeout { get; set; }
+        TimeSpan Timeout { get; set; }
 
-        [IgnoreDataMember]
-        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
+        EventId EventId { get; }
     }
 }

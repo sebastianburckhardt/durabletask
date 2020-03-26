@@ -13,48 +13,40 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class PartitionEventFragment : 
-        PartitionUpdateEvent, 
-        FragmentationAndReassembly.IEventFragment
+    internal class CreationRequestReceived : ClientUpdateRequestEvent
     {
         [DataMember]
-        public EventId OriginalEventId { get; set; }
+        public OrchestrationStatus[] DedupeStatuses { get; set; }
 
         [DataMember]
-        public byte[] Bytes { get; set; }
+        public DateTime Timestamp { get; set; }
 
         [DataMember]
-        public int Fragment { get; set; }
-
-        [DataMember]
-        public bool IsLast { get; set; }
+        public TaskMessage TaskMessage { get; set; }
 
         [IgnoreDataMember]
-        public PartitionEvent ReassembledEvent;
+        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
 
-        public override EventId EventId => EventId.MakeSubEventId(this.OriginalEventId, this.Fragment);
+        [IgnoreDataMember]
+        public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
-        protected override void ExtraTraceInformation(StringBuilder s)
-        {
-            s.Append(' ');
-            s.Append(this.Bytes.Length);
-            if (this.IsLast)
-            {
-                s.Append(" last");
-            }
-        }
-
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return this.TaskMessage; } }
 
         public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Reassembly);
+            // the creation request is first buffered in the prefetch state while the instance info is loaded
+            effects.Add(TrackedObjectKey.Prefetch);
         }
     }
+
 }

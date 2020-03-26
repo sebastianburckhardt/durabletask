@@ -112,10 +112,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Send(Event evt)
+        public void Send(IClientRequestEvent evt)
         {
-            TraceSend(evt);
-            this.BatchSender.Submit(evt);
+            var partitionEvent = (PartitionEvent)evt;
+            TraceSend(partitionEvent);
+            this.BatchSender.Submit(partitionEvent);
         }
 
         public void ReportError(string context, Exception exception)
@@ -169,7 +170,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, ClientRequestEvent request, bool doneWhenSent)
+        private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, IClientRequestEvent request, bool doneWhenSent)
         {
             DateTime due = DateTime.UtcNow + request.Timeout;
             int timeoutId = this.ResponseTimeouts.GetFreshId();
@@ -179,7 +180,7 @@ namespace DurableTask.EventSourced
 
             if (doneWhenSent)
             {
-                AckListeners.Register(request, waiter);
+                DurabilityListeners.Register((Event) request, waiter);
             }
 
             this.Send(request);
@@ -187,7 +188,7 @@ namespace DurableTask.EventSourced
             return waiter.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, TransportAbstraction.IAckOrExceptionListener
+        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, TransportAbstraction.IDurabilityOrExceptionListener
         {
             private long requestId;
             private Client client;
@@ -200,7 +201,7 @@ namespace DurableTask.EventSourced
                 this.timeoutKey = (due, timeoutId);
             }
 
-            public void Acknowledge(Event evt)
+            public void ConfirmDurable(Event evt)
             {
                 this.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
             }

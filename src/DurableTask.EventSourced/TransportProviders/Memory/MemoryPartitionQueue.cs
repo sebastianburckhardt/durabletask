@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced.Emulated
     /// <summary>
     /// Simulates a in-memory queue for delivering events. Used for local testing and debugging.
     /// </summary>
-    internal class MemoryPartitionQueue : MemoryQueue<PartitionEvent,byte[]>, IMemoryQueue<PartitionEvent>
+    internal class MemoryPartitionQueue : MemoryQueue<PartitionEvent, byte[]>, IMemoryQueue<PartitionEvent>
     {
         private readonly TransportAbstraction.IPartition partition;
 
@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             var stream = new MemoryStream();
             Packet.Serialize(evt, stream);
-            AckListeners.Acknowledge(evt);
+            DurabilityListeners.ConfirmDurable(evt);
             return stream.ToArray();
         }
 
@@ -55,7 +55,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                partition.Submit(evt);
+                partition.SubmitExternalEvents(new PartitionEvent[] { evt });
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {

@@ -51,8 +51,14 @@ namespace DurableTask.EventSourced.Emulated
                         return Task.CompletedTask;
                     }
 
-                    eventbatch[i] = this.Deserialize(batch[i]);
-                    eventbatch[i].NextInputQueuePosition = FirstInputQueuePosition + this.position + i + 1;
+                    var evt = this.Deserialize(batch[i]);
+
+                    if (evt is PartitionEvent partitionEvent)
+                    {
+                        partitionEvent.NextInputQueuePosition = FirstInputQueuePosition + this.position + i + 1;
+                    }
+
+                    eventbatch[i] = evt;       
                 }
 
                 foreach (var evt in eventbatch)

@@ -30,7 +30,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DurableTask.EventSourced.EventHubs
 {
-    internal class EventHubsProcessor : IEventProcessor, TransportAbstraction.IAckListener
+    internal class EventHubsProcessor : IEventProcessor, TransportAbstraction.IDurabilityListener
     {
         private readonly TransportAbstraction.IHost host;
         private readonly TransportAbstraction.ISender sender;
@@ -102,12 +102,12 @@ namespace DurableTask.EventSourced.EventHubs
             return Task.CompletedTask;
         }
 
-        public void Acknowledge(Event evt)
+        public void ConfirmDurable(Event evt)
         {
             // this is called after an event has committed (i.e. has been durably persisted in the recovery log).
             // so we know we will never need to deliver it again. We remove it from the local buffer, and also checkpoint
             // with EventHubs occasionally.
-            while (this.packetDeliveryBackup.TryPeek(out var front) && front.evt.NextInputQueuePosition <= evt.NextInputQueuePosition)
+            while (this.packetDeliveryBackup.TryPeek(out var front) && front.evt.NextInputQueuePosition <= ((PartitionEvent)evt).NextInputQueuePosition)
             {
                 if (this.packetDeliveryBackup.TryDequeue(out var candidate))
                 {
@@ -154,7 +154,7 @@ namespace DurableTask.EventSourced.EventHubs
                 if (batch.Count > 0)
                 {
                     c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
-                    c.Partition.SubmitInputEvents(batch);
+                    c.Partition.SubmitExternalEvents(batch);
                     this.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} Received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
                 }
             }
@@ -245,7 +245,7 @@ namespace DurableTask.EventSourced.EventHubs
                             PartitionEvent evt = null;
                             try
                             {
-                                Packet.Deserialize<PartitionEvent>(eventData.Body, out eventId, out evt);
+                                Packet.Deserialize(eventData.Body, out eventId, out evt);
                             }
                             catch (Exception)
                             {
@@ -257,7 +257,7 @@ namespace DurableTask.EventSourced.EventHubs
                             evt.NextInputQueuePosition = current.NextPacketToReceive;
                             batch.Add(evt);
                             packetDeliveryBackup.Enqueue((evt, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
-                            AckListeners.Register(evt, this);
+                            DurabilityListeners.Register(evt, this);
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {
@@ -275,7 +275,7 @@ namespace DurableTask.EventSourced.EventHubs
                 if (batch.Count > 0)
                 {
                     this.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received batch of {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, current.NextPacketToReceive);
-                    current.Partition.SubmitInputEvents(batch);
+                    current.Partition.SubmitExternalEvents(batch);
                 }
 
                 await this.SaveEventHubsReceiverCheckpoint(context);

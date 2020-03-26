@@ -22,17 +22,18 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ClientTaskMessagesReceived : ClientRequestEvent, IPartitionEventWithSideEffects
+    internal class ActivityOffloadReceived : PartitionMessageEvent
     {
         [DataMember]
-        public TaskMessage[] TaskMessages { get; set; }
+        public List<TaskMessage> OffloadedActivities { get; set; }
+
+        [DataMember]
+        public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public override IEnumerable<TaskMessage> TracedTaskMessages => this.TaskMessages;
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId(OffloadDecision.GetWorkItemId(this.OriginPartition, this.Timestamp), this.PartitionId);
 
-        public void DetermineEffects(EffectTracker effects)
-        {
-            effects.Add(TrackedObjectKey.Sessions);
-        }
+        [IgnoreDataMember]
+        public override IEnumerable<TaskMessage> TracedTaskMessages => this.OffloadedActivities;
     }
 }

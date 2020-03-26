@@ -15,25 +15,28 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ActivityOffloadReceived : PartitionMessageEvent
+    internal abstract class PartitionReadEvent : PartitionEvent
     {
-        [DataMember]
-        public List<TaskMessage> OffloadedActivities { get; set; }
-
-        [DataMember]
-        public DateTime Timestamp { get; set; }
-
+        /// <summary>
+        /// The target of the read operation.
+        /// </summary>
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.OriginPartition:D2}-O{this.Timestamp:o}-{this.PartitionId:D2}";
+        public abstract TrackedObjectKey ReadTarget { get; }
 
-        [IgnoreDataMember]
-        public override IEnumerable<TaskMessage> TracedTaskMessages => this.OffloadedActivities;
+        /// <summary>
+        /// Optionally, some extra action to perform before issuing the read
+        /// </summary>
+        public virtual void OnReadIssued(Partition partition) { }
+
+        /// <summary>
+        /// The continuation for the read operation.
+        /// </summary>
+        /// <param name="target">The current value of the tracked object for this key, or null if not present</param>
+        /// <param name="partition">The partition</param>
+        public abstract void OnReadComplete(TrackedObject target, Partition partition);
     }
 }

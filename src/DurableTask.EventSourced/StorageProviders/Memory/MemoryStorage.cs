@@ -22,7 +22,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class MemoryStorage : BatchWorker<object>, StorageAbstraction.IPartitionState
+    internal class MemoryStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
     {
         private Partition partition;
         private long nextSubmitPosition = 0;
@@ -43,9 +43,13 @@ namespace DurableTask.EventSourced
         }
         public CancellationToken Termination => CancellationToken.None;
 
-        public void SubmitEvent(PartitionEvent entry)
+        public void SubmitInternalEvent(PartitionEvent entry)
         {
-            entry.NextCommitLogPosition = ++nextSubmitPosition;
+            if (entry is PartitionUpdateEvent updateEvent)
+            {
+                updateEvent.NextCommitLogPosition = ++nextSubmitPosition;
+            }
+
             base.Submit(entry);
         }
 
@@ -53,15 +57,13 @@ namespace DurableTask.EventSourced
         {
             foreach (var entry in entries)
             {
-                entry.NextCommitLogPosition = ++nextSubmitPosition;
+                if (entry is PartitionUpdateEvent updateEvent)
+                {
+                    updateEvent.NextCommitLogPosition = ++nextSubmitPosition;
+                }
             }
 
             base.SubmitIncomingBatch(entries);
-        }
-
-        public void SubmitInternalReadonlyEvent(StorageAbstraction.IInternalReadonlyEvent readContinuation)
-        {
-            this.Submit(readContinuation);
         }
 
         public Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, long initialInputQueuePosition)
@@ -78,6 +80,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
+            this.commitPosition = 1;
             return Task.FromResult(1L);
         }
 
@@ -95,7 +98,7 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        protected override async Task Process(IList<object> batch)
+        protected override async Task Process(IList<PartitionEvent> batch)
         {
             var effects = new EffectTracker(
                 this.partition, 
@@ -106,26 +109,31 @@ namespace DurableTask.EventSourced
 
             if (batch.Count != 0)
             {
-                foreach (var o in batch)
+                foreach (var partitionEvent in batch)
                 {
                     try
                     {
-                        if (o is StorageAbstraction.IInternalReadonlyEvent readContinuation)
+                        switch (partitionEvent)
                         {
-                            var readTarget = this.GetOrAdd(readContinuation.ReadTarget);
-                            effects.ProcessRead(readContinuation, readTarget);
-                        }
-                        else
-                        {
-                            var partitionEvent = (PartitionEvent)o;
-                            partitionEvent.NextCommitLogPosition = commitPosition + 1;
-                            await effects.ProcessUpdate(partitionEvent);
-                            AckListeners.Acknowledge(partitionEvent);
+                            case PartitionReadEvent readEvent:
+                                readEvent.OnReadIssued(this.partition);
+                                var readTarget = this.GetOrAdd(readEvent.ReadTarget);
+                                effects.ProcessRead(readEvent, readTarget);
+                                break;
+
+                            case PartitionUpdateEvent updateEvent:
+                                updateEvent.NextCommitLogPosition = commitPosition + 1;
+                                await effects.ProcessUpdate(updateEvent);
+                                DurabilityListeners.ConfirmDurable(updateEvent);
+                                break;
+
+                            default:
+                                throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
                         }
                     }
                     catch(Exception e)
                     {
-                        partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {o}", e, false, false);
+                        partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {partitionEvent}", e, false, false);
                     }
                 }
             }

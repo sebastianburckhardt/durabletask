@@ -22,13 +22,13 @@ namespace DurableTask.EventSourced.AzureChannels
         public TransportAbstraction.ISender ClientSender { get; private set; }
 
         public Transport(
-            EventSourcedOrchestrationServiceSettings settings, 
-            CancellationToken token, 
-            string taskHubId, 
-            uint partitionId, 
+            EventSourcedOrchestrationServiceSettings settings,
+            CancellationToken token,
+            string taskHubId,
+            uint partitionId,
             StorageAbstraction.IPartitionState partitionState,
             Guid clientId,
-            CloudTableClient tableClient) 
+            CloudTableClient tableClient)
             : base(token, taskHubId, $"Host{partitionId:D2}", tableClient)
         {
             this.taskHubId = taskHubId;
@@ -67,7 +67,7 @@ namespace DurableTask.EventSourced.AzureChannels
                     {
                         var evt = (Event)Serializer.DeserializeEvent(entity.Content);
 
-                        if (evt is PartitionEvent partitionEvent)
+                        if (evt is PartitionUpdateEvent partitionEvent)
                         {
                             partitionEvent.Serialized = new ArraySegment<byte>(entity.Content);
                             partitionBatch.Add(partitionEvent);
@@ -90,9 +90,9 @@ namespace DurableTask.EventSourced.AzureChannels
                     {
                         var lastEventInBatch = partitionBatch[partitionBatch.Count - 1];
 
-                        AckListeners.Register(lastEventInBatch, partitionBatch);
+                        DurabilityListeners.Register(lastEventInBatch, partitionBatch);
 
-                        partition.SubmitInputEvents(partitionBatch);
+                        partition.SubmitExternalEvents(partitionBatch);
 
                         await partitionBatch.Tcs.Task; // TODO add cancellation token
 
@@ -105,7 +105,7 @@ namespace DurableTask.EventSourced.AzureChannels
                 {
                     // this is normal during shutdown
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     partition.ErrorHandler.HandleError(nameof(ReceiveLoopAsync), "Encountered exception while processing events", e, true, false);
                 }
@@ -116,7 +116,7 @@ namespace DurableTask.EventSourced.AzureChannels
         {
             try
             {
-                AckListeners.Acknowledge(evt);
+                DurabilityListeners.ConfirmDurable(evt);
             }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
@@ -137,17 +137,17 @@ namespace DurableTask.EventSourced.AzureChannels
             {
                 // the event may have been sent or maybe not, report problem to listener
                 // this is used by clients who can give the exception back to the caller
-                AckListeners.ReportException(evt, exception);
+                DurabilityListeners.ReportException(evt, exception);
 
-                requeue =  false;
+                requeue = false;
             }
         }
 
-        private class PartitionBatch : List<PartitionEvent>, TransportAbstraction.IAckListener
+        private class PartitionBatch : List<PartitionUpdateEvent>, TransportAbstraction.IDurabilityListener
         {
             public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
 
-            public void Acknowledge(Event evt)
+            public void ConfirmDurable(Event evt)
             {
                 Tcs.TrySetResult(null);
             }
@@ -167,7 +167,7 @@ namespace DurableTask.EventSourced.AzureChannels
             {
                 var content = Serializer.SerializeEvent(evt);
 
-                string destination = evt is PartitionEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
+                string destination = evt is PartitionUpdateEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
 
                 var pos = Interlocked.Increment(ref position);
 
@@ -187,21 +187,13 @@ namespace DurableTask.EventSourced.AzureChannels
 
             public void Submit(Event evt)
             {
-                if (evt is PartitionEvent partitionEvent
-                    && partitionEvent.PartitionId == transport.partitionId)
-                {
-                    // a loop-back message (impulse) can be committed immediately
-                    transport.partitionState.SubmitEvent(partitionEvent);
-                }
-                else
-                {
-                    var content = Serializer.SerializeEvent(evt);
+                var content = Serializer.SerializeEvent(evt);
 
-                    string source = evt.NextCommitLogPosition == 0 ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
-                    string destination = evt is PartitionEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
-                    long pos = evt.NextCommitLogPosition > 0 ? evt.NextCommitLogPosition : Interlocked.Increment(ref position);
-                    transport.Send(evt, source, destination, pos, content, evt.ToString());
-                }
+                long nextCommitLogPosition = (evt is PartitionUpdateEvent e) ? e.NextCommitLogPosition : 0;
+                string source = nextCommitLogPosition > 0 ? $"Host{this.transport.partitionId:D2}U" : $"Host{this.transport.partitionId:D2}";
+                string destination = evt is PartitionUpdateEvent p ? $"Host{p.PartitionId:D2}" : "Host00";
+                long pos = nextCommitLogPosition > 0 ? nextCommitLogPosition : Interlocked.Increment(ref position);
+                transport.Send(evt, source, destination, pos, content, evt.ToString());
             }
         }
     }

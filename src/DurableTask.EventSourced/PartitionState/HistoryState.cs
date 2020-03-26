@@ -84,7 +84,7 @@ namespace DurableTask.EventSourced
             if (!effects.IsReplaying)
             {
                 this.Partition.EventTraceHelper.TraceInstanceUpdate(
-                    evt.WorkItem.WorkItemId, 
+                    evt.WorkItemId, 
                     evt.State.OrchestrationInstance.InstanceId, 
                     evt.State.OrchestrationInstance.ExecutionId, 
                     this.History.Count, 

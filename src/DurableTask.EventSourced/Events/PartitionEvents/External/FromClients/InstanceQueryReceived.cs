@@ -20,7 +20,7 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class InstanceQueryReceived : ClientRequestEvent, IPartitionEventWithSideEffects
+    internal class InstanceQueryReceived : ClientReadRequestEvent
     {   
         /// <summary>
         /// The subset of runtime statuses to return, or null if all
@@ -52,83 +52,71 @@ namespace DurableTask.EventSourced
                  && (this.CreatedTimeFrom is null || targetState.CreatedTime >= this.CreatedTimeFrom)
                  && (this.CreatedTimeTo is null || targetState.CreatedTime <= this.CreatedTimeTo);
 
-        public void DetermineEffects(EffectTracker effects)
+        public override void OnReadIssued(Partition partition)
         {
-            effects.Partition.Assert(!effects.IsReplaying);
+            partition.Assert(partition.RecoveryIsComplete);
+        }
+
+        [IgnoreDataMember]
+        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Index;
+
+        public override void OnReadComplete(TrackedObject target, Partition partition)
+        {
             var response = new QueryResponseReceived
             {
                 ClientId = this.ClientId,
                 RequestId = this.RequestId
             };
-            effects.Partition.State.SubmitInternalReadonlyEvent(new QueryWaiter(effects.Partition, this, response));
-        }
 
-        private class QueryWaiter : StorageAbstraction.IInternalReadonlyEvent
-        {
-            private readonly Partition partition;
-            private readonly InstanceQueryReceived query;
-            private readonly QueryResponseReceived response;
-
-            public string EventIdString => query.EventIdString;
-
-            public QueryWaiter(Partition partition, InstanceQueryReceived query, QueryResponseReceived response)
-            { 
-                this.partition = partition;
-                this.query = query;
-                this.response = response;
+            if (target is null)
+            {
+                // Short-circuit if none
+               partition.Send(response);
             }
 
-            public TrackedObjectKey ReadTarget => TrackedObjectKey.Index;
-
-            public void OnReadComplete(TrackedObject target)
+            if (!(target is IndexState indexState))
             {
-                if (target is null)
-                {
-                    // Short-circuit if none
-                    this.partition.Send(this.response);
-                }
+                throw new ArgumentException(nameof(target));
+            }
 
-                if (!(target is IndexState indexState))
-                {
-                    throw new ArgumentException(nameof(target));
-                }
+            if (indexState.InstanceIds.Count == 0)
+            {
+                // Short-circuit if empty
+                partition.Send(response);
+            }
 
-                if (indexState.InstanceIds.Count == 0)
-                {
-                    // Short-circuit if empty
-                    this.partition.Send(this.response);
-                }
+            // We're all on one partition here--the IndexState has only the InstanceIds for its partition.
+            response.ExpectedCount = indexState.InstanceIds.Count;
 
-                // We're all on one partition here--the IndexState has only the InstanceIds for its partition.
-                response.ExpectedCount = indexState.InstanceIds.Count;
-                foreach (var instanceId in indexState.InstanceIds)
-                {
-                    // For now the query is implemented as an enumeration over the singleton IndexState's InstanceIds;
-                    // read the InstanceState and compare state fields.
-                    this.partition.State.SubmitInternalReadonlyEvent(new ResponseWaiter(this.partition, this.query, instanceId, this.response));
-                }
+            int counter = 0;
+
+            foreach (var instanceId in indexState.InstanceIds)
+            {
+                // For now the query is implemented as an enumeration over the singleton IndexState's InstanceIds;
+                // read the InstanceState and compare state fields.
+                partition.SubmitInternalEvent(new ResponseWaiter(partition, this, instanceId, counter++, response));
             }
         }
 
-        private class ResponseWaiter : StorageAbstraction.IInternalReadonlyEvent
+        private class ResponseWaiter : InternalReadEvent
         {
-            private readonly Partition partition;
             private readonly InstanceQueryReceived query;
             private readonly QueryResponseReceived response;
+            private readonly int index;
 
-            public ResponseWaiter(Partition partition, InstanceQueryReceived query, string instanceId, QueryResponseReceived response)
+            public ResponseWaiter(Partition partition, InstanceQueryReceived query, string instanceId, int index, QueryResponseReceived response)
             {
-                this.partition = partition;
                 this.query = query;
                 this.response = response;
+                this.index = index;
                 this.ReadTarget = TrackedObjectKey.Instance(instanceId);
             }
 
-            public string EventIdString => query.EventIdString;
+            public override EventId EventId => EventId.MakeSubEventId(query.EventId, index);
 
-            public TrackedObjectKey ReadTarget { get; private set; }
+            public override TrackedObjectKey ReadTarget { get; }
 
-            public void OnReadComplete(TrackedObject target)
+            public override void OnReadComplete(TrackedObject target, Partition partition)
             {
                 if (target is null)
                 {
@@ -151,7 +139,7 @@ namespace DurableTask.EventSourced
 
                 if (this.response.IsDone)
                 {
-                    this.partition.Send(response);
+                    partition.Send(response);
                 }
             }
         }

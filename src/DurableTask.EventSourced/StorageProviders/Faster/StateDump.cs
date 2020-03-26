@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced.Faster
 {
     // Useful for debugging.
-    internal class StateDump : StorageAbstraction.IInternalReadonlyEvent, IComparer<TrackedObjectKey>
+    internal class StateDump : InternalReadEvent, IComparer<TrackedObjectKey>
     {
         private readonly SortedDictionary<TrackedObjectKey, TrackedObject> results;
 
@@ -30,16 +30,16 @@ namespace DurableTask.EventSourced.Faster
             this.results = new SortedDictionary<TrackedObjectKey, TrackedObject>(this);
         }
 
-        public TrackedObjectKey ReadTarget => throw new NotImplementedException(); // not used
+        public override TrackedObjectKey ReadTarget => throw new NotImplementedException(); // not used
 
-        public string EventIdString => "";
+        public override EventId EventId => EventId.MakePartitionInternalEventId("statedump");
 
         public int Compare(TrackedObjectKey x, TrackedObjectKey y)
         {
             return TrackedObjectKey.Compare(ref x, ref y);
         }
 
-        public void OnReadComplete(TrackedObject target)
+        public override void OnReadComplete(TrackedObject target, Partition partition)
         {
             results.Add(target.Key, target);
         }

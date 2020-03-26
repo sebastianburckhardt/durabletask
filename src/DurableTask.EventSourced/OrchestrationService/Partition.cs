@@ -34,6 +34,7 @@ namespace DurableTask.EventSourced
         public Func<string, uint> PartitionFunction { get; private set; }
         public Func<uint> NumberPartitions { get; private set; }
         public IPartitionErrorHandler ErrorHandler { get; private set; }
+        public Stopwatch Stopwatch { get; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         public string StorageAccountName { get; private set; }
@@ -43,13 +44,13 @@ namespace DurableTask.EventSourced
         public WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
 
-        public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
+        public BatchTimer<PartitionUpdateEvent> PendingTimers { get; private set; }
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
-        public ConcurrentDictionary<long, ResponseWaiter> PendingResponses { get; private set; }
 
         public EventTraceHelper EventTraceHelper { get; }
 
         public bool RecoveryIsComplete { get; private set; }
+
 
         // A little helper property that allows us to conventiently check the condition for low-level event tracing
         public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingDetails ? this.EventTraceHelper : null;
@@ -75,6 +76,8 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
             this.EventTraceHelper = new EventTraceHelper(host.Logger, this);
+            this.Stopwatch = new Stopwatch();
+            this.Stopwatch.Start();
 
             host.Logger.LogInformation("Part{partition:D2} Started", this.PartitionId);
             EtwSource.Log.PartitionStarted(this.StorageAccountName, this.Settings.TaskHubName, (int)this.PartitionId, TraceUtils.ExtensionVersion);
@@ -94,9 +97,8 @@ namespace DurableTask.EventSourced
                 this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
 
                 // initialize collections for pending work
-                this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);
+                this.PendingTimers = new BatchTimer<PartitionUpdateEvent>(this.ErrorHandler.Token, this.TimersFired);
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
-                this.PendingResponses = new ConcurrentDictionary<long, ResponseWaiter>();
 
                 // goes to storage to create or restore the partition state
                 var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
@@ -156,13 +158,13 @@ namespace DurableTask.EventSourced
             EtwSource.Log.PartitionStopped(this.StorageAccountName, this.Settings.TaskHubName, (int) this.PartitionId, TraceUtils.ExtensionVersion);
         }
 
-        private void TimersFired(List<PartitionEvent> timersFired)
+        private void TimersFired(List<PartitionUpdateEvent> timersFired)
         {
             try
             {
                 foreach (var t in timersFired)
                 {
-                    this.Submit(t);
+                    this.SubmitInternalEvent(t);
                 }
             }
             catch (OperationCanceledException) when (this.ErrorHandler.IsTerminated)
@@ -175,62 +177,49 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public class ResponseWaiter : CancellableCompletionSource<ClientEvent>
+        public void Send(ClientEvent clientEvent)
         {
-            protected readonly ClientRequestEvent Request;
-            protected readonly Partition Partition;
-
-            public ResponseWaiter(CancellationToken token, ClientRequestEvent request, Partition partition) : base(token)
-            {
-                this.Request = request;
-                this.Partition = partition;
-                this.Partition.PendingResponses.TryAdd(Request.RequestId, this);
-            }
-            protected override void Cleanup()
-            {
-                this.Partition.PendingResponses.TryRemove(Request.RequestId, out var _);
-                base.Cleanup();
-            }
+            this.EventDetailTracer?.TraceSend(clientEvent);
+            this.BatchSender.Submit(clientEvent);
         }
 
-        public void TrySendResponse(ClientRequestEvent request, ClientEvent response)
+        public void Send(PartitionUpdateEvent updateEvent)
         {
-            if (this.PendingResponses.TryGetValue(request.RequestId, out var waiter))
-            {
-                waiter.TrySetResult(response);
-            }
-        }
-
-        public void Send(Event evt)
-        {
-            // trace TaskMessages that are sent to other participants
+            // trace DTFx TaskMessages that are sent to other participants
             if (this.RecoveryIsComplete)
             {
-                foreach (var taskMessage in evt.TracedTaskMessages)
+                foreach (var taskMessage in updateEvent.TracedTaskMessages)
                 {
-                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, evt.EventIdString);
+                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, updateEvent.EventIdString);
                 }
             }
 
-            this.EventDetailTracer?.TraceSend(evt);
-            this.BatchSender.Submit(evt);
+            this.EventDetailTracer?.TraceSend(updateEvent);
+            this.BatchSender.Submit(updateEvent);
+
         }
 
-        public void Submit(PartitionEvent evt)
+        public void SubmitInternalEvent(PartitionUpdateEvent updateEvent)
         {
-            // trace TaskMessages that are "sent" in the sense that the partition sent it to itself
+            // for better analytics experience, trace DTFx TaskMessages that are "sent" 
+            // by this partition to itself the same way as if sent to other partitions
             if (this.RecoveryIsComplete)
             {
-                foreach (var taskMessage in evt.TracedTaskMessages)
+                foreach (var taskMessage in updateEvent.TracedTaskMessages)
                 {
-                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, evt.EventIdString);
+                    this.EventTraceHelper.TraceTaskMessageSent(taskMessage, updateEvent.EventIdString);
                 }
             }
 
-            this.State.SubmitEvent(evt);
+            this.State.SubmitInternalEvent(updateEvent);
         }
 
-        public void SubmitInputEvents(IEnumerable<PartitionEvent> partitionEvents)
+        public void SubmitInternalEvent(PartitionReadEvent readEvent)
+        {
+            this.State.SubmitInternalEvent(readEvent);
+        }
+
+        public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)
         {
             this.State.SubmitExternalEvents(partitionEvents);
         }
@@ -245,7 +234,7 @@ namespace DurableTask.EventSourced
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 
-            this.EventDetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.CorrelationId}");
+            this.EventDetailTracer?.TraceDetail($"Enqueueing OrchestrationWorkItem batch={item.MessageBatch.WorkItemId}");
 
             this.OrchestrationWorkItemQueue.Add(item);
         }

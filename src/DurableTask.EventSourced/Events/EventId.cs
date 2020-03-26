@@ -72,14 +72,19 @@ namespace DurableTask.EventSourced
         public long Number { get; set; }
 
         /// <summary>
-        /// For events originating on a partition, a string for correlating this event
+        /// For sub-events, the index
         /// </summary>
-        public string CorrelationId { get; set; }
+        public int SubIndex { get; set; }
 
         /// <summary>
-        /// For fragmented events, the fragment number.
+        /// For events originating on a partition, a string for correlating this event
         /// </summary>
-        public int? Fragment { get; set; }
+        public string WorkItemId { get; set; }
+
+        /// <summary>
+        /// For fragmented events, or internal dependent reads, the fragment number or subindex.
+        /// </summary>
+        public int? Index { get; set; }
 
         internal static EventId MakeClientRequestEventId(Guid ClientId, long RequestId) => new EventId()
         {
@@ -95,21 +100,22 @@ namespace DurableTask.EventSourced
             Category = EventCategory.ClientResponse
         };
 
-        internal static EventId MakePartitionInternalEventId(string correlationId) => new EventId()
+        internal static EventId MakePartitionInternalEventId(string workItemId) => new EventId()
         {
-            CorrelationId = correlationId,
+            WorkItemId = workItemId,
             Category = EventCategory.PartitionInternal
         };
 
-        internal static EventId MakePartitionToPartitionEventId(string correlationId) => new EventId()
+        internal static EventId MakePartitionToPartitionEventId(string workItemId, uint destinationPartition) => new EventId()
         {
-            CorrelationId = correlationId,
+            WorkItemId = workItemId,
+            PartitionId = destinationPartition,
             Category = EventCategory.PartitionToPartition
         };
 
-        internal static EventId MakeFragmentEventId(EventId id, int fragment)
+        internal static EventId MakeSubEventId(EventId id, int fragment)
         {
-            id.Fragment = fragment;
+            id.Index = fragment;
             return id;
         }
 
@@ -119,22 +125,22 @@ namespace DurableTask.EventSourced
             switch (Category)
             {
                 case EventCategory.ClientRequest:
-                    return $"{Client.GetShortId(this.ClientId)}-{this.Number}{this.FragmentSuffix}";
+                    return $"{Client.GetShortId(this.ClientId)}-{this.Number}{this.IndexSuffix}";
 
                 case EventCategory.ClientResponse:
-                    return $"{Client.GetShortId(this.ClientId)}-{this.Number}R{this.FragmentSuffix}";
+                    return $"{Client.GetShortId(this.ClientId)}-{this.Number}R{this.IndexSuffix}";
 
                 case EventCategory.PartitionInternal:
-                    return $"{this.CorrelationId}{this.FragmentSuffix}";
+                    return $"{this.WorkItemId}{this.IndexSuffix}";
 
                 case EventCategory.PartitionToPartition:
-                    return $"{this.CorrelationId}{this.FragmentSuffix}";
+                    return $"{this.WorkItemId}-{this.PartitionId:D2}{this.IndexSuffix}";
 
                 default:
                     throw new InvalidOperationException();
             }
         }
 
-        private string FragmentSuffix => this.Fragment.HasValue ? $"-f{this.Fragment.Value}" : string.Empty;
+        private string IndexSuffix => this.Index.HasValue ? $"-{this.Index.Value}" : string.Empty;
     }
 }

@@ -16,47 +16,44 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
-using DurableTask.Core.Exceptions;
 using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class TaskMessagesReceived : PartitionMessageEvent
+    internal class CreationRequestProcessed : PartitionUpdateEvent
     {
         [DataMember]
-        public List<TaskMessage> TaskMessages { get; set; }
-
-
-        [DataMember]
-        public List<TaskMessage> DelayedTaskMessages { get; set; }
+        public Guid ClientId { get; set; }
 
         [DataMember]
-        public string OriginCorrelationId { get; set; }
+        public long RequestId { get; set; }
+
+        [DataMember]
+        public string CreationRequestEventId { get; set; }
+
+        [DataMember]
+        public OrchestrationStatus[] DedupeStatuses { get; set; }
+
+        [DataMember]
+        public TaskMessage TaskMessage { get; set; }
+
+        [DataMember]
+        public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public override string CorrelationId => $"{this.OriginCorrelationId}-{this.PartitionId:D2}";
+        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
 
-        protected override void ExtraTraceInformation(StringBuilder s)
+        [IgnoreDataMember]
+        public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
+
+        [IgnoreDataMember]
+        public override EventId EventId => EventId.MakeSubEventId(EventId.MakeClientRequestEventId(this.ClientId, this.RequestId), 1);
+
+        public override void DetermineEffects(EffectTracker effects)
         {
-            var tCount = this.TaskMessages?.Count ?? 0;
-            var dCount = this.DelayedTaskMessages?.Count ?? 0;
-
-            s.Append(' ');
-            if (tCount == 1)
-            {
-                s.Append(this.TaskMessages[0].Event.EventType);
-            }
-            else if (dCount == 1)
-            {
-                s.Append(this.DelayedTaskMessages[0].Event.EventType);
-            }
-            else
-            {
-                s.Append('[');
-                s.Append(tCount + dCount);
-                s.Append(']');
-            }
+            effects.Add(TrackedObjectKey.Prefetch);
+            effects.Add(TrackedObjectKey.Instance(InstanceId));
         }
     }
 }

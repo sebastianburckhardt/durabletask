@@ -9,11 +9,11 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterKV
     {
-        private FasterKV<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, Functions> fht;
+        private FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> fht;
 
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, Functions> mainSession;
+        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> mainSession;
         private readonly CancellationToken terminationToken;
 
         public FasterKV(Partition partition, BlobManager blobManager)
@@ -21,7 +21,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.blobManager = blobManager;
  
-            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent, FasterKV.Functions>(
+            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, PartitionReadEvent, FasterKV.Functions>(
                 1L << 16,
                 new Functions(partition),
                 blobManager.StoreLogSettings,
@@ -153,21 +153,21 @@ namespace DurableTask.EventSourced.Faster
         public EffectTracker NoInput = null;
 
         // fast path read, synchronous, on the main session
-        public void Read(StorageAbstraction.IInternalReadonlyEvent readContinuation, EffectTracker effectTracker)
+        public void Read(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
             try
             {
-                FasterKV.Key key = readContinuation.ReadTarget;
+                FasterKV.Key key = readEvent.ReadTarget;
                 TrackedObject target = null;
 
                 // try to read directly (fast path)
-                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readContinuation, 0);
+                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
 
                 switch (status)
                 {
                     case Status.NOTFOUND:
                     case Status.OK:
-                        effectTracker.ProcessRead(readContinuation, target);
+                        effectTracker.ProcessRead(readEvent, target);
                         break;
 
                     case Status.PENDING:
@@ -247,7 +247,7 @@ namespace DurableTask.EventSourced.Faster
                     (Status status, TrackedObject target) = await this.mainSession.ReadAsync(k, null, false, this.terminationToken);
                     if (status == Status.OK)
                     {
-                        result.OnReadComplete(target);
+                        result.OnReadComplete(target, this.partition);
                     }
                 }
 
@@ -356,7 +356,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, StorageAbstraction.IInternalReadonlyEvent>
+        public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent>
         {
             private readonly Partition partition;
 
@@ -425,7 +425,7 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, StorageAbstraction.IInternalReadonlyEvent ctx, Status status)
+            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, PartitionReadEvent ctx, Status status)
             {
                 partition.Assert(ctx != null);
 
@@ -446,9 +446,9 @@ namespace DurableTask.EventSourced.Faster
             }
 
             public void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint) { }
-            public void RMWCompletionCallback(ref Key key, ref EffectTracker input, StorageAbstraction.IInternalReadonlyEvent ctx, Status status) { }
-            public void UpsertCompletionCallback(ref Key key, ref Value value, StorageAbstraction.IInternalReadonlyEvent ctx) { }
-            public void DeleteCompletionCallback(ref Key key, StorageAbstraction.IInternalReadonlyEvent ctx) { }
+            public void RMWCompletionCallback(ref Key key, ref EffectTracker input, PartitionReadEvent ctx, Status status) { }
+            public void UpsertCompletionCallback(ref Key key, ref Value value, PartitionReadEvent ctx) { }
+            public void DeleteCompletionCallback(ref Key key, PartitionReadEvent ctx) { }
         }
     }
 }

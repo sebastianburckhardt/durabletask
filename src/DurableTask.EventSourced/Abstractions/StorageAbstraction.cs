@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
@@ -67,45 +68,18 @@ namespace DurableTask.EventSourced
             Task CleanShutdown(bool takeFinalCheckpoint);
 
             /// <summary>
-            /// Queues a single event for processing on this partition state.
+            /// Queues an internal event (originating on this same partition)
+            /// for processing on this partition state.
             /// </summary>
             /// <param name="evt">The event to process.</param>
-            void SubmitEvent(PartitionEvent evt);
+            void SubmitInternalEvent(PartitionEvent evt);
 
             /// <summary>
-            /// Queues a collection of external events for processing on this partition state.
+            /// Queues external events (originating on clients or other partitions)
+            /// for processing on this partition state.
             /// </summary>
             /// <param name="evt">The collection of events to process.</param>
             void SubmitExternalEvents(IEnumerable<PartitionEvent> evt);
-
-            /// <summary>
-            /// Queues a internal read-only event for processing on this partition state.
-            /// </summary>
-            /// <param name="readEvent">The readonly event to process.</param>
-            void SubmitInternalReadonlyEvent(IInternalReadonlyEvent readEvent);
-        }
-
-        /// <summary>
-        /// An interface for events representing internal read-only operation on storage. Since this kind of
-        /// event does not need to be serialized, it is kept simple and outside the Event class hierarchy.
-        /// </summary>
-        public interface IInternalReadonlyEvent
-        {
-            /// <summary>
-            /// The target of the read operation.
-            /// </summary>
-            TrackedObjectKey ReadTarget { get; }
-
-            /// <summary>
-            /// The continuation for the read operation.
-            /// </summary>
-            /// <param name="target">The current value of the tracked object for this key, or null if not present</param>
-            void OnReadComplete(TrackedObject target);
-
-            /// <summary>
-            /// An id for this read event, for diagnostic purposes
-            /// </summary>
-            string EventIdString { get; }
         }
     }
 }

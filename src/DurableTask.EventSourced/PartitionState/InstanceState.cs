@@ -39,29 +39,14 @@ namespace DurableTask.EventSourced
             return $"History InstanceId={InstanceId} Status={OrchestrationState?.OrchestrationStatus}";
         }
 
-        public void Process(CreationRequestReceived evt, EffectTracker effects)
+        public void Process(CreationRequestProcessed evt, EffectTracker effects)
         {
             // can create or replace an instance and return a success response, or 
             // return an error response
 
-            if (this.OrchestrationState != null
-                && evt.DedupeStatuses != null
-                && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus))
-            {
-                // An instance already exists and has a state for which we want to dedup.
-                // Therefore, we do nothing other than responding to the client so they
-                // know that creation failed.
-                if (!effects.IsReplaying)
-                {
-                    this.Partition.Send(new CreationResponseReceived()
-                    {
-                        ClientId = evt.ClientId,
-                        RequestId = evt.RequestId,
-                        Succeeded = false,
-                    });
-                }
-            }
-            else
+            bool filterDuplicate = this.OrchestrationState != null && evt.DedupeStatuses != null && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus);
+
+            if (!filterDuplicate)
             {
                 var ee = evt.ExecutionStartedEvent;
 
@@ -80,24 +65,25 @@ namespace DurableTask.EventSourced
                     CompletedTime = Core.Common.DateTimeUtils.MinDateTime
                 };
 
-                // update the index also
-                effects.Add(TrackedObjectKey.Index);
-
-                // process the creation message on the sessions object
-                // so it can be added to the queue for workitems
+                // add or create a session to handle the new taskmessage
                 effects.Add(TrackedObjectKey.Sessions);
 
-                if (!effects.IsReplaying)
+                // update the index also
+                effects.Add(TrackedObjectKey.Index);
+            }
+
+            // send response to client
+            if (!effects.IsReplaying)
+            {
+                this.Partition.Send(new CreationResponseReceived()
                 {
-                    this.Partition.Send(new CreationResponseReceived()
-                    {
-                        ClientId = evt.ClientId,
-                        RequestId = evt.RequestId,
-                        Succeeded = true,
-                    });
-                }
+                    ClientId = evt.ClientId,
+                    RequestId = evt.RequestId,
+                    Succeeded = !filterDuplicate,
+                });
             }
         }
+
 
         public void Process(BatchProcessed evt, EffectTracker effects)
         {

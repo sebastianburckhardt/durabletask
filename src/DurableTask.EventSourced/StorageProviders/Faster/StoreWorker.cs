@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class StoreWorker : BatchWorker<object>
+    internal class StoreWorker : BatchWorker<PartitionEvent>
     {
         private readonly FasterKV store;
         private readonly Partition partition;
@@ -97,7 +97,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress("stopped StoreWorker");
         }
 
-        protected override async Task Process(IList<object> batch)
+        protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
             {
@@ -113,14 +113,20 @@ namespace DurableTask.EventSourced.Faster
                     this.store.CompletePending();
 
                     // now process the read or update
-                    if (o is StorageAbstraction.IInternalReadonlyEvent readContinuation)
+                    switch (o)
                     {
-                        // we don't await async reads, they complete when CompletePending() is called
-                        this.store.Read(readContinuation, this.effectTracker);
-                    }
-                    else
-                    {
-                        await this.ProcessUpdate((PartitionEvent)o);
+                        case PartitionReadEvent readEvent:
+                            readEvent.OnReadIssued(this.partition);
+                            this.store.Read(readEvent, this.effectTracker);
+                            // we don't await async reads, they complete when CompletePending() is called
+                            break;
+
+                        case PartitionUpdateEvent updateEvent:
+                            await this.ProcessUpdate(updateEvent);
+                            break;
+
+                        default:
+                            throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
                     }
                 }
 
@@ -199,7 +205,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
         }
 
-        public async ValueTask ProcessUpdate(PartitionEvent partitionEvent)
+        public async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
         {
             // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
             // (note that it may not be the very next in the sequence since readonly events are not persisted in the store)

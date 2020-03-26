@@ -397,7 +397,7 @@ namespace DurableTask.EventSourced
         {
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
             var messageBatch = orchestrationWorkItem.MessageBatch;
-            var partition = messageBatch.Partition;
+            var partition = orchestrationWorkItem.Partition;
 
             List<TaskMessage> localMessages = null;
             List<TaskMessage> remoteMessages = null;
@@ -430,9 +430,9 @@ namespace DurableTask.EventSourced
 
             try
             {
-                partition.Submit(new BatchProcessed()
+                partition.SubmitInternalEvent(new BatchProcessed()
                 {
-                    PartitionId = messageBatch.Partition.PartitionId,
+                    PartitionId = partition.PartitionId,
                     SessionId = messageBatch.SessionId,
                     InstanceId = workItem.InstanceId,
                     BatchStartPosition = messageBatch.BatchStartPosition,
@@ -520,7 +520,7 @@ namespace DurableTask.EventSourced
 
             try
             {
-                partition.Submit(new ActivityCompleted()
+                partition.SubmitInternalEvent(new ActivityCompleted()
                 {
                     PartitionId = activityWorkItem.Partition.PartitionId,
                     ActivityId = activityWorkItem.ActivityId,

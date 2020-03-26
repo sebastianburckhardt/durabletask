@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class WaitRequestReceived : ClientRequestEvent, IReadonlyPartitionEvent
+    internal class WaitRequestReceived : ClientReadRequestEvent
     {
         [DataMember]
         public string InstanceId { get; set; }
@@ -25,45 +25,37 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string ExecutionId { get; set; }
 
+        [IgnoreDataMember]
+        OrchestrationWaiter waiter;
+
         protected override void ExtraTraceInformation(StringBuilder s)
         {
             s.Append(' ');
             s.Append(this.InstanceId);
         }
 
+        public override void OnReadIssued(Partition partition)
+        { 
+            // to avoid race conditions, we must subscribe to instance status changes BEFORE starting the read
+            this.waiter = new OrchestrationWaiter(this, partition);
+
+            // start a waiter that eventually responds to the client
+            _ = WaitForOrchestrationCompletionTask(partition);
+        }
+
         [IgnoreDataMember]
-        public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
+        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.InstanceId);
 
-        public void OnReadComplete(TrackedObject target)
+        public override void OnReadComplete(TrackedObject target, Partition partition)
         {
-            var orchestrationState = ((InstanceState)target)?.OrchestrationState;
-
-            if (orchestrationState != null &&
-                    orchestrationState.OrchestrationStatus != OrchestrationStatus.Running &&
-                    orchestrationState.OrchestrationStatus != OrchestrationStatus.Pending &&
-                    orchestrationState.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew)
-            {
-                target.Partition.Send(new WaitResponseReceived()
-                {
-                    ClientId = this.ClientId,
-                    RequestId = this.RequestId,
-                    OrchestrationState = orchestrationState,
-                });
-            }
-            else
-            {
-                //  we have to wait until the instance completes. To this end we register a listener
-                _ = WaitForOrchestrationCompletionTask(target.Partition);
-            }
+            this.waiter.Notify(((InstanceState)target)?.OrchestrationState);
         }
 
         public async Task WaitForOrchestrationCompletionTask(Partition partition)
         {
             try
             {
-                var waiter = new OrchestrationWaiter(this, partition);
-
-                var response = await waiter.Task;
+                var response = await this.waiter.Task;
 
                 if (response != null)
                 {
@@ -72,6 +64,7 @@ namespace DurableTask.EventSourced
             }
             catch (OperationCanceledException)
             {
+                // o.k. during shutdown or termination
             }
             catch (Exception e)
             {
@@ -80,22 +73,22 @@ namespace DurableTask.EventSourced
         }
 
         private class OrchestrationWaiter :
-            Partition.ResponseWaiter,
-            PubSub<string, OrchestrationState>.IListener,
-            StorageAbstraction.IInternalReadonlyEvent
+            CancellableCompletionSource<ClientEvent>,
+            PubSub<string, OrchestrationState>.IListener
         {
+            private readonly WaitRequestReceived Request;
+            private readonly Partition Partition;
+
             public OrchestrationWaiter(WaitRequestReceived request, Partition partition)
-                : base(partition.ErrorHandler.Token, request, partition)
+                : base(partition.ErrorHandler.Token)
             {
-                Key = request.InstanceId;
+                this.Request = request;
+                this.Partition = partition;
+                this.Key = request.InstanceId;
                 partition.InstanceStatePubSub.Subscribe(this);
             }
 
             public string Key { get; private set; }
-
-            public TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.Key);
-
-            public string EventIdString => this.Request.EventIdString;
 
             public void Notify(OrchestrationState value)
             {
@@ -111,11 +104,6 @@ namespace DurableTask.EventSourced
                         OrchestrationState = value
                     });
                 }
-            }
-
-            public void OnReadComplete(TrackedObject target)
-            {
-                this.Notify(((InstanceState)target)?.OrchestrationState);
             }
 
             protected override void Cleanup()
