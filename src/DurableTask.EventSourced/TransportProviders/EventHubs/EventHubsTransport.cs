@@ -21,8 +21,8 @@ using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
 using Microsoft.Azure.Storage.Blob.Protocol;
 using Microsoft.Extensions.Logging;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.Azure.Storage;
+using Microsoft.Azure.Storage.Blob;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -145,7 +145,11 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
-            await this.taskhubParameters.DeleteIfExistsAsync();
+            if (await this.taskhubParameters.ExistsAsync())
+            {
+                await BlobUtils.ForceDeleteAsync(this.taskhubParameters);
+            }
+
             // todo delete consumption checkpoints
             await this.host.StorageProvider.DeleteAllPartitionStatesAsync();
         }

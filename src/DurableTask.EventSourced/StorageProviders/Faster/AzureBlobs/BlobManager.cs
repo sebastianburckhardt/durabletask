@@ -80,7 +80,7 @@ namespace DurableTask.EventSourced.Faster
             PageSizeBits = 22, // 4MB since page blobs can't write more than that in a single op
             MutableFraction = 0.9,
             SegmentSizeBits = 28, // 256 MB
-            CopyReadsToTail = true,    
+            CopyReadsToTail = true,
             MemorySizeBits = 27, // 128 MB
         };
 
@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced.Faster
                 CloudBlobClient serviceClient = this.cloudStorageAccount.CreateCloudBlobClient();
                 this.blobContainer = serviceClient.GetContainerReference(containerName);
             }
-        } 
+        }
 
         // For testing and debugging with local files
         internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
@@ -221,19 +221,16 @@ namespace DurableTask.EventSourced.Faster
                 CloudBlobClient serviceClient = account.CreateCloudBlobClient();
                 var blobContainer = serviceClient.GetContainerReference(containerName);
 
-                // TODO handle lease issues cleanly
-
                 if (await blobContainer.ExistsAsync())
                 {
+                    // do a complete deletion of all contents of this directory
                     var allBlobsInContainer = blobContainer.ListBlobs(null, true).ToList();
-
                     var tasks = new List<Task>();
-
-                    foreach(IListBlobItem blob in allBlobsInContainer)
+                    foreach (IListBlobItem blob in allBlobsInContainer)
                     {
                         if (blob.GetType() == typeof(CloudBlob) || blob.GetType().BaseType == typeof(CloudBlob))
                         {
-                           tasks.Add(((CloudBlob)blob).DeleteAsync());
+                            tasks.Add(BlobUtils.ForceDeleteAsync((CloudBlob)blob));
                         }
                     };
 
@@ -289,7 +286,7 @@ namespace DurableTask.EventSourced.Faster
 
                     break;
                 }
-                catch (StorageException ex) when (LeaseConflictOrExpired(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseConflictOrExpired(ex))
                 {
                     this.TraceHelper.LeaseProgress("waiting for lease");
 
@@ -300,7 +297,7 @@ namespace DurableTask.EventSourced.Faster
 
                     continue;
                 }
-                catch (StorageException ex) when (BlobDoesNotExist(ex))
+                catch (StorageException ex) when (BlobUtils.BlobDoesNotExist(ex))
                 {
                     try
                     {
@@ -309,7 +306,7 @@ namespace DurableTask.EventSourced.Faster
                         await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
                         continue;
                     }
-                    catch (StorageException ex2) when (LeaseConflictOrExpired(ex2))
+                    catch (StorageException ex2) when (BlobUtils.LeaseConflictOrExpired(ex2))
                     {
                         // creation race, try from top
                         this.TraceHelper.LeaseProgress("creation race, retrying");
@@ -361,7 +358,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 // it's o.k. to cancel a lease renewal
             }
-            catch (StorageException ex) when (LeaseConflict(ex))
+            catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
             {
                 // We lost the lease to someone else. Terminate ownership immediately.
                 this.PartitionErrorHandler.HandleError(nameof(LeaseRenewalLoopAsync), "Lost partition lease", ex, true, true);
@@ -406,28 +403,6 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.LeaseProgress("blob manager stopped");
         }
 
- 
-        private static bool LeaseConflictOrExpired(StorageException e)
-        {
-            return (e.RequestInformation.HttpStatusCode == 409) || (e.RequestInformation.HttpStatusCode == 412);
-        }
-
-        private static bool LeaseConflict(StorageException e)
-        {
-            return (e.RequestInformation.HttpStatusCode == 409);
-        }
-        
-        private static bool LeaseExpired(StorageException e)
-        {
-            return (e.RequestInformation.HttpStatusCode == 412);
-        }
-
-        private static bool BlobDoesNotExist(StorageException e)
-        {
-            var information = e.RequestInformation.ExtendedErrorInformation;
-            return (e.RequestInformation.HttpStatusCode == 404) && (information.ErrorCode.Equals(BlobErrorCodeStrings.BlobNotFound));
-        }
-
         #region ILogCommitManager
 
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
@@ -440,14 +415,14 @@ namespace DurableTask.EventSourced.Faster
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
                     return;
                 }
-                catch (StorageException ex) when (LeaseExpired(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
                 {
                     // if we get here, the lease renewal task did not complete in time
                     // wait for it to complete or throw
                     this.NextLeaseRenewalTask.Wait();
                     continue;
                 }
-                catch (StorageException ex) when (LeaseConflict(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
                     this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
@@ -476,14 +451,14 @@ namespace DurableTask.EventSourced.Faster
                         return bytes.Length == 0 ? null : bytes;
                     }
                 }
-                catch (StorageException ex) when (LeaseExpired(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
                 {
                     // if we get here, the lease renewal task did not complete in time
                     // wait for it to complete or throw
                     this.NextLeaseRenewalTask.Wait();
                     continue;
                 }
-                catch (StorageException ex) when (LeaseConflict(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
                 {
                     // We lost the lease to someone else. Terminate ownership immediately.
                     this.TraceHelper.LeaseLost(nameof(ILogCommitManager.GetCommitMetadata));
