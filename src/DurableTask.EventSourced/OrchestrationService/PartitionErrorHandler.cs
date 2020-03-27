@@ -53,6 +53,13 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public void TraceProgress(string details)
+        {
+            this.logger.LogInformation("Part{partition:D2} {details}", details);
+            EtwSource.Log.PartitionProgress(this.account, this.taskHub, this.partitionId, details, TraceUtils.ExtensionVersion);
+
+        }
+
         public void TerminateNormally()
         {
             this.Terminate();

@@ -65,13 +65,13 @@ namespace DurableTask.EventSourced
             this.ResponseTimeouts.Start("ClientTimer");
 
             this.logger.LogInformation("{client} Started", this.tracePrefix);
-            EtwSource.Log.ClientStarted(this.account, this.taskHub, this.ClientId, TraceUtils.ExtensionVersion);
+            EtwSource.Log.ClientProgress(this.account, this.taskHub, this.ClientId, "Client Started", TraceUtils.ExtensionVersion);
         }
 
         public Task StopAsync()
         {
             this.logger.LogInformation("{client} Stopped", this.tracePrefix);
-            EtwSource.Log.ClientStopped(this.account, this.taskHub, this.ClientId, TraceUtils.ExtensionVersion);
+            EtwSource.Log.ClientProgress(this.account, this.taskHub, this.ClientId, "Client Stopped", TraceUtils.ExtensionVersion);
             return Task.CompletedTask;
         }
 
@@ -127,7 +127,7 @@ namespace DurableTask.EventSourced
             }
             if (EtwSource.Log.IsEnabled())
             {
-                EtwSource.Log.ClientErrorReported(this.account, this.taskHub, this.ClientId, context, exception.Message, exception.ToString(), TraceUtils.ExtensionVersion);
+                EtwSource.Log.ClientError(this.account, this.taskHub, this.ClientId, context, exception.Message, exception.ToString(), TraceUtils.ExtensionVersion);
             }
         }
 

@@ -37,8 +37,7 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsConnections connections;
         private readonly CloudStorageAccount cloudStorageAccount;
-        private readonly ILogger logger;
-        
+        private readonly EventHubsTraceHelper traceHelper;
 
         private EventProcessorHost eventProcessorHost;
         private TransportAbstraction.IClient client;
@@ -54,18 +53,18 @@ namespace DurableTask.EventSourced.EventHubs
 
         public Guid ClientId { get; private set; }
 
-        public EventHubsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public EventHubsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.host = host;
             this.settings = settings;
-            this.ClientId = Guid.NewGuid();
-            this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString);
-            var blobContainerName = $"{settings.EventHubsNamespaceName}-processors";
             this.cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
+            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportEtwLevel, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, settings.EventHubsNamespaceName);
+            this.ClientId = Guid.NewGuid();
+            this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper);
+            var blobContainerName = $"{settings.EventHubsNamespaceName}-processors";
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
-            this.logger = host.TransportLogger;
         }
 
         private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
@@ -192,7 +191,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task TransportAbstraction.ITaskHub.StopAsync()
         {
-            this.logger.LogInformation("Shutting down EventHubsBackend");
+            this.traceHelper.LogInformation("Shutting down EventHubsBackend");
             await client.StopAsync();
             this.shutdownSource.Cancel();
             await this.eventProcessorHost.UnregisterEventProcessorAsync();
@@ -201,7 +200,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext partitionContext)
         {
-            var processor = new EventHubsProcessor(this.host, this, this.parameters, partitionContext);
+            var processor = new EventHubsProcessor(this.host, this, this.parameters, partitionContext, this.traceHelper);
             return processor;
         }
 
@@ -248,10 +247,10 @@ namespace DurableTask.EventSourced.EventHubs
                         }
                         catch (Exception)
                         {
-                            this.logger.LogError("EventProcessor for Client{clientId} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
+                            this.traceHelper.LogError("EventProcessor for Client{clientId} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
                             throw;
                         }
-                        this.logger.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
+                        this.traceHelper.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
 
                         if (clientEvent.ClientId == this.ClientId)
                         {

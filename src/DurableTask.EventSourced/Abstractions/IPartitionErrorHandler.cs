@@ -31,6 +31,12 @@ namespace DurableTask.EventSourced
         void HandleError(string where, string message, Exception e, bool terminatePartition, bool reportAsWarning);
 
         /// <summary>
+        /// Report progress with respect to partition state.
+        /// </summary>
+        /// <param name="details"></param>
+        void TraceProgress(string details);
+
+        /// <summary>
         /// Terminates the partition normally, after shutdown.
         /// </summary>
         void TerminateNormally();

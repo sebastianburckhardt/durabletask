@@ -18,6 +18,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.EventSourced.Faster;
+using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 
 namespace DurableTask.EventSourced.AzureChannels
@@ -36,7 +37,7 @@ namespace DurableTask.EventSourced.AzureChannels
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public AzureChannelsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public AzureChannelsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.host = host;
             this.settings = settings;

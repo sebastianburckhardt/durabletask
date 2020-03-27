@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced.EventHubs
     {
         private readonly PartitionSender sender;
         private readonly TransportAbstraction.IHost host;
-        private readonly ILogger logger;
+        private readonly EventHubsTraceHelper traceHelper;
         private readonly string eventHubName;
         private readonly string eventHubPartition;
 
@@ -38,11 +38,11 @@ namespace DurableTask.EventSourced.EventHubs
         private const int maxFragmentSize = 500 * 1024; // account for very non-optimal serialization of event
         private MemoryStream stream = new MemoryStream(); // reused for all packets
 
-        public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender)
+        public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender, EventHubsTraceHelper traceHelper)
         {
             this.host = host;
             this.sender = sender;
-            this.logger = host.TransportLogger;
+            this.traceHelper = traceHelper;
             this.eventHubName = this.sender.EventHubClient.EventHubName;
             this.eventHubPartition = this.sender.PartitionId;
         }
@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                     if (!tooBig && batch.TryAdd(eventData))
                     {
-                        this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} added packet to batch ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, eventData.Body.Count, evt, evt.EventIdString);
+                        this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} added packet to batch ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, eventData.Body.Count, evt, evt.EventIdString);
                         continue;
                     }
                     else
@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced.EventHubs
                             await sender.SendAsync(batch);
                             sentSuccessfully = i - 1;
 
-                            this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
+                            this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
 
                             // create a fresh batch
                             batch = sender.CreateBatch();
@@ -105,7 +105,7 @@ namespace DurableTask.EventSourced.EventHubs
                                 Packet.Serialize((Event)fragment, stream);
                                 length = (int)stream.Position;
                                 await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length)));
-                                this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
+                                this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
                             }
                             sentSuccessfully = i;
                         }
@@ -126,7 +126,7 @@ namespace DurableTask.EventSourced.EventHubs
                     await sender.SendAsync(batch);
                     sentSuccessfully = toSend.Count - 1;
 
-                    this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
+                    this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
 
                     // the buffer can be reused now
                     stream.Seek(0, SeekOrigin.Begin);
@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
             catch (Exception e)
             {
-                this.logger.LogWarning(e, "EventHubsSender {eventHubName}/{eventHubPartitionId} failed to send", this.eventHubName, this.eventHubPartition, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.traceHelper.LogWarning(e, "EventHubsSender {eventHubName}/{eventHubPartitionId} failed to send", this.eventHubName, this.eventHubPartition, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
                 senderException = e;
             }
             finally
@@ -185,11 +185,11 @@ namespace DurableTask.EventSourced.EventHubs
                     this.Requeue(requeue);
                 }
 
-                this.logger.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
             }
             catch (Exception exception) when (!Utils.IsFatal(exception))
             {
-                this.logger.LogError("EventHubsSender {eventHubName}/{eventHubPartitionId} encountered an error while trying to confirm messages: {exception}", this.eventHubName, this.eventHubPartition, exception);
+                this.traceHelper.LogError("EventHubsSender {eventHubName}/{eventHubPartitionId} encountered an error while trying to confirm messages: {exception}", this.eventHubName, this.eventHubPartition, exception);
             }
         }
     }

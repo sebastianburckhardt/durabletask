@@ -36,12 +36,8 @@ namespace DurableTask.EventSourced
         IDisposable
     {
         private readonly TransportAbstraction.ITaskHub taskHub;
-        private readonly ILogger transportLogger;
-        private readonly ILogger storageLogger;
 
         private const string LoggerName = "E1";
-        private const string TransportLoggerName = "E1Transport";
-        private const string StorageLoggerName = "E1Storage";
 
         private CancellationTokenSource serviceShutdownSource;
 
@@ -58,6 +54,7 @@ namespace DurableTask.EventSourced
 
         internal Guid ServiceInstanceId { get; } = Guid.NewGuid();
         internal ILogger Logger { get; }
+        internal ILoggerFactory LoggerFactory { get; }
 
         /// <inheritdoc/>
         public override string ToString()
@@ -73,21 +70,19 @@ namespace DurableTask.EventSourced
             this.Settings = settings;
 
             this.Logger = loggerFactory.CreateLogger(LoggerName);
-            this.transportLogger = loggerFactory.CreateLogger(TransportLoggerName);
-            this.storageLogger = loggerFactory.CreateLogger(StorageLoggerName);
 
             switch (this.Settings.TransportComponent)
             {
                 case EventSourcedOrchestrationServiceSettings.TransportChoices.Memory:
-                    this.taskHub = new Emulated.MemoryTransport(this, settings);
+                    this.taskHub = new Emulated.MemoryTransport(this, settings, loggerFactory);
                     break;
 
                 case EventSourcedOrchestrationServiceSettings.TransportChoices.EventHubs:
-                    this.taskHub = new EventHubs.EventHubsTransport(this, settings);
+                    this.taskHub = new EventHubs.EventHubsTransport(this, settings, loggerFactory);
                     break;
 
                 case EventSourcedOrchestrationServiceSettings.TransportChoices.AzureChannels:
-                    this.taskHub = new AzureChannels.AzureChannelsTransport(this, settings);
+                    this.taskHub = new AzureChannels.AzureChannelsTransport(this, settings, loggerFactory);
                     break;
 
                 default:
@@ -119,7 +114,7 @@ namespace DurableTask.EventSourced
                     return new MemoryStorage();
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.storageLogger);
+                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.LoggerFactory);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -184,7 +179,7 @@ namespace DurableTask.EventSourced
             }
 
             this.Logger.LogInformation("Service started, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
-            EtwSource.Log.ServiceStarted(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+            EtwSource.Log.OrchestrationServiceStarted(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
@@ -218,7 +213,7 @@ namespace DurableTask.EventSourced
                 await this.taskHub.StopAsync();
 
                 this.Logger.LogInformation("Service stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
-                EtwSource.Log.ServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+                EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -257,13 +252,11 @@ namespace DurableTask.EventSourced
             return partition;
         }
 
-        ILogger TransportAbstraction.IHost.TransportLogger => this.transportLogger;
-
         StorageAbstraction.IStorageProvider TransportAbstraction.IHost.StorageProvider => this;
 
         IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
         {
-            return new PartitionErrorHandler((int) partitionId, this.storageLogger, this.StorageAccountName, this.Settings.TaskHubName);
+            return new PartitionErrorHandler((int) partitionId, this.Logger, this.StorageAccountName, this.Settings.TaskHubName);
         }
 
         /******************************/

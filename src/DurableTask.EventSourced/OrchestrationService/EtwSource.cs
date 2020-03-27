@@ -39,41 +39,41 @@ namespace DurableTask.EventSourced
         // we should always check if verbose is enabled before doing extensive string formatting for a verbose event
         public bool IsVerboseEnabled => this.IsEnabled(EventLevel.Verbose, EventKeywords.None);
 
-        // ----- starting/stopping of the orchestration service
+        // ----- orchestration service lifecycle
 
         // we are grouping all events by this instance of EventSourcedOrchestrationService using a single activity id
         // and since there is only one of these per machine, we can save its id in this static field.
         private static Guid serviceInstanceId;
 
         [Event(10, Level = EventLevel.Informational, Opcode = EventOpcode.Start, Version = 1)]
-        public void ServiceStarted(Guid ServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
+        public void OrchestrationServiceStarted(Guid OrchestrationServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
         {
-            SetCurrentThreadActivityId(ServiceInstanceId);
-            this.WriteEvent(10, ServiceInstanceId, Account, TaskHub, WorkerName, ExtensionVersion);
-            EtwSource.serviceInstanceId = ServiceInstanceId;
+            SetCurrentThreadActivityId(OrchestrationServiceInstanceId);
+            this.WriteEvent(10, OrchestrationServiceInstanceId, Account, TaskHub, WorkerName, ExtensionVersion);
+            EtwSource.serviceInstanceId = OrchestrationServiceInstanceId;
         }
 
         [Event(11, Level = EventLevel.Informational, Opcode = EventOpcode.Stop, Version = 1)]
-        public void ServiceStopped(Guid ServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
+        public void OrchestrationServiceStopped(Guid OrchestrationServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
         {
-            SetCurrentThreadActivityId(ServiceInstanceId);
-            this.WriteEvent(11, ServiceInstanceId, Account, TaskHub, WorkerName, ExtensionVersion);
+            SetCurrentThreadActivityId(OrchestrationServiceInstanceId);
+            this.WriteEvent(11, OrchestrationServiceInstanceId, Account, TaskHub, WorkerName, ExtensionVersion);
         }
 
-        // ----- partition lifecycle, error handling, and periodic tasks
+        // ----- partition and client lifecycles
 
         [Event(20, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionStarted(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        public void PartitionProgress(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(20, Account, TaskHub, PartitionId, ExtensionVersion);
+            this.WriteEvent(20, Account, TaskHub, PartitionId, Details, ExtensionVersion);
         }
 
-        [Event(21, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionStopped(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        [Event(21, Level = EventLevel.Warning, Version = 1)]
+        public void PartitionWarning(string Account, string TaskHub, int PartitionId, string Context, bool TerminatesPartition, string Message, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(21, Account, TaskHub, PartitionId, ExtensionVersion);
+            this.WriteEvent(21, Account, TaskHub, PartitionId, Context, TerminatesPartition, Message, Details, ExtensionVersion);
         }
 
         [Event(22, Level = EventLevel.Error, Version = 1)]
@@ -83,51 +83,58 @@ namespace DurableTask.EventSourced
             this.WriteEvent(22, Account, TaskHub, PartitionId, Context, TerminatesPartition, Message, Details, ExtensionVersion);
         }
 
-        [Event(23, Level = EventLevel.Warning, Version = 1)]
-        public void PartitionWarning(string Account, string TaskHub, int PartitionId, string Context, bool TerminatesPartition, string Message, string Details, string ExtensionVersion)
+        [Event(23, Level = EventLevel.Informational, Version = 1)]
+        public void ClientProgress(string Account, string TaskHub, Guid ClientId, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(23, Account, TaskHub, PartitionId, Context, TerminatesPartition, Message, Details, ExtensionVersion);
+            this.WriteEvent(23, Account, TaskHub, ClientId, Details, ExtensionVersion);
         }
 
-        [Event(24, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionOffloadDecision(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, int ReportedLocalLoad, int Pending, int Backlog, int Remotes, string ReportedRemoteLoad, string ExtensionVersion)
+        [Event(24, Level = EventLevel.Warning, Version = 1)]
+        public void ClientWarning(string Account, string TaskHub, Guid ClientId, string Context, string Message, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(24, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, ReportedLocalLoad, Pending, Backlog, Remotes, ReportedRemoteLoad, ExtensionVersion);
+            this.WriteEvent(24, Account, TaskHub, ClientId, Context, Message, Details, ExtensionVersion);
         }
 
-        // ----- task message tracing
+        [Event(25, Level = EventLevel.Error, Version = 1)]
+        public void ClientError(string Account, string TaskHub, Guid ClientId, string Context, string Message, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(25, Account, TaskHub, ClientId, Context, Message, Details, ExtensionVersion);
+        }
 
-        [Event(30, Level = EventLevel.Informational, Version = 1)]
+        // ----- specific events relating to DurableTask concepts (TaskMessage, OrchestrationWorkItem, Instance)
+
+        [Event(30, Level = EventLevel.Verbose, Version = 1)]
         public void TaskMessageReceived(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string EventType, int TaskEventId, string InstanceId, string ExecutionId, string MessageId, string SessionPosition, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(30, Account, TaskHub, PartitionId, CommitLogPosition, EventType, TaskEventId, InstanceId, ExecutionId, MessageId, SessionPosition, ExtensionVersion);
         }
 
-        [Event(31, Level = EventLevel.Informational, Version = 1)]
+        [Event(31, Level = EventLevel.Verbose, Version = 1)]
         public void TaskMessageSent(string Account, string TaskHub, int PartitionId, string EventType, int TaskEventId, string InstanceId, string ExecutionId, string MessageId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(31, Account, TaskHub, PartitionId, EventType, TaskEventId, InstanceId, ExecutionId, MessageId, ExtensionVersion);
         }
 
-        [Event(32, Level = EventLevel.Informational, Version = 1)]
+        [Event(32, Level = EventLevel.Verbose, Version = 1)]
         public void TaskMessageDiscarded(string Account, string TaskHub, int PartitionId, string Reason, string EventType, int TaskEventId, string InstanceId, string ExecutionId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(32, Account, TaskHub, PartitionId, Reason, EventType, TaskEventId, InstanceId, ExecutionId, WorkItemId, ExtensionVersion);
         }
 
-        [Event(33, Level = EventLevel.Informational, Version = 1)]
+        [Event(33, Level = EventLevel.Verbose, Version = 1)]
         public void OrchestrationWorkItemQueued(string Account, string TaskHub, int PartitionId, string ExecutionType, string InstanceId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(33, Account, TaskHub, PartitionId, ExecutionType, InstanceId, WorkItemId, ExtensionVersion);
         }
 
-        [Event(34, Level = EventLevel.Informational, Version = 1)]
+        [Event(34, Level = EventLevel.Verbose, Version = 1)]
         public void OrchestrationWorkItemDiscarded(string Account, string TaskHub, int PartitionId, string InstanceId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
@@ -135,68 +142,66 @@ namespace DurableTask.EventSourced
         }
 
         [Event(35, Level = EventLevel.Informational, Version = 1)]
-        public void InstanceUpdated(string Account, string TaskHub, string InstanceId, string ExecutionId, string WorkItemId, int NewEventCount, int TotalEventCount, string NewEvents, string EventType, int Episode, string ExtensionVersion)
+        public void InstanceUpdated(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, string WorkItemId, int NewEventCount, int TotalEventCount, string NewEvents, string EventType, int Episode, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(35, Account, TaskHub, InstanceId, ExecutionId, WorkItemId, NewEventCount, TotalEventCount, NewEvents, EventType, Episode, ExtensionVersion);
+            this.WriteEvent(35, Account, TaskHub, PartitionId, InstanceId, ExecutionId, WorkItemId, NewEventCount, TotalEventCount, NewEvents, EventType, Episode, ExtensionVersion);
         }
 
-        // ----- partition event processing
+        [Event(36, Level = EventLevel.Verbose, Version = 1)]
+        public void InstanceStatusFetched(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, string EventId, double LatencyMs, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(36, Account, TaskHub, PartitionId, InstanceId, ExecutionId, EventId, LatencyMs, ExtensionVersion);
+        }
 
-        [Event(40, Level = EventLevel.Verbose, Version = 1)]
+        [Event(37, Level = EventLevel.Verbose, Version = 1)]
+        public void InstanceHistoryFetched(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, int EventCount, int Episode, string EventId, double LatencyMs, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(37, Account, TaskHub, PartitionId, InstanceId, ExecutionId, EventCount, Episode, EventId, LatencyMs, ExtensionVersion);
+        }
+
+        // ----- general event processing
+
+        [Event(50, Level = EventLevel.Informational, Version = 1)]
         public void PartitionEventProcessed(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, string EventInfo, long NextCommitLogPosition, long NextInputQueuePosition, double QueueLatencyMs, double FetchLatencyMs, double LatencyMs, bool IsReplaying, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(40, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, EventInfo, NextCommitLogPosition, NextInputQueuePosition, QueueLatencyMs, FetchLatencyMs, LatencyMs, IsReplaying, ExtensionVersion);
+            this.WriteEvent(50, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, EventInfo, NextCommitLogPosition, NextInputQueuePosition, QueueLatencyMs, FetchLatencyMs, LatencyMs, IsReplaying, ExtensionVersion);
         }
 
-        [Event(42, Level = EventLevel.Verbose, Version = 1)]
+        [Event(51, Level = EventLevel.Verbose, Version = 1)]
         public void PartitionEventDetail(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(42, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, Details, ExtensionVersion);
+            this.WriteEvent(51, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, Details, ExtensionVersion);
         }
 
-        // -----  client lifecycle, error handling, and periodic tasks
-
-        [Event(50, Level = EventLevel.Informational, Version = 1)]
-        public void ClientStarted(string Account, string TaskHub, Guid ClientId, string ExtensionVersion)
-        {
-            SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(50, Account, TaskHub, ClientId, ExtensionVersion);
-        }
-
-        [Event(51, Level = EventLevel.Informational, Version = 1)]
-        public void ClientStopped(string Account, string TaskHub, Guid ClientId, string ExtensionVersion)
-        {
-            SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(51, Account, TaskHub, ClientId, ExtensionVersion);
-        }
-
-        [Event(52, Level = EventLevel.Error, Version = 1)]
-        public void ClientErrorReported(string Account, string TaskHub, Guid ClientId, string Context, string Message, string Details, string ExtensionVersion)
-        {
-            SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(52, Account, TaskHub, ClientId, Context, Message, Details, ExtensionVersion);
-        }
-
-        // ----- client event processing
-
-        [Event(60, Level = EventLevel.Verbose, Version = 1)]
+        [Event(52, Level = EventLevel.Verbose, Version = 1)]
         public void ClientEventReceived(string Account, string TaskHub, Guid ClientId, string MessageId, string EventInfo, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(60, Account, TaskHub, ClientId, MessageId, EventInfo, ExtensionVersion);
+            this.WriteEvent(52, Account, TaskHub, ClientId, MessageId, EventInfo, ExtensionVersion);
         }
 
-        [Event(61, Level = EventLevel.Verbose, Version = 1)]
+        [Event(53, Level = EventLevel.Verbose, Version = 1)]
         public void ClientEventSent(string Account, string TaskHub, Guid ClientId, string MessageId, string EventInfo, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(61, Account, TaskHub, ClientId, MessageId, EventInfo, ExtensionVersion);
+            this.WriteEvent(53, Account, TaskHub, ClientId, MessageId, EventInfo, ExtensionVersion);
         }
 
-        // ----- faster storage events
+        // ----- statistics and heuristics
+
+        [Event(60, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionOffloadDecision(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, int ReportedLocalLoad, int Pending, int Backlog, int Remotes, string ReportedRemoteLoad, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(38, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, ReportedLocalLoad, Pending, Backlog, Remotes, ReportedRemoteLoad, ExtensionVersion);
+        }
+
+        // ----- Faster Storage
 
         [Event(70, Level = EventLevel.Informational, Version = 1)]
         public void FasterStoreCreated(string Account, string TaskHub, int PartitionId, long InputQueuePosition, long LatencyMs, string ExtensionVersion)
@@ -268,34 +273,69 @@ namespace DurableTask.EventSourced
             this.WriteEvent(79, Account, TaskHub, PartitionId, Details, ExtensionVersion);
         }
 
-        // ----- lease management events
+        [Event(80, Level = EventLevel.Informational, Version = 1)]
+        public void FasterLeaseAcquired(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(80, Account, TaskHub, PartitionId, ExtensionVersion);
+        }
+
+        [Event(81, Level = EventLevel.Informational, Version = 1)]
+        public void FasterLeaseReleased(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(81, Account, TaskHub, PartitionId, ExtensionVersion);
+        }
+
+        [Event(82, Level = EventLevel.Warning, Version = 1)]
+        public void FasterLeaseLost(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(82, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+        }
+
+        [Event(83, Level = EventLevel.Verbose, Version = 1)]
+        public void FasterLeaseProgress(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(83, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+        }
+
+        // ----- EventHubs Transport
 
         [Event(90, Level = EventLevel.Informational, Version = 1)]
-        public void LeaseAcquired(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        public void EventHubsInformation(string Account, string TaskHub, string EventHubsNamespace, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(90, Account, TaskHub, PartitionId, ExtensionVersion);
+            this.WriteEvent(90, Account, TaskHub, EventHubsNamespace, Details, ExtensionVersion);
         }
 
-        [Event(91, Level = EventLevel.Informational, Version = 1)]
-        public void LeaseReleased(string Account, string TaskHub, int PartitionId, string ExtensionVersion)
+        [Event(91, Level = EventLevel.Warning, Version = 1)]
+        public void EventHubsWarning(string Account, string TaskHub, string EventHubsNamespace, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(91, Account, TaskHub, PartitionId, ExtensionVersion);
+            this.WriteEvent(91, Account, TaskHub, EventHubsNamespace, Details, ExtensionVersion);
         }
 
-        [Event(92, Level = EventLevel.Warning, Version = 1)]
-        public void LeaseLost(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
+        [Event(92, Level = EventLevel.Error, Version = 1)]
+        public void EventHubsError(string Account, string TaskHub, string EventHubsNamespace, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(92, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+            this.WriteEvent(92, Account, TaskHub, EventHubsNamespace, Details, ExtensionVersion);
         }
 
         [Event(93, Level = EventLevel.Verbose, Version = 1)]
-        public void LeaseProgress(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
+        public void EventHubsDebug(string Account, string TaskHub, string EventHubsNamespace, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(93, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+            this.WriteEvent(93, Account, TaskHub, EventHubsNamespace, Details, ExtensionVersion);
+        }
+
+        [Event(94, Level = EventLevel.Verbose, Version = 1)]
+        public void EventHubsTrace(string Account, string TaskHub, string EventHubsNamespace, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(94, Account, TaskHub, EventHubsNamespace, Details, ExtensionVersion);
         }
     }
 }

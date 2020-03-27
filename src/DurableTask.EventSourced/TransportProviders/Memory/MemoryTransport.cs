@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.EventSourced.Faster;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -34,7 +35,7 @@ namespace DurableTask.EventSourced.Emulated
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public MemoryTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings)
+        public MemoryTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.host = host;
             this.settings = settings;

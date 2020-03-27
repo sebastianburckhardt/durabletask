@@ -151,6 +151,7 @@ namespace DurableTask.EventSourced
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
             double startedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+            TrackedObjectKey key = readEvent.ReadTarget;
 
             using (EventTraceContext.MakeContext(commitLogPosition, readEvent.EventIdString))
             {
@@ -158,8 +159,27 @@ namespace DurableTask.EventSourced
                 {
                     this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
 
-                    readEvent.OnReadComplete(target, this.Partition);
+                    // trace read accesses to instance and history
+                    switch (key.ObjectType)
+                    {
+                        case TrackedObjectKey.TrackedObjectType.Instance:
+                            string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
+                            this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
+                            break;
 
+                        case TrackedObjectKey.TrackedObjectType.History:
+                            HistoryState historyState = (HistoryState)target;
+                            string historyExecutionId = historyState?.ExecutionId;
+                            int eventCount = historyState?.History?.Count ?? 0;
+                            int episode = historyState?.Episode ?? 0;
+                            this.Partition.EventTraceHelper.TraceFetchedInstanceHistory(readEvent, key.InstanceId, historyExecutionId, eventCount, episode, startedTimestamp - readEvent.IssuedTimestamp);
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    readEvent.OnReadComplete(target, this.Partition);
                 }
                 catch (OperationCanceledException)
                 {

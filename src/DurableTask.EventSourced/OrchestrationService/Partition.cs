@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
 
 
         // A little helper property that allows us to conventiently check the condition for low-level event tracing
-        public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingDetails ? this.EventTraceHelper : null;
+        public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingAtMostDetailedLevel ? this.EventTraceHelper : null;
 
         public Partition(
             EventSourcedOrchestrationService host,
@@ -75,20 +75,17 @@ namespace DurableTask.EventSourced
             this.StorageAccountName = storageAccountName;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
-            this.EventTraceHelper = new EventTraceHelper(host.Logger, this);
+            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EventEtwLevel, this);
             this.Stopwatch = new Stopwatch();
             this.Stopwatch.Start();
-
-            host.Logger.LogInformation("Part{partition:D2} Started", this.PartitionId);
-            EtwSource.Log.PartitionStarted(this.StorageAccountName, this.Settings.TaskHubName, (int)this.PartitionId, TraceUtils.ExtensionVersion);
         }
 
         public async Task<long> CreateOrRestoreAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
         {
             EventTraceContext.Clear();
-            this.EventDetailTracer?.TraceEventProcessingDetail("starting partition");
 
             this.ErrorHandler = errorHandler;
+            this.ErrorHandler.TraceProgress("Starting partition");
 
             // create or restore partition state from last snapshot
             try
@@ -101,12 +98,14 @@ namespace DurableTask.EventSourced
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
 
                 // goes to storage to create or restore the partition state
+                this.ErrorHandler.TraceProgress("Loading partition state");
                 var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
 
                 this.RecoveryIsComplete = true;
 
                 this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
+                this.ErrorHandler.TraceProgress($"Started partition, nextInputQueuePosition={inputQueuePosition}");
                 return inputQueuePosition;
             }
             catch (Exception e)
@@ -134,6 +133,8 @@ namespace DurableTask.EventSourced
 
         public async Task StopAsync()
         {
+            this.ErrorHandler.TraceProgress("Stopping partition");
+
             try
             {
                 if (!this.ErrorHandler.IsTerminated)
@@ -154,8 +155,7 @@ namespace DurableTask.EventSourced
             // at this point, the partition has been terminated (either cleanly or by exception)
             this.Assert(this.ErrorHandler.IsTerminated);
 
-            host.Logger.LogInformation("Part{partition:D2} Stopped", this.PartitionId);
-            EtwSource.Log.PartitionStopped(this.StorageAccountName, this.Settings.TaskHubName, (int) this.PartitionId, TraceUtils.ExtensionVersion);
+            this.ErrorHandler.TraceProgress("Stopped partition");
         }
 
         private void TimersFired(List<PartitionUpdateEvent> timersFired)
@@ -231,7 +231,6 @@ namespace DurableTask.EventSourced
  
             this.ActivityWorkItemQueue.Add(item);
         }
-
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 

@@ -14,8 +14,10 @@
 namespace DurableTask.EventSourced
 {
     using System;
+    using System.Threading.Tasks;
     using DurableTask.Core;
     using Microsoft.Azure.EventHubs;
+    using Microsoft.Extensions.Logging;
 
     /// <summary>
     /// Settings for the <see cref="EventSourcedOrchestrationService"/> class.
@@ -159,6 +161,23 @@ namespace DurableTask.EventSourced
         /// </summary>
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
+        /// <summary>
+        /// A limit on the level of ETW events emitted, for the transport layer.
+        /// </summary>
+        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
+        public LogLevel TransportEtwLevel { get; set; } = LogLevel.Information;
+
+        /// <summary>
+        /// A limit on the level of ETW events emitted, for the storage layer
+        /// </summary>
+        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
+        public LogLevel StorageEtwLevel { get; set; } = LogLevel.Information;
+
+        /// <summary>
+        /// A limit on the level of ETW events emitted, for the event tracing
+        /// </summary>
+        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
+        public LogLevel EventEtwLevel { get; set; } = LogLevel.Debug;
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
@@ -170,16 +189,30 @@ namespace DurableTask.EventSourced
                 (this.EventHubsConnectionString,
                 this.StorageConnectionString,
                 this.TaskHubName,
+                this.WorkerId,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
-                this.KeepServiceRunning)
+                this.KeepServiceRunning,
+                this.TakeStateCheckpointWhenStoppingPartition,
+                this.MaxNumberBytesBetweenCheckpoints,
+                this.MaxNumberEventsBetweenCheckpoints,
+                this.TransportEtwLevel,
+                this.StorageEtwLevel,
+                this.EventEtwLevel)
                 ==
                 (other.EventHubsConnectionString,
                 other.StorageConnectionString,
                 other.TaskHubName,
+                other.WorkerId,
                 other.MaxConcurrentTaskActivityWorkItems,
                 other.MaxConcurrentTaskOrchestrationWorkItems,
-                other.KeepServiceRunning);
+                other.KeepServiceRunning,
+                other.TakeStateCheckpointWhenStoppingPartition,
+                other.MaxNumberBytesBetweenCheckpoints,
+                other.MaxNumberEventsBetweenCheckpoints,
+                other.TransportEtwLevel,
+                other.StorageEtwLevel,
+                other.EventEtwLevel);
         }
 
         /// <inheritdoc/>
@@ -188,9 +221,17 @@ namespace DurableTask.EventSourced
             return (this.EventHubsConnectionString,
                 this.StorageConnectionString,
                 this.TaskHubName,
+                this.WorkerId,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
-                this.KeepServiceRunning).GetHashCode();
+                this.KeepServiceRunning,
+                this.TakeStateCheckpointWhenStoppingPartition,
+                this.MaxNumberBytesBetweenCheckpoints,
+                this.MaxNumberEventsBetweenCheckpoints,
+                this.TransportEtwLevel,
+                this.StorageEtwLevel,
+                this.EventEtwLevel)
+                .GetHashCode();
         }
 
         /// <summary>

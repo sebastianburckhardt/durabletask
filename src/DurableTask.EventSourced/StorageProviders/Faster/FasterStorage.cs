@@ -42,14 +42,14 @@ namespace DurableTask.EventSourced.Faster
 
         internal FasterTraceHelper TraceHelper { get; private set; }
 
-        public FasterStorage(string connectionString, string taskHubName, ILogger logger)
+        public FasterStorage(string connectionString, string taskHubName, ILoggerFactory loggerFactory)
         {
             if (connectionString != FasterStorage.LocalFileStorageConnectionString)
             {
                 this.storageAccount = CloudStorageAccount.Parse(connectionString);
             }
             this.taskHubName = taskHubName;
-            this.logger = logger;
+            this.logger = loggerFactory.CreateLogger("FasterStorage");
         }
 
         public static Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
@@ -63,9 +63,9 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.terminationToken = errorHandler.Token;
 
-            this.TraceHelper = new FasterTraceHelper(this.logger, partition.PartitionId, this.storageAccount.Credentials.AccountName, this.taskHubName);
+            this.TraceHelper = new FasterTraceHelper(this.logger, this.partition.Settings.StorageEtwLevel, partition.PartitionId, this.storageAccount.Credentials.AccountName, this.taskHubName);
 
-            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, partition.PartitionId, errorHandler);
+            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageEtwLevel, partition.PartitionId, errorHandler);
 
             await blobManager.StartAsync();
 

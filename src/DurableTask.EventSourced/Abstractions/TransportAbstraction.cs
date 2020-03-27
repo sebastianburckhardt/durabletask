@@ -98,11 +98,6 @@ namespace DurableTask.EventSourced
             IPartition AddPartition(uint partitionId, ISender batchSender);
 
             /// <summary>
-            /// Returns a logger for use by the transport backend.
-            /// </summary>
-            ILogger TransportLogger { get; }
-
-            /// <summary>
             /// Returns an error handler object for the given partition.
             /// </summary>
             /// <param name="partitionId">The partition id.</param>
