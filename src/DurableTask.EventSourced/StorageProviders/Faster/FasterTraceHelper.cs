@@ -95,25 +95,25 @@ namespace DurableTask.EventSourced.Faster
 
         public void LeaseAcquired()
         {
-            logger.LogInformation("Part{partition:D2} acquired lease", partitionId);
+            logger.LogInformation("Part{partition:D2} Acquired lease", partitionId);
             etwLogInformation?.FasterLeaseAcquired(this.account, this.taskHub, partitionId, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseReleased()
         {
-            logger.LogInformation("Part{partition:D2} released lease", partitionId);
+            logger.LogInformation("Part{partition:D2} Released lease", partitionId);
             etwLogInformation?.FasterLeaseReleased(this.account, this.taskHub, partitionId, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseLost(string operation)
         {
-            logger.LogWarning("Part{partition:D2} lease lost in {operation}", partitionId, operation);
+            logger.LogWarning("Part{partition:D2} Lease lost in {operation}", partitionId, operation);
             etwLogWarning?.FasterLeaseLost(this.account, this.taskHub, partitionId, operation, TraceUtils.ExtensionVersion);
         }
 
         public void LeaseProgress(string operation)
         {
-            logger.LogDebug("Part{partition:D2} lease progress: {operation}", partitionId, operation);
+            logger.LogDebug("Part{partition:D2} Lease progress: {operation}", partitionId, operation);
             etwLogDebug?.FasterLeaseProgress(this.account, this.taskHub, partitionId, operation, TraceUtils.ExtensionVersion);
         }
     }

@@ -252,7 +252,7 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
-                this.TraceHelper.LeaseProgress($"access is waiting for fresh lease");
+                this.TraceHelper.LeaseProgress($"Access is waiting for fresh lease");
                 return new ValueTask(this.NextLeaseRenewalTask);
             }
         }
@@ -265,7 +265,7 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
-                this.TraceHelper.LeaseProgress($"access is waiting for fresh lease");
+                this.TraceHelper.LeaseProgress($"Access is waiting for fresh lease");
                 this.NextLeaseRenewalTask.Wait();
             }
         }
@@ -289,7 +289,7 @@ namespace DurableTask.EventSourced.Faster
                 }
                 catch (StorageException ex) when (BlobUtils.LeaseConflictOrExpired(ex))
                 {
-                    this.TraceHelper.LeaseProgress("waiting for lease");
+                    this.TraceHelper.LeaseProgress("Waiting for lease");
 
                     // the previous owner has not released the lease yet, 
                     // try again until it becomes available, should be relatively soon
@@ -303,14 +303,14 @@ namespace DurableTask.EventSourced.Faster
                     try
                     {
                         // Create blob with empty content, then try again
-                        this.TraceHelper.LeaseProgress("creating commit blob");
+                        this.TraceHelper.LeaseProgress("Creating commit blob");
                         await this.eventLogCommitBlob.UploadFromByteArrayAsync(Array.Empty<byte>(), 0, 0);
                         continue;
                     }
                     catch (StorageException ex2) when (BlobUtils.LeaseConflictOrExpired(ex2))
                     {
                         // creation race, try from top
-                        this.TraceHelper.LeaseProgress("creation race, retrying");
+                        this.TraceHelper.LeaseProgress("Creation race observed, retrying");
                         continue;
                     }
                 }
@@ -331,11 +331,11 @@ namespace DurableTask.EventSourced.Faster
             await Task.Delay(this.LeaseRenewal, this.shutDownOrTermination.Token);
             AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
             var nextLeaseTimer = new System.Diagnostics.Stopwatch();
-            this.TraceHelper.LeaseProgress("renewing lease");
+            this.TraceHelper.LeaseProgress("Renewing lease");
             nextLeaseTimer.Start();
             await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.PartitionErrorHandler.Token);
             this.leaseTimer = nextLeaseTimer;
-            this.TraceHelper.LeaseProgress("renewed lease");
+            this.TraceHelper.LeaseProgress("Renewed lease");
         }
 
         public async Task LeaseRenewalLoopAsync()
@@ -375,7 +375,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 try
                 {
-                    this.TraceHelper.LeaseProgress("releasing lease");
+                    this.TraceHelper.LeaseProgress("Releasing lease");
 
                     AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
 
@@ -401,7 +401,7 @@ namespace DurableTask.EventSourced.Faster
 
             this.PartitionErrorHandler.TerminateNormally();
 
-            this.TraceHelper.LeaseProgress("blob manager stopped");
+            this.TraceHelper.LeaseProgress("Blob manager stopped");
         }
 
         #region ILogCommitManager

@@ -63,7 +63,7 @@ namespace DurableTask.EventSourced.Tests
                     logger, 
                     Microsoft.Extensions.Logging.LogLevel.Trace, 
                     0, 
-                    new PartitionErrorHandler(0, logger, "account", taskHubName));
+                    new PartitionErrorHandler(0, logger, Microsoft.Extensions.Logging.LogLevel.Trace, "account", taskHubName));
 
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced.Tests
                     logger, 
                     Microsoft.Extensions.Logging.LogLevel.Trace, 
                     0, 
-                    new PartitionErrorHandler(0, logger, "account", taskHubName));
+                    new PartitionErrorHandler(0, logger, Microsoft.Extensions.Logging.LogLevel.Trace, "account", taskHubName));
 
                 await blobManager.StartAsync();
                 var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);

@@ -111,7 +111,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task PersistAndShutdownAsync()
         {
-            this.traceHelper.FasterProgress($"stopping LogWorker");
+            this.traceHelper.FasterProgress($"Stopping LogWorker");
 
             lock (this.thisLock)
             {
@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced.Faster
             // wait for all the enqueued entries to be persisted
             await TaskHelpers.WaitForTaskOrCancellation(this.shutdownWaiter.Task, this.cancellationToken); 
 
-            this.traceHelper.FasterProgress($"stopped LogWorker");
+            this.traceHelper.FasterProgress($"Stopped LogWorker");
         }
 
         protected override async Task Process(IList<PartitionUpdateEvent> batch)
@@ -132,7 +132,7 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     //  checkpoint the log
-                    this.traceHelper.FasterProgress("persisting log");
+                    this.traceHelper.FasterProgress("Persisting log");
                     var stopwatch = new System.Diagnostics.Stopwatch();
                     stopwatch.Start();
                     long previous = log.CommittedUntilAddress;
@@ -159,7 +159,7 @@ namespace DurableTask.EventSourced.Faster
                         }
                     }
 
-                    this.traceHelper.FasterProgress("log persistence acked");
+                    this.traceHelper.FasterProgress("Log persistence acked");
                 }
                 catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
                 {

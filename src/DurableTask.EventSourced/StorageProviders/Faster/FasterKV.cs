@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced.Faster
                 }, 
                 useSynchronizationContext: false);
 
-            this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV.");
+            this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
 
         

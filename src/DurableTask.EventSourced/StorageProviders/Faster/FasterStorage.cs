@@ -83,7 +83,7 @@ namespace DurableTask.EventSourced.Faster
                 // take an (empty) checkpoint immediately to ensure the paths are working
                 try
                 {
-                    this.TraceHelper.FasterProgress("creating store");
+                    this.TraceHelper.FasterProgress("Creating store");
 
                     // this is a fresh partition
                     await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition);
@@ -95,13 +95,13 @@ namespace DurableTask.EventSourced.Faster
                 }
                 catch (Exception e)
                 {
-                    this.TraceHelper.FasterStorageError("creating store", e);
+                    this.TraceHelper.FasterStorageError(nameof(CreateOrRestoreAsync), e);
                     throw;
                 }
             }
             else
             {
-                this.TraceHelper.FasterProgress("loading checkpoint");
+                this.TraceHelper.FasterProgress("Loading checkpoint");
 
                 try
                 {
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
-                this.TraceHelper.FasterProgress("recovery complete");
+                this.TraceHelper.FasterProgress("Recovery complete");
             }
 
             return storeWorker.InputQueuePosition;
@@ -151,7 +151,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task CleanShutdown(bool takeFinalCheckpoint)
         {
-            this.TraceHelper.FasterProgress("stopping workers");
+            this.TraceHelper.FasterProgress("Stopping workers");
             
             // in parallel, finish processing log requests and stop processing store requests
             Task t1 = this.logWorker.PersistAndShutdownAsync();
@@ -164,11 +164,11 @@ namespace DurableTask.EventSourced.Faster
             // if the the settings indicate we want to take a final checkpoint, do so now.
             if (takeFinalCheckpoint)
             {
-                this.TraceHelper.FasterProgress("writing final checkpoint");
+                this.TraceHelper.FasterProgress("Writing final checkpoint");
                 await this.TakeCheckpointAsync("final checkpoint");
             }
 
-            this.TraceHelper.FasterProgress("stopping BlobManager");
+            this.TraceHelper.FasterProgress("Stopping BlobManager");
             await this.blobManager.StopAsync();
         }
 
@@ -183,7 +183,7 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
-                this.TraceHelper.FasterProgress($"checkpoint skipped: {reason}");
+                this.TraceHelper.FasterProgress($"Checkpoint skipped: {reason}");
             }
             await this.store.CompleteCheckpointAsync();
             if (success)

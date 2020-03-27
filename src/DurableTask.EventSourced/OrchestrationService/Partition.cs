@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             this.StorageAccountName = storageAccountName;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
-            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EventEtwLevel, this);
+            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EtwLevel, this);
             this.Stopwatch = new Stopwatch();
             this.Stopwatch.Start();
         }

@@ -14,17 +14,19 @@ namespace DurableTask.EventSourced
         private readonly CancellationTokenSource cts = new CancellationTokenSource();
         private readonly int partitionId;
         private readonly ILogger logger;
+        private readonly LogLevel etwLogLevel;
         private readonly string account;
         private readonly string taskHub;
 
         public CancellationToken Token => cts.Token;
         public bool IsTerminated => cts.Token.IsCancellationRequested;
 
-        public PartitionErrorHandler(int partitionId, ILogger logger, string storageAccountName, string taskHubName)
+        public PartitionErrorHandler(int partitionId, ILogger logger, LogLevel etwLogLevel, string storageAccountName, string taskHubName)
         {
             this.cts = new CancellationTokenSource();
             this.partitionId = partitionId;
             this.logger = logger;
+            this.etwLogLevel = etwLogLevel;
             this.account = storageAccountName;
             this.taskHub = taskHubName;
         }
@@ -37,17 +39,23 @@ namespace DurableTask.EventSourced
                 this.logger?.Log(logLevel, "Part{partition:D2} !!! {message} in {context}: {exception} terminatePartition={terminatePartition}", this.partitionId, message, context, exception, terminatePartition);
             }
 
-                if (isWarning)
+            if (isWarning)
+            {
+                if (this.etwLogLevel <= LogLevel.Warning)
                 {
                     EtwSource.Log.PartitionWarning(this.account, this.taskHub, this.partitionId, context, terminatePartition, message, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
                 }
-                else
+            }
+            else
+            {
+                if (this.etwLogLevel <= LogLevel.Error)
                 {
                     EtwSource.Log.PartitionError(this.account, this.taskHub, this.partitionId, context, terminatePartition, message, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
                 }
-               
+            }
+
             // terminate this partition in response to the error
-            if (terminatePartition && ! cts.IsCancellationRequested)
+            if (terminatePartition && !cts.IsCancellationRequested)
             {
                 this.Terminate();
             }
@@ -55,9 +63,11 @@ namespace DurableTask.EventSourced
 
         public void TraceProgress(string details)
         {
-            this.logger.LogInformation("Part{partition:D2} {details}", details);
-            EtwSource.Log.PartitionProgress(this.account, this.taskHub, this.partitionId, details, TraceUtils.ExtensionVersion);
-
+            if (this.etwLogLevel <= LogLevel.Information)
+            {
+                this.logger.LogInformation("Part{partition:D2} {details}", this.partitionId, details);
+                EtwSource.Log.PartitionProgress(this.account, this.taskHub, this.partitionId, details, TraceUtils.ExtensionVersion);
+            }
         }
 
         public void TerminateNormally()

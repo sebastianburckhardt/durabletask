@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced.Tests
         public async Task EventConversation()
         {
             var client = await host.StartOrchestrationAsync(typeof(EventConversationOrchestration), "");
-            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(10));
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
             Assert.Equal("OK", JToken.Parse(status?.Output));

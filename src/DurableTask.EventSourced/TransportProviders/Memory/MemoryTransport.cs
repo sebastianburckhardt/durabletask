@@ -138,7 +138,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                client.ReportError(nameof(SendEvents), e);
+                client.ReportTransportError(nameof(SendEvents), e);
             }
         }
 

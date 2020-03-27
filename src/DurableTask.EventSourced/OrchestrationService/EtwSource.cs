@@ -46,7 +46,7 @@ namespace DurableTask.EventSourced
         private static Guid serviceInstanceId;
 
         [Event(10, Level = EventLevel.Informational, Opcode = EventOpcode.Start, Version = 1)]
-        public void OrchestrationServiceStarted(Guid OrchestrationServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
+        public void OrchestrationServiceCreated(Guid OrchestrationServiceInstanceId, string Account, string TaskHub, string WorkerName, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(OrchestrationServiceInstanceId);
             this.WriteEvent(10, OrchestrationServiceInstanceId, Account, TaskHub, WorkerName, ExtensionVersion);

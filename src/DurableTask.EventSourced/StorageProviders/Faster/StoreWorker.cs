@@ -83,7 +83,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task CancelAndShutdown()
         {
-            this.traceHelper.FasterProgress("stopping StoreWorker");
+            this.traceHelper.FasterProgress("Stopping StoreWorker");
 
             lock (this.thisLock)
             {
@@ -94,7 +94,7 @@ namespace DurableTask.EventSourced.Faster
             // waits for the currently processing entry to finish processing
             await this.shutdownWaiter.Task;
 
-            this.traceHelper.FasterProgress("stopped StoreWorker");
+            this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -194,7 +194,7 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {
-            this.traceHelper.FasterProgress("replaying log");
+            this.traceHelper.FasterProgress("Replaying log");
 
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();

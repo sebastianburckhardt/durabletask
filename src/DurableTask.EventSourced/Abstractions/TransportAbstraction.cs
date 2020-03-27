@@ -184,7 +184,7 @@ namespace DurableTask.EventSourced
             /// </summary>
             /// <param name="msg">A message describing the circumstances.</param>
             /// <param name="e">The exception that was observed.</param>
-            void ReportError(string msg, Exception e);
+            void ReportTransportError(string msg, Exception e);
         }
 
         /// <summary>

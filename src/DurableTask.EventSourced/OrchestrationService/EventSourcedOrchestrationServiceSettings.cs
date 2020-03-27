@@ -162,22 +162,22 @@ namespace DurableTask.EventSourced
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
         /// <summary>
-        /// A limit on the level of ETW events emitted, for the transport layer.
+        /// A lower limit on the level of ETW events emitted by the transport layer.
         /// </summary>
-        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
+        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
         public LogLevel TransportEtwLevel { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A limit on the level of ETW events emitted, for the storage layer
+        /// A lower limit on the level of ETW events emitted by the storage layer.
         /// </summary>
-        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
+        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
         public LogLevel StorageEtwLevel { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A limit on the level of ETW events emitted, for the event tracing
+        /// A lower limit on the level of ETW events emitted by partitions and clients.
         /// </summary>
-        /// <remarks>This level applies only to ETW tracing; the ILogger level can be controlled independently.</remarks>
-        public LogLevel EventEtwLevel { get; set; } = LogLevel.Debug;
+        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        public LogLevel EtwLevel { get; set; } = LogLevel.Debug;
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
@@ -198,7 +198,7 @@ namespace DurableTask.EventSourced
                 this.MaxNumberEventsBetweenCheckpoints,
                 this.TransportEtwLevel,
                 this.StorageEtwLevel,
-                this.EventEtwLevel)
+                this.EtwLevel)
                 ==
                 (other.EventHubsConnectionString,
                 other.StorageConnectionString,
@@ -212,7 +212,7 @@ namespace DurableTask.EventSourced
                 other.MaxNumberEventsBetweenCheckpoints,
                 other.TransportEtwLevel,
                 other.StorageEtwLevel,
-                other.EventEtwLevel);
+                other.EtwLevel);
         }
 
         /// <inheritdoc/>
@@ -230,7 +230,7 @@ namespace DurableTask.EventSourced
                 this.MaxNumberEventsBetweenCheckpoints,
                 this.TransportEtwLevel,
                 this.StorageEtwLevel,
-                this.EventEtwLevel)
+                this.EtwLevel)
                 .GetHashCode();
         }
 

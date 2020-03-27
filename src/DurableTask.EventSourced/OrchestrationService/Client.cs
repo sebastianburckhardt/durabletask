@@ -29,8 +29,7 @@ namespace DurableTask.EventSourced
     {
         private readonly EventSourcedOrchestrationService host;
         private readonly CancellationToken shutdownToken;
-        private readonly ILogger logger;
-        private readonly string tracePrefix;
+        private readonly ClientTraceHelper traceHelper;
         private readonly string account;
         private readonly string taskHub;
 
@@ -38,8 +37,6 @@ namespace DurableTask.EventSourced
 
         public Guid ClientId { get; private set; }
         private TransportAbstraction.ISender BatchSender { get; set; }
-
-        public override string ToString() => tracePrefix;
 
         private long SequenceNumber; // for numbering requests that enter on this client
 
@@ -52,11 +49,10 @@ namespace DurableTask.EventSourced
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {
             this.host = host;
-            this.logger = host.Logger;
             this.ClientId = clientId;
+            this.traceHelper = new ClientTraceHelper(host.Logger, host.Settings.EtwLevel, host.StorageAccountName, host.Settings.TaskHubName, this.ClientId);
             this.account = host.StorageAccountName;
             this.taskHub = host.Settings.TaskHubName;
-            this.tracePrefix = $"Client.{GetShortId(clientId)}";
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
@@ -64,15 +60,18 @@ namespace DurableTask.EventSourced
             this.Fragments = new Dictionary<string, MemoryStream>();
             this.ResponseTimeouts.Start("ClientTimer");
 
-            this.logger.LogInformation("{client} Started", this.tracePrefix);
-            EtwSource.Log.ClientProgress(this.account, this.taskHub, this.ClientId, "Client Started", TraceUtils.ExtensionVersion);
+            this.traceHelper.TraceProgress("Started");
         }
 
         public Task StopAsync()
         {
-            this.logger.LogInformation("{client} Stopped", this.tracePrefix);
-            EtwSource.Log.ClientProgress(this.account, this.taskHub, this.ClientId, "Client Stopped", TraceUtils.ExtensionVersion);
+            this.traceHelper.TraceProgress("Stopped");
             return Task.CompletedTask;
+        }
+
+        public void ReportTransportError(string message, Exception e)
+        {
+            this.traceHelper.TraceError("ReportTransportError", message, e);
         }
 
         public void Process(ClientEvent clientEvent)
@@ -105,7 +104,7 @@ namespace DurableTask.EventSourced
 
         private void ProcessInternal(ClientEvent clientEvent)
         {
-            TraceReceive(clientEvent);
+            this.traceHelper.TraceReceive(clientEvent);
             if (this.ResponseWaiters.TryGetValue(clientEvent.RequestId, out var waiter))
             {
                 waiter.TrySetResult(clientEvent);
@@ -115,45 +114,10 @@ namespace DurableTask.EventSourced
         public void Send(IClientRequestEvent evt)
         {
             var partitionEvent = (PartitionEvent)evt;
-            TraceSend(partitionEvent);
+            this.traceHelper.TraceSend(partitionEvent);
             this.BatchSender.Submit(partitionEvent);
         }
 
-        public void ReportError(string context, Exception exception)
-        {
-            if (this.logger.IsEnabled(LogLevel.Error))
-            {
-                this.logger.LogError("{client} !!! {context}: {exception}", this.tracePrefix, context, exception);
-            }
-            if (EtwSource.Log.IsEnabled())
-            {
-                EtwSource.Log.ClientError(this.account, this.taskHub, this.ClientId, context, exception.Message, exception.ToString(), TraceUtils.ExtensionVersion);
-            }
-        }
-
-        private void TraceSend(Event @event)
-        {
-            if (this.logger.IsEnabled(LogLevel.Trace))
-            {
-                this.logger.LogTrace("{client} Sending event {eventId}: {event}", this.tracePrefix, @event.EventIdString, @event);
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.ClientEventSent(this.account, this.taskHub, this.ClientId, @event.EventIdString, @event.ToString(), TraceUtils.ExtensionVersion);
-            }
-        }
-
-        private void TraceReceive(Event @event)
-        {
-            if (this.logger.IsEnabled(LogLevel.Trace))
-            {
-                this.logger.LogTrace("{client} Processing event {eventId}: {event}", this.tracePrefix, @event.EventIdString, @event);
-            }
-            if (EtwSource.Log.IsVerboseEnabled)
-            {
-                EtwSource.Log.ClientEventReceived(this.account, this.taskHub, this.ClientId, @event.EventIdString, @event.ToString(), TraceUtils.ExtensionVersion);
-            }
-        }
 
         private void Timeout<T>(IEnumerable<CancellableCompletionSource<T>> promises) where T : class
         {
@@ -165,7 +129,7 @@ namespace DurableTask.EventSourced
                 }
                 catch(Exception e)
                 {
-                    this.ReportError("Client Timer", e);
+                    this.traceHelper.TraceError("Timeout", "Exception in client timeout notification", e);
                 }
             }
         }
@@ -364,6 +328,5 @@ namespace DurableTask.EventSourced
         {
             throw new NotSupportedException(); //TODO
         }
-
-     }
+    }
 }

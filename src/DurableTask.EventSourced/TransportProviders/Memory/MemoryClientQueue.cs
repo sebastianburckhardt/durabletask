@@ -62,7 +62,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch (Exception e)
             {
-                client.ReportError(nameof(MemoryClientQueue), e);
+                client.ReportTransportError(nameof(MemoryClientQueue), e);
             }
         }
     }

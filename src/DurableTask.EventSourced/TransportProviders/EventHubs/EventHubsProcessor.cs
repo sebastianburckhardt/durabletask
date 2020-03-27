@@ -93,7 +93,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Starting", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is starting", this.eventHubName, this.eventHubPartition);
             this.eventProcessorShutdown = new CancellationTokenSource();
 
             // we kick off the start-and-retry mechanism for the partition, but don't wait for it to be fully started.
@@ -130,8 +130,9 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 incarnation = prior.Incarnation + 1;
                 await TaskHelpers.WaitForCancellationAsync(prior.ErrorHandler.Token);
+                this.eventProcessorShutdown.Token.ThrowIfCancellationRequested();
                 this.currentPartition = prior.Next;
-                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition}  Restarting EventProcessor (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, incarnation);
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is restarting partition (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, incarnation);
                 await Task.Delay(TimeSpan.FromSeconds(12), this.eventProcessorShutdown.Token);
             }
 
@@ -146,7 +147,7 @@ namespace DurableTask.EventSourced.EventHubs
             c.Partition = host.AddPartition(this.partitionId, this.sender);
             c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
 
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Successfully started EventProcessor (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, incarnation, c.NextPacketToReceive);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, incarnation, c.NextPacketToReceive);
 
             // receive packets already sitting in the buffer; use lock to prevent race with new packets being delivered
             lock (this.packetDeliveryBackup)
@@ -156,7 +157,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
                     c.Partition.SubmitExternalEvents(batch);
-                    this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} Received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
+                    this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
                 }
             }
 
@@ -166,7 +167,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
         {
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Stopping EventProcessor for partition", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is stopping", this.eventHubName, this.eventHubPartition);
 
             this.eventProcessorShutdown.Cancel(); // stops the automatic partition restart, but does not stop the current partition
 
@@ -190,7 +191,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             await SaveEventHubsReceiverCheckpoint(context);
 
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} for partition", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} stopped", this.eventHubName, this.eventHubPartition);
         }
 
         private async ValueTask SaveEventHubsReceiverCheckpoint(PartitionContext context)
@@ -199,7 +200,7 @@ namespace DurableTask.EventSourced.EventHubs
             if (checkpoint != null)
             {
                 this.pendingCheckpoint = null;
-                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} Checkpointing packets received through #{seqno}", this.eventHubName, this.eventHubPartition, checkpoint.SequenceNumber);
+                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is checkpointing receive position through #{seqno}", this.eventHubName, this.eventHubPartition, checkpoint.SequenceNumber);
                 try
                 {
                     await context.CheckpointAsync(checkpoint);
@@ -208,7 +209,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     // updating EventHubs checkpoints has been known to fail occasionally due to leases shifting around; since it is optional anyway
                     // we don't want this exception to cause havoc
-                    this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} could not checkpoint packets received: {e}", this.eventHubName, this.eventHubPartition, e);
+                    this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} failed to checkpoint receive position: {e}", this.eventHubName, this.eventHubPartition, e);
                 }
             }
         } 
@@ -293,7 +294,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
             catch (Exception exception)
             {
-                this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} Error while processing packets : {exception}", this.eventHubName, this.eventHubPartition, exception);
+                this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} encountered an exception while processing packets : {exception}", this.eventHubName, this.eventHubPartition, exception);
                 current?.ErrorHandler.HandleError("IEventProcessor.ProcessEventsAsync", "Encountered exception while processing events", exception, true, false);
             }
         }

@@ -68,8 +68,12 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.Settings = settings;
-
             this.Logger = loggerFactory.CreateLogger(LoggerName);
+            this.LoggerFactory = loggerFactory;
+            this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
+
+            EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+            this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
 
             switch (this.Settings.TransportComponent)
             {
@@ -88,8 +92,6 @@ namespace DurableTask.EventSourced
                 default:
                     throw new NotImplementedException("no such transport choice");
             }
-
-            this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
         }
 
         private async Task WorkitemExpirationCheck(CancellationToken token)
@@ -178,8 +180,7 @@ namespace DurableTask.EventSourced
                 return;
             }
 
-            this.Logger.LogInformation("Service started, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
-            EtwSource.Log.OrchestrationServiceStarted(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+            this.Logger.LogInformation("EventSourcedOrchestrationService is starting, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
@@ -204,6 +205,8 @@ namespace DurableTask.EventSourced
         /// <inheritdoc />
         public async Task StopAsync(bool isForced)
         {
+            this.Logger.LogInformation("EventSourcedOrchestrationService stopping, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+
             if (!this.Settings.KeepServiceRunning && this.serviceShutdownSource != null)
             {
                 this.serviceShutdownSource.Cancel();
@@ -212,7 +215,7 @@ namespace DurableTask.EventSourced
 
                 await this.taskHub.StopAsync();
 
-                this.Logger.LogInformation("Service stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+                this.Logger.LogInformation("EventSourcedOrchestrationService stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
@@ -256,7 +259,7 @@ namespace DurableTask.EventSourced
 
         IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
         {
-            return new PartitionErrorHandler((int) partitionId, this.Logger, this.StorageAccountName, this.Settings.TaskHubName);
+            return new PartitionErrorHandler((int) partitionId, this.Logger, this.Settings.EtwLevel, this.StorageAccountName, this.Settings.TaskHubName);
         }
 
         /******************************/
