@@ -32,11 +32,9 @@ namespace DurableTask.EventSourced.Tests
                 this.categoryName = categoryName;
             }
 
-            public IDisposable BeginScope<TState>(TState state)
-                => NoopDisposable.Instance;
+            public IDisposable BeginScope<TState>(TState state) => NoopDisposable.Instance;
 
-            public bool IsEnabled(LogLevel logLevel)
-                => true;
+            public bool IsEnabled(LogLevel logLevel) => TestHelpers.UnitTestLogLevel <= logLevel;
 
             public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
             {
@@ -45,6 +43,7 @@ namespace DurableTask.EventSourced.Tests
                 {
                     case LogLevel.Information:
                     case LogLevel.Debug:
+                    case LogLevel.Trace:
                         System.Diagnostics.Trace.TraceInformation($"{formatter(state, exception)}");
                         break;
                     case LogLevel.Error:

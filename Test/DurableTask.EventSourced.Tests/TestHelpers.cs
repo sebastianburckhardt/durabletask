@@ -35,6 +35,8 @@ namespace DurableTask.EventSourced.Tests
             };
         }
 
+        public static LogLevel UnitTestLogLevel = LogLevel.Trace;
+
         public static EventSourcedOrchestrationService GetTestOrchestrationService(ILoggerFactory loggerFactory)
         {
             return new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings(), loggerFactory);
