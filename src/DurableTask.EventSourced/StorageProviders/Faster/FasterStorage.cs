@@ -146,6 +146,8 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterProgress("Recovery complete");
             }
 
+            var ignoredTask = this.IdleLoop();
+
             return storeWorker.InputQueuePosition;
         }
 
@@ -207,6 +209,17 @@ namespace DurableTask.EventSourced.Faster
             else
             {
                 this.storeWorker.Submit(evt);
+            }
+        }
+
+        private async Task IdleLoop()
+        {
+            while (true)
+            {
+                await Task.Delay(StoreWorker.MinDelayBetweenPublish, this.terminationToken);
+
+                // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
+                this.storeWorker.Notify();
             }
         }
     }

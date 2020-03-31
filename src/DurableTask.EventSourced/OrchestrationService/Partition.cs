@@ -43,14 +43,14 @@ namespace DurableTask.EventSourced
         public TransportAbstraction.ISender BatchSender { get; private set; }
         public WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        public LoadPublisher LoadPublisher { get; private set; }
 
-        public BatchTimer<PartitionUpdateEvent> PendingTimers { get; private set; }
+        public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
         public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
 
         public EventTraceHelper EventTraceHelper { get; }
 
         public bool RecoveryIsComplete { get; private set; }
-
 
         // A little helper property that allows us to conventiently check the condition for low-level event tracing
         public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingAtMostDetailedLevel ? this.EventTraceHelper : null;
@@ -64,7 +64,8 @@ namespace DurableTask.EventSourced
             EventSourcedOrchestrationServiceSettings settings,
             string storageAccountName,
             WorkItemQueue<TaskActivityWorkItem> activityWorkItemQueue,
-            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue)
+            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
+            LoadPublisher loadPublisher)
         {
             this.host = host;
             this.PartitionId = partitionId;
@@ -75,6 +76,7 @@ namespace DurableTask.EventSourced
             this.StorageAccountName = storageAccountName;
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
+            this.LoadPublisher = loadPublisher;
             this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EtwLevel, this);
             this.Stopwatch = new Stopwatch();
             this.Stopwatch.Start();
@@ -94,7 +96,7 @@ namespace DurableTask.EventSourced
                 this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
 
                 // initialize collections for pending work
-                this.PendingTimers = new BatchTimer<PartitionUpdateEvent>(this.ErrorHandler.Token, this.TimersFired);
+                this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
 
                 // goes to storage to create or restore the partition state
@@ -113,8 +115,9 @@ namespace DurableTask.EventSourced
                 this.ErrorHandler.HandleError(nameof(CreateOrRestoreAsync), "Could not start partition", e, true, false);
                 throw;
             }
+
         }
-       
+
         [Conditional("DEBUG")]
         public void Assert(bool condition)
         {
@@ -155,16 +158,29 @@ namespace DurableTask.EventSourced
             // at this point, the partition has been terminated (either cleanly or by exception)
             this.Assert(this.ErrorHandler.IsTerminated);
 
+            // tell the load publisher to send all buffered info
+            this.LoadPublisher.Flush();
+
             this.ErrorHandler.TraceProgress("Stopped partition");
         }
 
-        private void TimersFired(List<PartitionUpdateEvent> timersFired)
+        private void TimersFired(List<PartitionEvent> timersFired)
         {
             try
             {
                 foreach (var t in timersFired)
                 {
-                    this.SubmitInternalEvent(t);
+                    switch(t)
+                    {
+                        case PartitionUpdateEvent updateEvent:
+                            this.SubmitInternalEvent(updateEvent);
+                            break;
+                        case PartitionReadEvent readEvent:
+                            this.SubmitInternalEvent(readEvent);
+                            break;
+                        default:
+                            throw new InvalidCastException("Could not cast to neither PartitionUpdateEvent nor PartitionReadEvent");
+                    }
                 }
             }
             catch (OperationCanceledException) when (this.ErrorHandler.IsTerminated)

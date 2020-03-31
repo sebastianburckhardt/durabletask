@@ -83,6 +83,14 @@ namespace DurableTask.EventSourced
         {
         }
 
+        /// <summary>
+        /// Is called to update the load information that is published
+        /// </summary>
+        /// <param name="info"></param>
+        public virtual void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+        }
+
         public virtual void Process(PartitionEventFragment e, EffectTracker effects)
         {
             // processing a reassembled event just applies the original event

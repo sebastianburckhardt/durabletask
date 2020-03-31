@@ -15,6 +15,7 @@ using FASTER.core;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,10 +37,17 @@ namespace DurableTask.EventSourced.Faster
         public long InputQueuePosition { get; private set; }
         public long CommitLogPosition { get; private set; }
 
+        // periodic index and store checkpointing
         private Task pendingIndexCheckpoint;
         private Task<long> pendingStoreCheckpoint;
         private long lastCheckpointedPosition;
         private long numberEventsSinceLastCheckpoint;
+
+        // periodic load publishing
+        private long lastPublishedCommitLogPosition = 0;
+        private long lastPublishedInputQueuePosition = 0;
+        private DateTime lastPublishedTime = DateTime.MinValue;
+        public static TimeSpan MinDelayBetweenPublish = TimeSpan.FromSeconds(10);
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -94,7 +102,31 @@ namespace DurableTask.EventSourced.Faster
             // waits for the currently processing entry to finish processing
             await this.shutdownWaiter.Task;
 
+            await this.PublishLoad();
+
             this.traceHelper.FasterProgress("Stopped StoreWorker");
+        }
+
+        private async Task PublishLoad()
+        {
+            if (this.CommitLogPosition == this.lastPublishedCommitLogPosition && this.InputQueuePosition == this.lastPublishedInputQueuePosition)
+            {
+                return;   // we only submit updates if the state has advanced
+            }
+
+            var info = new LoadMonitorAbstraction.PartitionInfo();
+            foreach (var k in TrackedObjectKey.GetSingletons())
+            {
+                (await this.store.GetOrCreate(k)).UpdateInfo(info);
+            }
+            info.CommitLogPosition = this.CommitLogPosition;
+            info.InputQueuePosition = this.InputQueuePosition;
+            partition.LoadPublisher.Submit((this.partition.PartitionId, info));
+            this.lastPublishedCommitLogPosition = this.CommitLogPosition;
+            this.lastPublishedInputQueuePosition = this.InputQueuePosition;
+            this.lastPublishedTime = DateTime.UtcNow;
+
+            this.traceHelper.FasterProgress($"Publishing LoadInfo WorkItems={info.WorkItems} Activities={info.Activities} Timers={info.Timers} Outbox={info.Outbox} NextTimer={info.NextTimer} InputQueuePosition={info.InputQueuePosition} CommitLogPosition={info.CommitLogPosition}");
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -163,6 +195,11 @@ namespace DurableTask.EventSourced.Faster
                 {
                     var token = this.store.StartIndexCheckpoint();
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync("index checkpoint", token);
+                }
+
+                if (this.lastPublishedTime + MinDelayBetweenPublish < DateTime.UtcNow)
+                {
+                    await this.PublishLoad();
                 }
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)

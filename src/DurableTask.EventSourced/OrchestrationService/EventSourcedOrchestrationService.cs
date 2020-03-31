@@ -44,6 +44,8 @@ namespace DurableTask.EventSourced
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
         internal Client Client { get; private set; }
 
+        internal LoadMonitorAbstraction.ILoadMonitorService LoadMonitorService { get; private set; }
+
         internal EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         internal uint NumberPartitions { get; private set; }
         uint TransportAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
@@ -51,6 +53,7 @@ namespace DurableTask.EventSourced
 
         internal WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         internal WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        internal LoadPublisher LoadPublisher { get; private set; }
 
         internal Guid ServiceInstanceId { get; } = Guid.NewGuid();
         internal ILogger Logger { get; }
@@ -92,6 +95,8 @@ namespace DurableTask.EventSourced
                 default:
                     throw new NotImplementedException("no such transport choice");
             }
+
+            this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
         }
 
         private async Task WorkitemExpirationCheck(CancellationToken token)
@@ -123,15 +128,19 @@ namespace DurableTask.EventSourced
             }
         }
 
-        Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
+        async Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
+            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None);
+
             switch (this.Settings.StorageComponent)
             {
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
-                    return Task.Delay(10);
+                    await Task.Delay(10);
+                    break;
 
                 case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
-                    return Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName);
+                    await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName);
+                    break;
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -160,16 +169,23 @@ namespace DurableTask.EventSourced
             {
                 await this.taskHub.CreateAsync();
             }
+
+            await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None);
         }
 
         /// <inheritdoc />
         public async Task CreateIfNotExistsAsync() => await ((IOrchestrationService)this).CreateAsync(false);
 
         /// <inheritdoc />
-        public async Task DeleteAsync() => await this.taskHub.DeleteAsync();
+        public async Task DeleteAsync()
+        {
+            await this.taskHub.DeleteAsync();
+
+            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None);
+        }
 
         /// <inheritdoc />
-        public async Task DeleteAsync(bool deleteInstanceStore) => await this.taskHub.DeleteAsync();
+        public async Task DeleteAsync(bool deleteInstanceStore) => await this.DeleteAsync();
 
         /// <inheritdoc />
         public async Task StartAsync()
@@ -186,6 +202,8 @@ namespace DurableTask.EventSourced
 
             this.ActivityWorkItemQueue = new WorkItemQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
             this.OrchestrationWorkItemQueue = new WorkItemQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+
+            this.LoadPublisher = new LoadPublisher(this.LoadMonitorService);
 
             await taskHub.StartAsync();
 
@@ -250,7 +268,7 @@ namespace DurableTask.EventSourced
         TransportAbstraction.IPartition TransportAbstraction.IHost.AddPartition(uint partitionId, TransportAbstraction.ISender batchSender)
         {
             var partition = new Partition(this, partitionId, this.GetPartitionId, this.GetNumberPartitions, batchSender, this.Settings, this.StorageAccountName,
-                this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue);
+                this.ActivityWorkItemQueue, this.OrchestrationWorkItemQueue, this.LoadPublisher);
 
             return partition;
         }

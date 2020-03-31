@@ -59,10 +59,15 @@ namespace DurableTask.EventSourced
         public override void OnRecoveryCompleted()
         {
             // create work items for all sessions
-            foreach(var kvp in Sessions)
+            foreach (var kvp in Sessions)
             {
                 new OrchestrationMessageBatch(kvp.Key, kvp.Value, this.Partition);
             }
+        }        
+
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+            info.WorkItems += this.Sessions.Count;
         }
 
         public override string ToString()

@@ -45,6 +45,11 @@ namespace DurableTask.EventSourced
         public string WorkerId { get; set; } = Environment.MachineName;
 
         /// <summary>
+        /// The name to use for the Azure table with the load information
+        /// </summary>
+        public string LoadInformationAzureTableName { get; set; } = "DurableTaskPartitions";
+
+        /// <summary>
         /// Determines the component to use for message delivery and partition load balancing.
         /// </summary>
         public TransportChoices TransportComponent
@@ -190,6 +195,7 @@ namespace DurableTask.EventSourced
                 this.StorageConnectionString,
                 this.TaskHubName,
                 this.WorkerId,
+                this.LoadInformationAzureTableName,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
                 this.KeepServiceRunning,
@@ -204,6 +210,7 @@ namespace DurableTask.EventSourced
                 other.StorageConnectionString,
                 other.TaskHubName,
                 other.WorkerId,
+                other.LoadInformationAzureTableName,
                 other.MaxConcurrentTaskActivityWorkItems,
                 other.MaxConcurrentTaskOrchestrationWorkItems,
                 other.KeepServiceRunning,
@@ -222,6 +229,7 @@ namespace DurableTask.EventSourced
                 this.StorageConnectionString,
                 this.TaskHubName,
                 this.WorkerId,
+                this.LoadInformationAzureTableName,
                 this.MaxConcurrentTaskActivityWorkItems,
                 this.MaxConcurrentTaskOrchestrationWorkItems,
                 this.KeepServiceRunning,

@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
@@ -25,7 +26,7 @@ namespace DurableTask.EventSourced
     internal class TimersState : TrackedObject
     {
         [DataMember]
-        public Dictionary<long, TaskMessage> PendingTimers { get; private set; } = new Dictionary<long, TaskMessage>();
+        public Dictionary<long, (DateTime, TaskMessage)> PendingTimers { get; private set; } = new Dictionary<long, (DateTime, TaskMessage)>();
 
         [DataMember]
         public long SequenceNumber { get; set; }
@@ -43,33 +44,52 @@ namespace DurableTask.EventSourced
             // restore the pending timers
             foreach (var kvp in PendingTimers)
             {
-                this.Schedule(kvp.Key, kvp.Value);
+                this.Schedule(kvp.Key, kvp.Value.Item1, kvp.Value.Item2);
             }
         }
 
-        private void Schedule(long timerId, TaskMessage message)
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+            info.Timers = this.PendingTimers.Count;
+
+            if (info.Timers > 0)
+            {
+                info.NextTimer = this.PendingTimers.Select(kvp => kvp.Value.Item1).Min();
+            }
+            else
+            {
+                info.NextTimer = null;
+            }
+        }
+
+        private void Schedule(long timerId, DateTime due, TaskMessage message)
         {
             TimerFired expirationEvent = new TimerFired()
             {
                 PartitionId = this.Partition.PartitionId,
                 TimerId = timerId,
                 TaskMessage = message,
+                Due = due,
             };
+
+            Partition.EventDetailTracer?.TraceEventProcessingDetail($"Scheduled {message} due at {expirationEvent.Due:o}, id={expirationEvent.EventIdString}");
+            Partition.PendingTimers.Schedule(expirationEvent.Due, expirationEvent);
+        }
+
+        private static DateTime GetDueTime(TaskMessage message)
+        {
             if (message.Event is TimerFiredEvent timerFiredEvent)
             {
-                expirationEvent.Due = timerFiredEvent.FireAt;
+                return timerFiredEvent.FireAt;
             }
             else if (Entities.IsDelayedEntityMessage(message, out DateTime due))
             {
-                expirationEvent.Due = due;
+                return due;
             }
             else
             {
                 throw new ArgumentException(nameof(message), "unhandled event type");
             }
-
-            Partition.EventDetailTracer?.TraceEventProcessingDetail($"Scheduled {message} due at {expirationEvent.Due:o}, id={expirationEvent.EventIdString}");
-            Partition.PendingTimers.Schedule(expirationEvent.Due, expirationEvent);
         }
 
         public void Process(TimerFired evt, EffectTracker effects)
@@ -84,11 +104,12 @@ namespace DurableTask.EventSourced
             foreach (var t in evt.TimerMessages)
             {
                 var timerId = this.SequenceNumber++;
-                this.PendingTimers.Add(timerId, t);
+                var due = GetDueTime(t);
+                this.PendingTimers.Add(timerId, (due, t));
 
                 if (!effects.IsReplaying)
                 {
-                    this.Schedule(timerId, t);
+                    this.Schedule(timerId, due, t);
                 }
             }
         }
@@ -99,11 +120,12 @@ namespace DurableTask.EventSourced
             foreach (var t in evt.DelayedTaskMessages)
             {
                 var timerId = this.SequenceNumber++;
-                this.PendingTimers.Add(timerId, t);
+                var due = GetDueTime(t);
+                this.PendingTimers.Add(timerId, (due, t));
 
                 if (!effects.IsReplaying)
                 {
-                    this.Schedule(timerId, t);
+                    this.Schedule(timerId, due, t);
                 }
             }
         }

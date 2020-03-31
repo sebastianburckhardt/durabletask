@@ -35,6 +35,11 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+            info.WorkItems += this.Pending.Count;
+        }
+
         public override string ToString()
         {
             return $"Prefetch ({Pending.Count} pending)";

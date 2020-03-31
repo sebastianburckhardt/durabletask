@@ -92,6 +92,11 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+            info.Activities = this.Pending.Count + this.LocalBacklog.Count + this.QueuedRemotes.Count;
+        }
+
         public override string ToString()
         {
             return $"Activities ({Pending.Count} pending) next={SequenceNumber:D6}";

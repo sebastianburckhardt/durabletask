@@ -129,7 +129,6 @@ namespace DurableTask.EventSourced.Tests
             Assert.Equal("OK", JToken.Parse(status?.Output));
         }
 
-
         [Fact]
         public async Task AutoStart()
         {

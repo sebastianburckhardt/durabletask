@@ -48,6 +48,11 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        {
+            info.Outbox = this.Outbox.Count;
+        }
+
         public override string ToString()
         {
             return $"Outbox ({Outbox.Count} pending)";
