@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             await table.CreateAsync();
         }
 
-        public Task PublishAsync(Dictionary<uint, LoadMonitorAbstraction.PartitionInfo> info, CancellationToken cancellationToken)
+        public Task PublishAsync(Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo> info, CancellationToken cancellationToken)
         {
             TableBatchOperation tableBatch = new TableBatchOperation();
             foreach(var kvp in info)
@@ -85,17 +85,17 @@ namespace DurableTask.EventSourced
             return this.table.ExecuteBatchAsync(tableBatch, null, null, cancellationToken);
         }
 
-        public async Task<Dictionary<uint, LoadMonitorAbstraction.PartitionInfo>> QueryAsync(CancellationToken cancellationToken)
+        public async Task<Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>> QueryAsync(CancellationToken cancellationToken)
         {
             var query = new TableQuery<PartitionInfoEntity>().Where(TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.Equal, this.taskHubName));
             TableContinuationToken continuationToken = null;
-            Dictionary<uint, LoadMonitorAbstraction.PartitionInfo> result = new Dictionary<uint, LoadMonitorAbstraction.PartitionInfo>();
+            Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo> result = new Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>();
             do
             {
                 var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken);
                 foreach (var e in batch)
                 {
-                    result.Add(e.PartitionId, new LoadMonitorAbstraction.PartitionInfo()
+                    result.Add(e.PartitionId, new LoadMonitorAbstraction.PartitionLoadInfo()
                     {
                         WorkItems = e.WorkItems,
                         Activities = e.Activities,
@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced
             }
 
             // constructor for updating load information
-            public PartitionInfoEntity(string taskHubName, uint partitionId, LoadMonitorAbstraction.PartitionInfo info)
+            public PartitionInfoEntity(string taskHubName, uint partitionId, LoadMonitorAbstraction.PartitionLoadInfo info)
                 : base(taskHubName, partitionId.ToString("D2"))
             {
                 this.WorkItems = info.WorkItems;

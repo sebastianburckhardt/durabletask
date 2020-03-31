@@ -35,7 +35,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
         {
             info.WorkItems += this.Pending.Count;
         }

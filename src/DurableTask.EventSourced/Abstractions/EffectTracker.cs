@@ -141,7 +141,7 @@ namespace DurableTask.EventSourced
                 finally
                 {
                     double finishedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
-                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, updateEvent, startedTimestamp, finishedTimestamp, false);
+                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, updateEvent, startedTimestamp, finishedTimestamp, this.IsReplaying);
                 }
             }
         }

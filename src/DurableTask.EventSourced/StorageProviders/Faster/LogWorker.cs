@@ -158,8 +158,6 @@ namespace DurableTask.EventSourced.Faster
                             }
                         }
                     }
-
-                    this.traceHelper.FasterProgress("Log persistence acked");
                 }
                 catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
                 {

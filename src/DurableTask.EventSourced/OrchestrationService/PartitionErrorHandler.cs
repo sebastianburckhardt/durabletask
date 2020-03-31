@@ -33,6 +33,17 @@ namespace DurableTask.EventSourced
 
         public void HandleError(string context, string message, Exception exception, bool terminatePartition, bool isWarning)
         {
+            this.TraceError(isWarning, context, message, exception, terminatePartition);
+
+            // terminate this partition in response to the error
+            if (terminatePartition && !cts.IsCancellationRequested)
+            {
+                this.Terminate();
+            }
+        }
+
+        private void TraceError(bool isWarning, string context, string message, Exception exception, bool terminatePartition)
+        {
             var logLevel = isWarning ? LogLevel.Warning : LogLevel.Error;
             if (this.logger?.IsEnabled(logLevel) == true)
             {
@@ -52,21 +63,6 @@ namespace DurableTask.EventSourced
                 {
                     EtwSource.Log.PartitionError(this.account, this.taskHub, this.partitionId, context, terminatePartition, message, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
                 }
-            }
-
-            // terminate this partition in response to the error
-            if (terminatePartition && !cts.IsCancellationRequested)
-            {
-                this.Terminate();
-            }
-        }
-
-        public void TraceProgress(string details)
-        {
-            if (this.etwLogLevel <= LogLevel.Information)
-            {
-                this.logger.LogInformation("Part{partition:D2} {details}", this.partitionId, details);
-                EtwSource.Log.PartitionProgress(this.account, this.taskHub, this.partitionId, details, TraceUtils.ExtensionVersion);
             }
         }
 

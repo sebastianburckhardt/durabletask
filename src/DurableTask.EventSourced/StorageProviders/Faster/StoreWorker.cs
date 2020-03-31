@@ -102,19 +102,20 @@ namespace DurableTask.EventSourced.Faster
             // waits for the currently processing entry to finish processing
             await this.shutdownWaiter.Task;
 
-            await this.PublishLoad();
+            // always publish the final load since it indicates whether there is unprocessed work
+            await this.PublishPartitionLoad();
 
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
 
-        private async Task PublishLoad()
+        private async Task PublishPartitionLoad()
         {
             if (this.CommitLogPosition == this.lastPublishedCommitLogPosition && this.InputQueuePosition == this.lastPublishedInputQueuePosition)
             {
                 return;   // we only submit updates if the state has advanced
             }
 
-            var info = new LoadMonitorAbstraction.PartitionInfo();
+            var info = new LoadMonitorAbstraction.PartitionLoadInfo();
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
                 (await this.store.GetOrCreate(k)).UpdateInfo(info);
@@ -126,7 +127,7 @@ namespace DurableTask.EventSourced.Faster
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
             this.lastPublishedTime = DateTime.UtcNow;
 
-            this.traceHelper.FasterProgress($"Publishing LoadInfo WorkItems={info.WorkItems} Activities={info.Activities} Timers={info.Timers} Outbox={info.Outbox} NextTimer={info.NextTimer} InputQueuePosition={info.InputQueuePosition} CommitLogPosition={info.CommitLogPosition}");
+            this.partition.TraceHelper.TracePartitionLoad(info);
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -199,7 +200,7 @@ namespace DurableTask.EventSourced.Faster
 
                 if (this.lastPublishedTime + MinDelayBetweenPublish < DateTime.UtcNow)
                 {
-                    await this.PublishLoad();
+                    await this.PublishPartitionLoad();
                 }
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)

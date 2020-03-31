@@ -180,16 +180,16 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            if (this.logger.IsEnabled(LogLevel.Information))
+            if (this.logger.IsEnabled(LogLevel.Debug))
             {
                 (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                 string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogInformation("Part{partition:D2}{prefix} Updated instance instanceId={instanceId} executionId={executionId} workItemId={workItemId} numNewEvents={numNewEvents} totalEventCount={totalEventCount} eventNames={eventNames} eventType={eventType} episode={episode}",
+                this.logger.LogDebug("Part{partition:D2}{prefix} Updated instance instanceId={instanceId} executionId={executionId} workItemId={workItemId} numNewEvents={numNewEvents} totalEventCount={totalEventCount} eventNames={eventNames} eventType={eventType} episode={episode}",
                     this.partitionId, prefix, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode);
             }
 
-            etwLogInformation?.InstanceUpdated(this.account, this.taskHub, this.partitionId, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
+            etwLogDebug?.InstanceUpdated(this.account, this.taskHub, this.partitionId, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
         }
 
         public void TraceFetchedInstanceStatus(PartitionReadEvent evt, string instanceId, string executionId, double latencyMs)

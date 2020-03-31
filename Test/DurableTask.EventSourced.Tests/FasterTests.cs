@@ -51,7 +51,7 @@ namespace DurableTask.EventSourced.Tests
 
             var taskHubName = useAzure ? "test-taskhub" : Guid.NewGuid().ToString("N");
             var account = useAzure ? CloudStorageAccount.Parse(TestHelpers.GetAzureStorageConnectionString()) : null;
-            var logger = loggerFactory.CreateLogger("faster");
+            var logger = loggerFactory.CreateLogger("testlogger");
 
             await BlobManager.DeleteTaskhubStorageAsync(account, taskHubName);
 

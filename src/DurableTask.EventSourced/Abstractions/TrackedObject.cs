@@ -87,7 +87,7 @@ namespace DurableTask.EventSourced
         /// Is called to update the load information that is published
         /// </summary>
         /// <param name="info"></param>
-        public virtual void UpdateInfo(LoadMonitorAbstraction.PartitionInfo info)
+        public virtual void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
         {
         }
 

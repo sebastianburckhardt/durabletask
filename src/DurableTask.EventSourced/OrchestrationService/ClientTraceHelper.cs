@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
         {
             if (this.logger.IsEnabled(LogLevel.Information))
             {
-                this.logger.LogError("{client} {details}", this.tracePrefix, details);
+                this.logger.LogInformation("{client} {details}", this.tracePrefix, details);
             }
             if (this.etwLogLevel <= LogLevel.Information)
             {

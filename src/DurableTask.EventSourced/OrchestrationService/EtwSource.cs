@@ -141,7 +141,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(224, Account, TaskHub, PartitionId, InstanceId, WorkItemId, ExtensionVersion);
         }
 
-        [Event(225, Level = EventLevel.Informational, Version = 1)]
+        [Event(225, Level = EventLevel.Verbose, Version = 1)]
         public void InstanceUpdated(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, string WorkItemId, int NewEventCount, int TotalEventCount, string NewEvents, string EventType, int Episode, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
@@ -197,6 +197,13 @@ namespace DurableTask.EventSourced
         {
             SetCurrentThreadActivityId(serviceInstanceId);
             this.WriteEvent(244, Account, TaskHub, PartitionId, CommitLogPosition, MessageId, ReportedLocalLoad, Pending, Backlog, Remotes, ReportedRemoteLoad, ExtensionVersion);
+        }
+
+        [Event(245, Level = EventLevel.Informational, Version = 1)]
+        public void PartitionLoadPublished(string Account, string TaskHub, int PartitionId, int WorkItems, int Activities, int Timers, int Outbox, string NextTimer, long InputQueuePosition, long CommitLogPosition, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(245, Account, TaskHub, PartitionId, WorkItems, Activities, Timers, Outbox, NextTimer, InputQueuePosition, CommitLogPosition, ExtensionVersion);
         }
 
         // ----- Faster Storage

@@ -21,6 +21,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using DurableTask.Core.Tracing;
 using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
@@ -34,6 +35,7 @@ namespace DurableTask.EventSourced
         public Func<string, uint> PartitionFunction { get; private set; }
         public Func<uint> NumberPartitions { get; private set; }
         public IPartitionErrorHandler ErrorHandler { get; private set; }
+        public PartitionTraceHelper TraceHelper { get; private set; }
         public Stopwatch Stopwatch { get; }
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
@@ -77,6 +79,7 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
             this.LoadPublisher = loadPublisher;
+            this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.EtwLevel, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
             this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EtwLevel, this);
             this.Stopwatch = new Stopwatch();
             this.Stopwatch.Start();
@@ -87,7 +90,7 @@ namespace DurableTask.EventSourced
             EventTraceContext.Clear();
 
             this.ErrorHandler = errorHandler;
-            this.ErrorHandler.TraceProgress("Starting partition");
+            this.TraceHelper.TraceProgress("Starting partition");
 
             // create or restore partition state from last snapshot
             try
@@ -100,14 +103,14 @@ namespace DurableTask.EventSourced
                 this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
 
                 // goes to storage to create or restore the partition state
-                this.ErrorHandler.TraceProgress("Loading partition state");
+                this.TraceHelper.TraceProgress("Loading partition state");
                 var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
 
                 this.RecoveryIsComplete = true;
 
                 this.PendingTimers.Start($"Timer{this.PartitionId:D2}");
 
-                this.ErrorHandler.TraceProgress($"Started partition, nextInputQueuePosition={inputQueuePosition}");
+                this.TraceHelper.TraceProgress($"Started partition, nextInputQueuePosition={inputQueuePosition}");
                 return inputQueuePosition;
             }
             catch (Exception e)
@@ -136,7 +139,7 @@ namespace DurableTask.EventSourced
 
         public async Task StopAsync()
         {
-            this.ErrorHandler.TraceProgress("Stopping partition");
+            this.TraceHelper.TraceProgress("Stopping partition");
 
             try
             {
@@ -161,7 +164,7 @@ namespace DurableTask.EventSourced
             // tell the load publisher to send all buffered info
             this.LoadPublisher.Flush();
 
-            this.ErrorHandler.TraceProgress("Stopped partition");
+            this.TraceHelper.TraceProgress("Stopped partition");
         }
 
         private void TimersFired(List<PartitionEvent> timersFired)

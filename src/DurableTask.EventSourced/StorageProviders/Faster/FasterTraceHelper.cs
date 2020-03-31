@@ -24,6 +24,7 @@ namespace DurableTask.EventSourced.Faster
             this.partitionId = (int) partitionId;
         }
 
+        private EtwSource etwLogTrace => (this.etwLogLevel <= LogLevel.Trace) ? EtwSource.Log : null;
         private EtwSource etwLogDebug => (this.etwLogLevel <= LogLevel.Debug) ? EtwSource.Log : null;
         private EtwSource etwLogInformation => (this.etwLogLevel <= LogLevel.Information) ? EtwSource.Log : null;
         private EtwSource etwLogWarning => (this.etwLogLevel <= LogLevel.Warning) ? EtwSource.Log : null;
@@ -51,8 +52,8 @@ namespace DurableTask.EventSourced.Faster
 
         public void FasterLogPersisted(long commitLogPosition, long numberEvents, long sizeInBytes, long latencyMs)
         {
-            logger.LogDebug("Part{partition:D2} Persisted Log, commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs);
-            etwLogDebug?.FasterLogPersisted(this.account, this.taskHub, partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
+            logger.LogTrace("Part{partition:D2} Persisted Log, commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs);
+            etwLogTrace?.FasterLogPersisted(this.account, this.taskHub, partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
         }
 
          public void FasterCheckpointLoaded(long commitLogPosition, long inputQueuePosition, long latencyMs)

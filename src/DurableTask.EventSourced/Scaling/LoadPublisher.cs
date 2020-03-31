@@ -22,7 +22,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class LoadPublisher : BatchWorker<(uint, LoadMonitorAbstraction.PartitionInfo)>
+    internal class LoadPublisher : BatchWorker<(uint, LoadMonitorAbstraction.PartitionLoadInfo)>
     {
         private readonly LoadMonitorAbstraction.ILoadMonitorService service;
 
@@ -41,11 +41,11 @@ namespace DurableTask.EventSourced
             this.cancelWait.Cancel(); // so that we don't have to wait the whole delay
         }
 
-        protected override async Task Process(IList<(uint, LoadMonitorAbstraction.PartitionInfo)> batch)
+        protected override async Task Process(IList<(uint, LoadMonitorAbstraction.PartitionLoadInfo)> batch)
         {
             if (batch.Count != 0)
             {
-                var latestForEachPartition = new Dictionary<uint, LoadMonitorAbstraction.PartitionInfo>();
+                var latestForEachPartition = new Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>();
 
                 foreach (var (partitionId, info) in batch)
                 {

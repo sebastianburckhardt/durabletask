@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
             /// <param name="loadInfo">A collection of load information for partitions</param>
             /// <param name="cancellationToken">A cancellation token</param>
             /// <returns>A task indicating completion</returns>
-            Task PublishAsync(Dictionary<uint, PartitionInfo> loadInfo, CancellationToken cancellationToken);
+            Task PublishAsync(Dictionary<uint, PartitionLoadInfo> loadInfo, CancellationToken cancellationToken);
 
             /// <summary>
             /// Delete all load information for a taskhub.
@@ -55,13 +55,13 @@ namespace DurableTask.EventSourced
             /// </summary>
             /// <param name="cancellationToken">A cancellation token</param>
             /// <returns>A task returning a dictionary with load information for the partitions</returns>
-            Task<Dictionary<uint, PartitionInfo>> QueryAsync(CancellationToken cancellationToken);
+            Task<Dictionary<uint, PartitionLoadInfo>> QueryAsync(CancellationToken cancellationToken);
         }
 
         /// <summary>
         /// Information about a specific partition
         /// </summary>
-        public class PartitionInfo
+        public class PartitionLoadInfo
         {
             /// <summary>
             /// The number of orchestration work items waiting to be processed.
