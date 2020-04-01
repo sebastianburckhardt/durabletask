@@ -263,6 +263,7 @@ namespace DurableTask.EventSourced
             if (FindOffloadTarget(numberOffloadCandidates, out uint target, out int maxBatchsize))
             {
                 // don't pick this same target again until we get a response telling us the current queue size
+                var targetLoad = this.ReportedRemoteLoads[target];
                 this.ReportedRemoteLoads[target] = RESPONSE_PENDING;
 
                 // we are adding (nonpersisted) information to the event just as a way of passing it to the OutboxState
@@ -283,19 +284,23 @@ namespace DurableTask.EventSourced
                 // process this on OutboxState so the events get sent
                 effects.Add(TrackedObjectKey.Outbox);
 
+                var reportedRemotes = string.Join(",", this.ReportedRemoteLoads.Select((int x, int i) =>
+                    (i == target) ? $"{targetLoad}+{offloadDecisionEvent.OffloadedActivities.Count}" : (x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString()))));
+
+                this.Partition.EventTraceHelper.TracePartitionOffloadDecision(EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);
+
                 // try again relatively soon
                 this.ScheduleNextOffloadDecision(TimeSpan.FromMilliseconds(200));
             }
             else
             {
+                var reportedRemotes = string.Join(",", this.ReportedRemoteLoads.Select((int x) => x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString())));
+
+                this.Partition.EventTraceHelper.TracePartitionOffloadDecision(EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);
+
                 // there are no eligible recipients... try again in a while
                 this.ScheduleNextOffloadDecision(TimeSpan.FromSeconds(10));
             }
-
-            var reportedRemotes = string.Join(",",
-                 this.ReportedRemoteLoads.Select(x => x == NOT_CONTACTED ? "-" : (x == RESPONSE_PENDING ? "X" : x.ToString())));
-
-            this.Partition.EventTraceHelper.TracePartitionOffloadDecision(EstimatedLocalWorkItemLoad, Pending.Count, LocalBacklog.Count, this.QueuedRemotes.Count, reportedRemotes);           
         }
 
         private int CountOffloadCandidates(DateTime now)

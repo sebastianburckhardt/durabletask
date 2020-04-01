@@ -27,15 +27,16 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterKV store;
         private readonly Partition partition;
         private readonly FasterTraceHelper traceHelper;
+        private readonly BlobManager blobManager;
 
         private readonly EffectTracker effectTracker;
-
-        private volatile TaskCompletionSource<bool> shutdownWaiter;
-
-        private bool IsShuttingDown => this.shutdownWaiter != null || this.cancellationToken.IsCancellationRequested;
+        
+        private bool isShuttingDown;
 
         public long InputQueuePosition { get; private set; }
         public long CommitLogPosition { get; private set; }
+
+        public LogWorker LogWorker { get; set; }
 
         // periodic index and store checkpointing
         private Task pendingIndexCheckpoint;
@@ -49,12 +50,13 @@ namespace DurableTask.EventSourced.Faster
         private DateTime lastPublishedTime = DateTime.MinValue;
         public static TimeSpan MinDelayBetweenPublish = TimeSpan.FromSeconds(10);
 
-        public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, CancellationToken cancellationToken) 
+        public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
         {
             this.store = store;
             this.partition = partition;
             this.traceHelper = traceHelper;
+            this.blobManager = blobManager;
 
             // construct an effect tracker that we use to apply effects to the store
             this.effectTracker = new EffectTracker(
@@ -82,8 +84,8 @@ namespace DurableTask.EventSourced.Faster
 
         public void ReadCheckpointPositions(BlobManager blobManager)
         {
-            this.InputQueuePosition = blobManager.CheckpointInputQueuePosition;
-            this.CommitLogPosition = blobManager.CheckpointCommitLogPosition;
+            this.InputQueuePosition = blobManager.CheckpointInfo.InputQueuePosition;
+            this.CommitLogPosition = blobManager.CheckpointInfo.CommitLogPosition;
 
             this.lastCheckpointedPosition = this.CommitLogPosition;
             this.numberEventsSinceLastCheckpoint = 0;
@@ -93,14 +95,19 @@ namespace DurableTask.EventSourced.Faster
         {
             this.traceHelper.FasterProgress("Stopping StoreWorker");
 
-            lock (this.thisLock)
-            {
-                this.shutdownWaiter = new TaskCompletionSource<bool>();
-                this.Notify();
-            }
+            this.isShuttingDown = true;
 
-            // waits for the currently processing entry to finish processing
-            await this.shutdownWaiter.Task;
+            await this.WaitForCompletionAsync();
+
+            // wait for any in-flight checkpoints. It is unlikely but not impossible.
+            if (this.pendingIndexCheckpoint != null)
+            {
+                await this.pendingIndexCheckpoint;
+            }
+            if (this.pendingStoreCheckpoint != null)
+            {
+                await this.pendingStoreCheckpoint;
+            }
 
             // always publish the final load since it indicates whether there is unprocessed work
             await this.PublishPartitionLoad();
@@ -136,9 +143,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 foreach (var partitionEvent in batch)
                 {
-                    if (this.IsShuttingDown)
+                    if (this.isShuttingDown || this.cancellationToken.IsCancellationRequested)
                     {
-                        // immediately stop processing requests and exit
                         return;
                     }
 
@@ -166,7 +172,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
-                if (this.IsShuttingDown)
+                if (this.isShuttingDown || this.cancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
@@ -187,7 +193,7 @@ namespace DurableTask.EventSourced.Faster
                         await this.pendingIndexCheckpoint; // observe exceptions here
                         this.pendingIndexCheckpoint = null;
                         var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
-                        this.pendingStoreCheckpoint = this.WaitForCheckpointAsync("store checkpoint", token);
+                        this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
                         this.numberEventsSinceLastCheckpoint = 0;
                     }
                 }
@@ -195,7 +201,7 @@ namespace DurableTask.EventSourced.Faster
                     || this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
                 {
                     var token = this.store.StartIndexCheckpoint();
-                    this.pendingIndexCheckpoint = this.WaitForCheckpointAsync("index checkpoint", token);
+                    this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
                 }
 
                 if (this.lastPublishedTime + MinDelayBetweenPublish < DateTime.UtcNow)
@@ -211,21 +217,31 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.partition.ErrorHandler.HandleError("StoreWorker.Process", "Encountered exception while working on store", exception, true, false);
             }
-            finally
-            {
-                this.shutdownWaiter?.TrySetResult(true);
-            }
         }     
 
-        public async Task<long> WaitForCheckpointAsync(string description, Guid checkpointToken)
+        public async Task<long> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
             var commitLogPosition = this.CommitLogPosition;
             var inputQueuePosition = this.InputQueuePosition;
+            string description = isIndexCheckpoint ? "index checkpoint" : "store checkpoint";
             this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
+
+            // first do the faster checkpoint
             await store.CompleteCheckpointAsync();
+
+            if (!isIndexCheckpoint)
+            {
+                // wait for the commit log so it is never behind the checkpoint
+                await this.LogWorker.WaitForCompletionAsync();
+
+                // finally we write the checkpoint info file
+                await this.blobManager.WriteCheckpointCompletedAsync();
+            }
+ 
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
+
             this.Notify();
             return commitLogPosition;
         }

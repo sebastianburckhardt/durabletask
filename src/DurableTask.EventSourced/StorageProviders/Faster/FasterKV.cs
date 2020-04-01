@@ -53,7 +53,6 @@ namespace DurableTask.EventSourced.Faster
 
             this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
-
         
         public void Recover()
         {
@@ -85,8 +84,8 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                this.blobManager.CheckpointCommitLogPosition = commitLogPosition;
-                this.blobManager.CheckpointInputQueuePosition = inputQueuePosition;
+                this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
+                this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
                 return this.fht.TakeFullCheckpoint(out checkpointGuid);
             }
             catch (Exception exception)
@@ -131,8 +130,8 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                this.blobManager.CheckpointCommitLogPosition = commitLogPosition;
-                this.blobManager.CheckpointInputQueuePosition = inputQueuePosition;
+                this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
+                this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
                 bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 
                 if (!success)

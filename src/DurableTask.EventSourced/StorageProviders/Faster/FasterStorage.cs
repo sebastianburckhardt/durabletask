@@ -75,8 +75,8 @@ namespace DurableTask.EventSourced.Faster
             this.log = new FasterLog(this.blobManager);
             this.store = new FasterKV(this.partition, this.blobManager);
 
-            this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.terminationToken);
-            this.logWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
+            this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.blobManager, this.terminationToken);
+            this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
 
             if (this.log.TailAddress == this.log.BeginAddress)
             {
@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced.Faster
                     // this is a fresh partition
                     await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition);
 
-                    await this.TakeCheckpointAsync("initial checkpoint");
+                    await this.TakeFullCheckpointAsync("initial checkpoint");
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
 
                     this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
@@ -167,14 +167,14 @@ namespace DurableTask.EventSourced.Faster
             if (takeFinalCheckpoint)
             {
                 this.TraceHelper.FasterProgress("Writing final checkpoint");
-                await this.TakeCheckpointAsync("final checkpoint");
+                await this.TakeFullCheckpointAsync("final checkpoint");
             }
 
             this.TraceHelper.FasterProgress("Stopping BlobManager");
             await this.blobManager.StopAsync();
         }
 
-        private async ValueTask TakeCheckpointAsync(string reason)
+        private async ValueTask TakeFullCheckpointAsync(string reason)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
@@ -187,7 +187,11 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.TraceHelper.FasterProgress($"Checkpoint skipped: {reason}");
             }
+
+            // do the faster full checkpoint and then write the checkpoint info file
             await this.store.CompleteCheckpointAsync();
+            await this.blobManager.WriteCheckpointCompletedAsync();
+
             if (success)
             {
                 this.TraceHelper.FasterCheckpointPersisted(checkpointGuid, reason, this.storeWorker.CommitLogPosition, this.storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);

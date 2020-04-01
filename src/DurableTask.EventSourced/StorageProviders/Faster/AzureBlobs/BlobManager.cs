@@ -11,7 +11,6 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-
 using Dynamitey.DynamicObjects;
 using FASTER.core;
 using Microsoft.Azure.Storage;
@@ -19,6 +18,7 @@ using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.Storage.Blob.Protocol;
 using Microsoft.Azure.Storage.RetryPolicies;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -42,11 +42,13 @@ namespace DurableTask.EventSourced.Faster
         private CloudBlockBlob eventLogCommitBlob;
         private CloudBlobDirectory partitionDirectory;
 
-        private string LeaseId;
+        private string leaseId;
 
         private TimeSpan LeaseDuration = TimeSpan.FromSeconds(45); // max time the lease stays after unclean shutdown
         private TimeSpan LeaseRenewal = TimeSpan.FromSeconds(30); // how often we renew the lease
         private TimeSpan LeaseSafetyBuffer = TimeSpan.FromSeconds(10); // how much time we want left on the lease before issuing a protected access
+
+        internal CheckpointInfo CheckpointInfo { get; private set; } = new CheckpointInfo();
 
         internal FasterTraceHelper TraceHelper { get; private set; }
 
@@ -57,9 +59,6 @@ namespace DurableTask.EventSourced.Faster
         public IDevice ObjectLogDevice { get; private set; }
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
-
-        public long CheckpointCommitLogPosition { get; set; }
-        public long CheckpointInputQueuePosition { get; set; }
 
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
@@ -140,8 +139,8 @@ namespace DurableTask.EventSourced.Faster
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.containerName}";
 
         private string PartitionFolder => $"p{this.partitionId:D2}";
-        private const string EventLogBlobName = "evts";
-        private const string CommitBlobName = "evts.commit";
+        private const string EventLogBlobName = "commit-log";
+        private const string CommitBlobName = "commit-lease";
         private const string HybridLogBlobName = "store";
         private const string ObjectLogBlobName = "store.obj";
 
@@ -280,7 +279,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     newLeaseTimer.Restart();
 
-                    this.LeaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null,
+                    this.leaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null,
                         accessCondition: null, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
 
                     this.leaseTimer = newLeaseTimer;
@@ -329,7 +328,7 @@ namespace DurableTask.EventSourced.Faster
         public async Task RenewLeaseTask()
         {
             await Task.Delay(this.LeaseRenewal, this.shutDownOrTermination.Token);
-            AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+            AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
             var nextLeaseTimer = new System.Diagnostics.Stopwatch();
             this.TraceHelper.LeaseProgress("Renewing lease");
             nextLeaseTimer.Start();
@@ -377,7 +376,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     this.TraceHelper.LeaseProgress("Releasing lease");
 
-                    AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                    AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
 
                     await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc,
                         options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
@@ -410,7 +409,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
@@ -442,7 +441,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                AccessCondition acc = new AccessCondition() { LeaseId = this.LeaseId };
+                AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
                     using (var stream = new MemoryStream())
@@ -505,9 +504,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                 }
 
-                var completedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointCompletedBlob());
-                this.ConfirmLeaseIsGoodForAWhile(); // we need the lease for the checkpoint completed file
-                completedFileBlob.UploadText(indexToken.ToString());
+                this.CheckpointInfo.IndexToken = indexToken;
             }
             catch (Exception e)
             {
@@ -527,17 +524,13 @@ namespace DurableTask.EventSourced.Faster
                 {
                     using (var writer = new BinaryWriter(blobStream))
                     {
-                        writer.Write(this.CheckpointCommitLogPosition);
-                        writer.Write(this.CheckpointInputQueuePosition);
                         writer.Write(commitMetadata.Length);
                         writer.Write(commitMetadata);
                         writer.Flush();
                     }
                 }
 
-                var completedFileBlob = target = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedBlob());
-                this.ConfirmLeaseIsGoodForAWhile(); // we need the lease for the checkpoint completed file
-                completedFileBlob.UploadText(logToken.ToString());
+                this.CheckpointInfo.LogToken = logToken;
             }
             catch (Exception e)
             {
@@ -580,8 +573,6 @@ namespace DurableTask.EventSourced.Faster
                 {
                     using (var reader = new BinaryReader(blobstream))
                     {
-                        this.CheckpointCommitLogPosition = reader.ReadInt64();
-                        this.CheckpointInputQueuePosition = reader.ReadInt64();
                         var len = reader.ReadInt32();
                         return reader.ReadBytes(len);
                     }
@@ -650,20 +641,17 @@ namespace DurableTask.EventSourced.Faster
             CloudBlockBlob target = null;
             try
             {
-                var indexCompletedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetIndexCheckpointCompletedBlob());
-                var logCompletedFileBlob = this.partitionDirectory.GetBlockBlobReference(this.GetHybridLogCheckpointCompletedBlob());
+                var checkpointCompletedBlob = this.partitionDirectory.GetBlockBlobReference(this.GetCheckpointCompletedBlob());
 
-                if (indexCompletedFileBlob.Exists() && logCompletedFileBlob.Exists())
+                if (checkpointCompletedBlob.Exists())
                 {
-                    target = indexCompletedFileBlob;
+                    target = checkpointCompletedBlob;
                     this.ConfirmLeaseIsGoodForAWhile();
-                    var lastIndexCheckpoint = indexCompletedFileBlob.DownloadText();
-                    indexToken = Guid.Parse(lastIndexCheckpoint);
+                    var jsonString = checkpointCompletedBlob.DownloadText();
+                    this.CheckpointInfo = JsonConvert.DeserializeObject<CheckpointInfo>(jsonString);
 
-                    target = logCompletedFileBlob;
-                    this.ConfirmLeaseIsGoodForAWhile();
-                    var lastLogCheckpoint = logCompletedFileBlob.DownloadText();
-                    logToken = Guid.Parse(lastLogCheckpoint);
+                    indexToken = this.CheckpointInfo.IndexToken;
+                    logToken = this.CheckpointInfo.LogToken;
 
                     return true;
                 }
@@ -679,18 +667,26 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        internal async Task WriteCheckpointCompletedAsync()
+        {
+            // write the final file that has all the checkpoint info
+            var checkpointCompletedBlob = this.partitionDirectory.GetBlockBlobReference(this.GetCheckpointCompletedBlob());
+            await this.ConfirmLeaseIsGoodForAWhileAsync(); // the lease protects the checkpoint completed file
+            await checkpointCompletedBlob.UploadTextAsync(JsonConvert.SerializeObject(this.CheckpointInfo, Formatting.Indented));
+        }
+
         #endregion
 
         #region Blob Name Management
 
+        private string GetCheckpointCompletedBlob()
+        {
+            return $"last-checkpoint.json";
+        }
+
         private string GetIndexCheckpointMetaBlob(Guid token)
         {
             return $"index-checkpoints/{token}/info.dat";
-        }
-
-        private string GetIndexCheckpointCompletedBlob()
-        {
-            return $"index-checkpoints/last.txt";
         }
 
         private (string, string) GetPrimaryHashTableBlob(Guid token)
@@ -701,11 +697,6 @@ namespace DurableTask.EventSourced.Faster
         private string GetHybridLogCheckpointMetaBlob(Guid token)
         {
             return $"cpr-checkpoints/{token}/info.dat";
-        }
-
-        private string GetHybridLogCheckpointCompletedBlob()
-        {
-            return $"cpr-checkpoints/last.txt";
         }
 
         private (string, string) GetLogSnapshotBlob(Guid token)

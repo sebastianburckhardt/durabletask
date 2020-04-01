@@ -33,6 +33,8 @@ namespace DurableTask.EventSourced
         private List<T> batch = new List<T>();
         private List<T> queue = new List<T>();
 
+        private TaskCompletionSource<bool> waiters;
+
         // Task for the current work cycle, or null if idle
         private volatile Task currentWorkCycle;
 
@@ -83,23 +85,54 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public virtual Task WaitForCompletionAsync()
+        {
+            lock (this.thisLock)
+            {
+               if (this.waiters == null)
+               {
+                  this.waiters = new TaskCompletionSource<bool>();
+               }
+
+               this.Notify();
+
+               return this.waiters.Task;
+            }
+        }
+
         private async Task Work()
         {
             EventTraceContext.Clear();
+            TaskCompletionSource<bool> waiters;
 
             lock (this.thisLock)
             {
+                // swap the queues
                 var temp = queue;
-                this.queue = batch;
+                this.queue = this.batch;
                 this.batch = temp;
+
+                // take the waiters and reset 
+                waiters = this.waiters;
+                this.waiters = null;
             }
 
-            if (!cancellationToken.IsCancellationRequested)
+            try
             {
-                await this.Process(batch);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            this.batch.Clear();
+                await this.Process(batch);
+
+                waiters?.SetResult(true);
+            }
+            catch (Exception e)
+            {
+                waiters?.SetException(e);
+            }
+            finally
+            {
+                this.batch.Clear();
+            }
         }
 
         /// <summary>

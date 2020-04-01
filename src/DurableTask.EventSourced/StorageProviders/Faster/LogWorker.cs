@@ -31,13 +31,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly Partition partition;
         private readonly StoreWorker storeWorker;
         private readonly FasterTraceHelper traceHelper;
-
-        private volatile TaskCompletionSource<bool> shutdownWaiter;
-
-        private ulong numberEventsProcessed;
-        private ulong numberEventsQueued;
-
-        private bool IsShuttingDown => this.shutdownWaiter != null || this.cancellationToken.IsCancellationRequested;
+        private bool isShuttingDown;
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
@@ -61,7 +55,7 @@ namespace DurableTask.EventSourced.Faster
         {
             byte[] bytes = Serializer.SerializeEvent(evt, first | last);
 
-            if (!this.IsShuttingDown)
+            if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested)
             {
                 lock (this.thisLock)
                 {
@@ -73,8 +67,6 @@ namespace DurableTask.EventSourced.Faster
 
                     // add to store worker (under lock for consistent ordering)
                     this.storeWorker.Submit(evt);
-
-                    this.numberEventsQueued++;
                 }
             }
         }
@@ -113,67 +105,53 @@ namespace DurableTask.EventSourced.Faster
         {
             this.traceHelper.FasterProgress($"Stopping LogWorker");
 
-            lock (this.thisLock)
-            {
-                this.shutdownWaiter = new TaskCompletionSource<bool>();
-                this.Notify();
-            }
+            this.isShuttingDown = true;
 
-            // wait for all the enqueued entries to be persisted
-            await TaskHelpers.WaitForTaskOrCancellation(this.shutdownWaiter.Task, this.cancellationToken); 
+            await this.WaitForCompletionAsync();
 
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }
 
         protected override async Task Process(IList<PartitionUpdateEvent> batch)
         {
-            if (batch.Count > 0)
+            try
             {
-                try
+                //  checkpoint the log
+                this.traceHelper.FasterProgress("Persisting log");
+                var stopwatch = new System.Diagnostics.Stopwatch();
+                stopwatch.Start();
+                long previous = log.CommittedUntilAddress;
+
+                await log.CommitAsync(); // may commit more events than just the ones in the batch, but that is o.k.
+
+                this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+
+                foreach (var evt in batch)
                 {
-                    //  checkpoint the log
-                    this.traceHelper.FasterProgress("Persisting log");
-                    var stopwatch = new System.Diagnostics.Stopwatch();
-                    stopwatch.Start();
-                    long previous = log.CommittedUntilAddress;
-
-                    await log.CommitAsync();
-
-                    this.numberEventsProcessed += (uint) batch.Count;
-
-                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-
-                    foreach (var evt in batch)
+                    if (! (this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
                     {
-                        if (!this.IsShuttingDown)
+                        try
                         {
-                            try
-                            {
-                                DurabilityListeners.ConfirmDurable(evt);
-                            }
-                            catch (Exception exception) when (!(exception is OutOfMemoryException))
-                            {
-                                // for robustness, swallow exceptions, but report them
-                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-                            }
+                            DurabilityListeners.ConfirmDurable(evt);
+                        }
+                        catch (Exception exception) when (!(exception is OutOfMemoryException))
+                        {
+                            // for robustness, swallow exceptions, but report them
+                            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
                         }
                     }
                 }
-                catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
-                {
-                    // o.k. during shutdown
-                }
-                catch (Exception e) when (!(e is OutOfMemoryException))
-                {
-                    this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
-                }
             }
-
-            if (this.IsShuttingDown && this.numberEventsQueued == this.numberEventsProcessed)
+            catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
-                this.shutdownWaiter?.TrySetResult(true);
+                // o.k. during shutdown
             }
+            catch (Exception e) when (!(e is OutOfMemoryException))
+            {
+                this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
+            }        
         }
+    
 
         public async Task ReplayCommitLog(long from, StoreWorker worker)
         {
