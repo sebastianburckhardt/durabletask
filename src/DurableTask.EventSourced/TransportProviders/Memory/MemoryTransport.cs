@@ -26,6 +26,7 @@ namespace DurableTask.EventSourced.Emulated
     {
         private readonly TransportAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
+        private readonly uint numberPartitions;
 
         private Dictionary<Guid, IMemoryQueue<ClientEvent>> clientQueues;
         private IMemoryQueue<PartitionEvent>[] partitionQueues;
@@ -39,15 +40,16 @@ namespace DurableTask.EventSourced.Emulated
         {
             this.host = host;
             this.settings = settings;
+            TransportConnectionString.Parse(settings.EventHubsConnectionString, out _, out _, out int? numberPartitions);
+            this.numberPartitions = (uint) numberPartitions.Value;
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
-            var numberPartitions = settings.MemoryPartitions;
             await Task.Delay(simulatedDelay);
             this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
-            this.partitionQueues = new IMemoryQueue<PartitionEvent>[numberPartitions];
-            this.partitions = new TransportAbstraction.IPartition[numberPartitions];
+            this.partitionQueues = new IMemoryQueue<PartitionEvent>[this.numberPartitions];
+            this.partitions = new TransportAbstraction.IPartition[this.numberPartitions];
         }
 
         Task TransportAbstraction.ITaskHub.DeleteAsync()
@@ -68,10 +70,9 @@ namespace DurableTask.EventSourced.Emulated
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
-            var numberPartitions = this.settings.MemoryPartitions;
-            this.host.NumberPartitions = numberPartitions;
+            this.host.NumberPartitions = this.numberPartitions;
             var creationTimestamp = DateTime.UtcNow;
-            var startPositions = new long[numberPartitions];
+            var startPositions = new long[this.numberPartitions];
 
             // create a client
             var clientId = Guid.NewGuid();
@@ -82,7 +83,7 @@ namespace DurableTask.EventSourced.Emulated
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
-            Parallel.For(0, this.settings.MemoryPartitions, (iteration) =>
+            Parallel.For(0, this.numberPartitions, (iteration) =>
             {
                 int i = (int) iteration;
                 uint partitionId = (uint) iteration;
@@ -94,7 +95,7 @@ namespace DurableTask.EventSourced.Emulated
             });
 
             // create or recover all the partitions
-            for (uint i = 0; i < this.settings.MemoryPartitions; i++)
+            for (uint i = 0; i < this.numberPartitions; i++)
             {
                 var nextInputQueuePosition = await partitions[i].CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0);
                 partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;

@@ -14,9 +14,6 @@
 namespace DurableTask.EventSourced
 {
     using System;
-    using System.Threading.Tasks;
-    using DurableTask.Core;
-    using Microsoft.Azure.EventHubs;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -48,89 +45,6 @@ namespace DurableTask.EventSourced
         /// The name to use for the Azure table with the load information
         /// </summary>
         public string LoadInformationAzureTableName { get; set; } = "DurableTaskPartitions";
-
-        /// <summary>
-        /// Determines the component to use for message delivery and partition load balancing.
-        /// </summary>
-        public TransportChoices TransportComponent
-        {
-            get
-            {
-                if (!string.IsNullOrEmpty(this.EventHubsConnectionString))
-                {
-                    if (this.UseMemoryTransport)
-                    {
-                        return TransportChoices.Memory;
-                    }
-                    else
-                    {
-                        return TransportChoices.EventHubs;
-                    }
-                }
-                else
-                {
-                    return TransportChoices.AzureChannels;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Determines the component to use for storing the partition states.
-        /// </summary>
-        public StorageChoices StorageComponent
-        {
-            get
-            {
-                if (this.UseFasterWithMemoryTransport || !this.UseMemoryTransport)
-                {
-                    return StorageChoices.Faster;
-                }
-                else
-                {
-                    return StorageChoices.Memory;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Configuration options for the storage component
-        /// </summary>
-        public enum StorageChoices
-        {
-            /// <summary>
-            /// Does not store any state to durable storage, just keeps it in memory. 
-            /// Intended for testing scenarios.
-            /// </summary>
-            Memory = 0,
-
-            /// <summary>
-            /// Uses the Faster key-value store.
-            /// </summary>
-            Faster = 1,
-        }
-
-        /// <summary>
-        /// Configuration options for the transport component
-        /// </summary>
-        public enum TransportChoices
-        {
-            /// <summary>
-            /// Passes messages through memory and puts all partitions on a single host
-            /// Intended for testing scenarios.
-            /// </summary>
-            Memory = 0,
-
-            /// <summary>
-            /// Passes messages through eventhubs; can distribute over multiple machines via
-            /// the eventhubs EventProcessor.
-            /// </summary>
-            EventHubs = 1,
-
-            /// <summary>
-            /// Passes messages through azure tables; currently puts all partitions on a single host.
-            /// </summary>
-            AzureChannels = 2,
-        }
 
         /// <summary>
         /// Gets or sets the maximum number of work items that can be processed concurrently on a single node.
@@ -259,24 +173,28 @@ namespace DurableTask.EventSourced
                 throw new ArgumentNullException(nameof(settings.EventHubsConnectionString));
             }
 
-            if (settings.UseMemoryTransport)
+            TransportConnectionString.Parse(settings.EventHubsConnectionString, out var storage, out var transport, out int? numPartitions);
+
+            if (storage != TransportConnectionString.StorageChoices.Memory || transport != TransportConnectionString.TransportChoices.Memory)
             {
-                var numberPartitions = settings.MemoryPartitions;
-                if (numberPartitions < 1 || numberPartitions > 32)
+                if (string.IsNullOrEmpty(settings.StorageConnectionString))
+                {
+                    throw new ArgumentNullException(nameof(settings.StorageConnectionString));
+                }
+            }
+
+            if (transport != TransportConnectionString.TransportChoices.EventHubs)
+            {
+                if (numPartitions < 1 || numPartitions > 32)
                 {
                     throw new ArgumentOutOfRangeException(nameof(settings.EventHubsConnectionString));
                 }
             }
             else
             {
-                if (string.IsNullOrEmpty(settings.EventHubsNamespaceName))
+                if (string.IsNullOrEmpty(TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString)))
                 {
                     throw new FormatException(nameof(settings.EventHubsConnectionString));
-                }
-
-                if (string.IsNullOrEmpty(settings.StorageConnectionString))
-                {
-                    throw new ArgumentNullException(nameof(settings.StorageConnectionString));
                 }
             }
 
@@ -291,34 +209,6 @@ namespace DurableTask.EventSourced
             }
 
             return settings;
-        }
-
-        /// <summary>
-        /// Uses in-memory simulation for transport and storage.
-        /// </summary>
-        public bool UseMemoryTransport => (this.EventHubsConnectionString.StartsWith("Memory"));
-
-        /// <summary>
-        /// Uses in-memory simulation with all messages being sent in emulator
-        /// </summary>
-        public bool UseFasterWithMemoryTransport => (this.EventHubsConnectionString.StartsWith("MemoryF"));
-
-        /// <summary>
-        /// Gets the number of partitions when using the memory emulation
-        /// </summary>
-        public uint MemoryPartitions => uint.Parse(this.EventHubsConnectionString.Substring((this.UseFasterWithMemoryTransport ? 7 : 6) + 1));
-
-        /// <summary>
-        /// Returns the name of the eventhubs namespace
-        /// </summary>
-        public string EventHubsNamespaceName
-        {
-            get
-            {
-                var builder = new EventHubsConnectionStringBuilder(this.EventHubsConnectionString);
-                var host = builder.Endpoint.Host;
-                return host.Substring(0, host.IndexOf('.'));
-            }
-        }
+        }      
     }
 }

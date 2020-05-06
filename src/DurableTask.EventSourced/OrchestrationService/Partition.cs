@@ -22,6 +22,7 @@ using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
 using DurableTask.Core.Tracing;
+using DurableTask.EventSourced.Scaling;
 using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
@@ -29,6 +30,7 @@ namespace DurableTask.EventSourced
     internal partial class Partition : TransportAbstraction.IPartition
     {
         private readonly EventSourcedOrchestrationService host;
+        private readonly Stopwatch stopwatch = new Stopwatch();
 
         public uint PartitionId { get; private set; }
         public string TracePrefix { get; private set; }
@@ -36,15 +38,16 @@ namespace DurableTask.EventSourced
         public Func<uint> NumberPartitions { get; private set; }
         public IPartitionErrorHandler ErrorHandler { get; private set; }
         public PartitionTraceHelper TraceHelper { get; private set; }
-        public Stopwatch Stopwatch { get; }
+
+        public double CurrentTimeMs => stopwatch.Elapsed.TotalMilliseconds;
 
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         public string StorageAccountName { get; private set; }
 
         public StorageAbstraction.IPartitionState State { get; private set; }
         public TransportAbstraction.ISender BatchSender { get; private set; }
-        public WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
-        public WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        public WorkItemQueue<ActivityWorkItem> ActivityWorkItemQueue { get; private set; }
+        public WorkItemQueue<OrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
         public LoadPublisher LoadPublisher { get; private set; }
 
         public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
@@ -65,8 +68,8 @@ namespace DurableTask.EventSourced
             TransportAbstraction.ISender batchSender,
             EventSourcedOrchestrationServiceSettings settings,
             string storageAccountName,
-            WorkItemQueue<TaskActivityWorkItem> activityWorkItemQueue,
-            WorkItemQueue<TaskOrchestrationWorkItem> orchestrationWorkItemQueue,
+            WorkItemQueue<ActivityWorkItem> activityWorkItemQueue,
+            WorkItemQueue<OrchestrationWorkItem> orchestrationWorkItemQueue,
             LoadPublisher loadPublisher)
         {
             this.host = host;
@@ -81,8 +84,7 @@ namespace DurableTask.EventSourced
             this.LoadPublisher = loadPublisher;
             this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.EtwLevel, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
             this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EtwLevel, this);
-            this.Stopwatch = new Stopwatch();
-            this.Stopwatch.Start();
+            this.stopwatch.Start();
         }
 
         public async Task<long> CreateOrRestoreAsync(IPartitionErrorHandler errorHandler, long firstInputQueuePosition)
@@ -247,14 +249,12 @@ namespace DurableTask.EventSourced
         public void EnqueueActivityWorkItem(ActivityWorkItem item)
         {
             this.EventDetailTracer?.TraceEventProcessingDetail($"Enqueueing ActivityWorkItem {item.WorkItemId}");
- 
             this.ActivityWorkItemQueue.Add(item);
         }
  
         public void EnqueueOrchestrationWorkItem(OrchestrationWorkItem item)
         { 
             this.EventDetailTracer?.TraceEventProcessingDetail($"Enqueueing OrchestrationWorkItem {item.MessageBatch.WorkItemId}");
-
             this.OrchestrationWorkItemQueue.Add(item);
         }
     }

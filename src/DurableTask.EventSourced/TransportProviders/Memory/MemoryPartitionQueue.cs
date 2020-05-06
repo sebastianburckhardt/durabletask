@@ -55,7 +55,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                evt.ReceivedTimestamp = partition.Stopwatch.Elapsed.TotalMilliseconds;
+                evt.ReceivedTimestamp = partition.CurrentTimeMs;
 
                 partition.SubmitExternalEvents(new PartitionEvent[] { evt });
             }

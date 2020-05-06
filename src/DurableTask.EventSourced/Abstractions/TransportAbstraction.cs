@@ -147,10 +147,10 @@ namespace DurableTask.EventSourced
             IPartitionErrorHandler ErrorHandler { get; }
 
             /// <summary>
-            /// A constantly running stopwatch for taking timestamps
+            /// The elapsed time in milliseconds since this partition was constructed. We use this
+            /// mainly for measuring various timings inside a partition.
             /// </summary>
-
-            Stopwatch Stopwatch { get; }
+            double CurrentTimeMs { get; }
         }
 
         /// <summary>

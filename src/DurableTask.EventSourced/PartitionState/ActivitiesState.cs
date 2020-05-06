@@ -21,6 +21,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Scaling;
 using Dynamitey;
 
 namespace DurableTask.EventSourced
@@ -92,9 +93,13 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
             info.Activities = this.Pending.Count + this.LocalBacklog.Count + this.QueuedRemotes.Count;
+            info.ActivityLatencyMs = Enumerable.Concat(this.LocalBacklog, this.QueuedRemotes)
+                .Select(a => (long)(DateTime.UtcNow - a.IssueTime).TotalMilliseconds)
+                .DefaultIfEmpty()
+                .Max();
         }
 
         public override string ToString()

@@ -20,17 +20,18 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced
+namespace DurableTask.EventSourced.Scaling
 {
-    internal class LoadPublisher : BatchWorker<(uint, LoadMonitorAbstraction.PartitionLoadInfo)>
+    internal class LoadPublisher : BatchWorker<(uint, PartitionLoadInfo)>
     {
-        private readonly LoadMonitorAbstraction.ILoadMonitorService service;
+        private readonly ILoadMonitorService service;
 
-        public static TimeSpan PublishInterval = TimeSpan.FromSeconds(15);
+        // we are pushing the aggregated load information on a somewhat slower interval
+        public static TimeSpan AggregatePublishInterval = TimeSpan.FromSeconds(15);
 
         private CancellationTokenSource cancelWait = new CancellationTokenSource();
 
-        public LoadPublisher(LoadMonitorAbstraction.ILoadMonitorService service)
+        public LoadPublisher(ILoadMonitorService service)
         {
             this.service = service;
             this.cancelWait = new CancellationTokenSource();
@@ -41,11 +42,11 @@ namespace DurableTask.EventSourced
             this.cancelWait.Cancel(); // so that we don't have to wait the whole delay
         }
 
-        protected override async Task Process(IList<(uint, LoadMonitorAbstraction.PartitionLoadInfo)> batch)
+        protected override async Task Process(IList<(uint, PartitionLoadInfo)> batch)
         {
             if (batch.Count != 0)
             {
-                var latestForEachPartition = new Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>();
+                var latestForEachPartition = new Dictionary<uint, PartitionLoadInfo>();
 
                 foreach (var (partitionId, info) in batch)
                 {
@@ -69,7 +70,7 @@ namespace DurableTask.EventSourced
 
             try
             {
-                await Task.Delay(PublishInterval, this.cancelWait.Token);
+                await Task.Delay(AggregatePublishInterval, this.cancelWait.Token);
             }
             catch(OperationCanceledException)
             {

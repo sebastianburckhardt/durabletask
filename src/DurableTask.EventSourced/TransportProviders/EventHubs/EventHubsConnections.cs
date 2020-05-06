@@ -56,17 +56,45 @@ namespace DurableTask.EventSourced.EventHubs
         public const string PartitionsConsumerGroup = "$Default";
         public const string ClientsConsumerGroup = "$Default";
 
+        public static EventHubClient GetEventHubClient(string connectionString)
+        {
+            var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
+            {
+                EntityPath = PartitionsPath
+            };
+            return EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+        }
+
+        public static async Task<long[]> GetQueuePositions(string connectionString)
+        {
+            // get runtime information from the eventhubs
+            var partitionEventHubsClient = GetEventHubClient(connectionString);
+            var info = await partitionEventHubsClient.GetRuntimeInformationAsync();
+            var numberPartitions = info.PartitionCount;
+
+            // get the queue position in all the partitions 
+            var infoTasks = new Task<EventHubPartitionRuntimeInformation>[numberPartitions];
+            var positions = new long[numberPartitions];
+            for (uint i = 0; i < numberPartitions; i++)
+            {
+                infoTasks[i] = partitionEventHubsClient.GetPartitionRuntimeInformationAsync(i.ToString());
+            }
+            for (uint i = 0; i < numberPartitions; i++)
+            {
+                var queueInfo = await infoTasks[i];
+                positions[i] = queueInfo.LastEnqueuedSequenceNumber + 1;
+            }
+
+            return positions;
+        }
+
         public EventHubClient GetPartitionEventHubsClient()
         {
             lock (thisLock)
             {
                 if (_partitionEventHubsClient == null)
                 {
-                    var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
-                    {
-                        EntityPath = PartitionsPath
-                    };
-                    _partitionEventHubsClient = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+                    _partitionEventHubsClient = GetEventHubClient(this.connectionString);
                     traceHelper.LogDebug("Created Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
                 }
                 return _partitionEventHubsClient;
@@ -147,5 +175,7 @@ namespace DurableTask.EventSourced.EventHubs
                 await _partitionEventHubsClient.CloseAsync();
             }
         }
-    }
+
+
+     }
 }

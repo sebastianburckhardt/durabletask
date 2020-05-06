@@ -20,9 +20,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DurableTask.EventSourced
+namespace DurableTask.EventSourced.Scaling
 {
-    internal class AzureLoadMonitorTable : LoadMonitorAbstraction.ILoadMonitorService
+    internal class AzureLoadMonitorTable : ILoadMonitorService
     {
         private readonly CloudTable table;
         private readonly string taskHubName;
@@ -75,7 +75,7 @@ namespace DurableTask.EventSourced
             await table.CreateAsync();
         }
 
-        public Task PublishAsync(Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo> info, CancellationToken cancellationToken)
+        public Task PublishAsync(Dictionary<uint, PartitionLoadInfo> info, CancellationToken cancellationToken)
         {
             TableBatchOperation tableBatch = new TableBatchOperation();
             foreach(var kvp in info)
@@ -85,25 +85,28 @@ namespace DurableTask.EventSourced
             return this.table.ExecuteBatchAsync(tableBatch, null, null, cancellationToken);
         }
 
-        public async Task<Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>> QueryAsync(CancellationToken cancellationToken)
+        public async Task<Dictionary<uint, PartitionLoadInfo>> QueryAsync(CancellationToken cancellationToken)
         {
             var query = new TableQuery<PartitionInfoEntity>().Where(TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.Equal, this.taskHubName));
             TableContinuationToken continuationToken = null;
-            Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo> result = new Dictionary<uint, LoadMonitorAbstraction.PartitionLoadInfo>();
+            Dictionary<uint, PartitionLoadInfo> result = new Dictionary<uint, PartitionLoadInfo>();
             do
             {
                 var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken);
                 foreach (var e in batch)
                 {
-                    result.Add(e.PartitionId, new LoadMonitorAbstraction.PartitionLoadInfo()
+                    result.Add(e.PartitionId, new PartitionLoadInfo()
                     {
                         WorkItems = e.WorkItems,
                         Activities = e.Activities,
                         Timers = e.Timers,
-                        NextTimer = e.NextTimer,
+                        Wakeup = e.NextTimer,
                         Outbox = e.Outbox,
                         InputQueuePosition = e.InputQueuePosition,
                         CommitLogPosition = e.CommitLogPosition,
+                        ActivityLatencyMs = e.ActivityLatencyMs,
+                        WorkItemLatencyMs = e.WorkItemLatencyMs,
+                        LatencyTrend = e.LatencyTrend,
                     });
                 }
             }
@@ -120,6 +123,9 @@ namespace DurableTask.EventSourced
             public int Outbox { get; set; }
             public long InputQueuePosition { get; set; }
             public long CommitLogPosition { get; set; }
+            public long ActivityLatencyMs { get; set; }
+            public long WorkItemLatencyMs { get; set; }
+            public string LatencyTrend { get; set; }
 
             public PartitionInfoEntity()
             {
@@ -133,16 +139,19 @@ namespace DurableTask.EventSourced
             }
 
             // constructor for updating load information
-            public PartitionInfoEntity(string taskHubName, uint partitionId, LoadMonitorAbstraction.PartitionLoadInfo info)
+            public PartitionInfoEntity(string taskHubName, uint partitionId, PartitionLoadInfo info)
                 : base(taskHubName, partitionId.ToString("D2"))
             {
                 this.WorkItems = info.WorkItems;
                 this.Activities = info.Activities;
                 this.Timers = info.Timers;
-                this.NextTimer = info.NextTimer;
+                this.NextTimer = info.Wakeup;
                 this.Outbox = info.Outbox;
                 this.InputQueuePosition = info.InputQueuePosition;
                 this.CommitLogPosition = info.CommitLogPosition;
+                this.ActivityLatencyMs = info.ActivityLatencyMs;
+                this.WorkItemLatencyMs = info.WorkItemLatencyMs;
+                this.LatencyTrend = info.LatencyTrend;
 
                 ETag = "*"; // no conditions when inserting, replace existing
             }

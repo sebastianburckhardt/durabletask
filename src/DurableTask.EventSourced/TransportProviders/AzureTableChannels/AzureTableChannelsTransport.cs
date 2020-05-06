@@ -12,21 +12,19 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using DurableTask.EventSourced.Faster;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 
-namespace DurableTask.EventSourced.AzureChannels
+namespace DurableTask.EventSourced.AzureTableChannels
 {
-    internal class AzureChannelsTransport : TransportAbstraction.ITaskHub
+    internal class AzureTableChannelsTransport : TransportAbstraction.ITaskHub
     {
         private readonly TransportAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
+        private readonly uint numberPartitions;
 
         private TransportAbstraction.IClient client;
         private Transport[] partitionTransports;
@@ -37,19 +35,21 @@ namespace DurableTask.EventSourced.AzureChannels
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public AzureChannelsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
+        public AzureTableChannelsTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.host = host;
+            TransportConnectionString.Parse(settings.EventHubsConnectionString, out _, out _, out var numberPartitions);
             this.settings = settings;
+            this.numberPartitions = (uint)numberPartitions.Value;
             this.account = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
             await Task.Delay(simulatedDelay);
-            this.partitionTransports = new Transport[this.settings.MemoryPartitions]; // TODO use number hosts instead
-            this.partitionStates = new StorageAbstraction.IPartitionState[this.settings.MemoryPartitions];
-            this.partitions = new TransportAbstraction.IPartition[this.settings.MemoryPartitions];
+            this.partitionTransports = new Transport[this.numberPartitions]; // TODO use number hosts instead
+            this.partitionStates = new StorageAbstraction.IPartitionState[this.numberPartitions];
+            this.partitions = new TransportAbstraction.IPartition[this.numberPartitions];
         }
 
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
@@ -68,8 +68,7 @@ namespace DurableTask.EventSourced.AzureChannels
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
-            var numberPartitions = this.settings.MemoryPartitions;
-            this.host.NumberPartitions = numberPartitions;
+            this.host.NumberPartitions = this.numberPartitions;
             var creationTimestamp = DateTime.UtcNow;
             var startPositions = new long[numberPartitions];
 
@@ -78,7 +77,7 @@ namespace DurableTask.EventSourced.AzureChannels
             var tableClient = this.account.CreateCloudTableClient();
 
             // create all partitions
-            for (uint i = 0; i < this.settings.MemoryPartitions; i++)
+            for (uint i = 0; i < this.numberPartitions; i++)
             {
                 var partitionState = partitionStates[i] = this.host.StorageProvider.CreatePartitionState();
 
@@ -125,6 +124,11 @@ namespace DurableTask.EventSourced.AzureChannels
                 await this.client.StopAsync();
                 await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(this.settings.TakeStateCheckpointWhenStoppingPartition)));
             }
+        }
+
+        public static Task<long[]> GetQueuePositions(string storageConnectionString)
+        {
+            throw new NotImplementedException();
         }
     }
 }

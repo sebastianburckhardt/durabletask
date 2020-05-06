@@ -11,12 +11,15 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced.Scaling;
 using FASTER.core;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -47,8 +50,9 @@ namespace DurableTask.EventSourced.Faster
         // periodic load publishing
         private long lastPublishedCommitLogPosition = 0;
         private long lastPublishedInputQueuePosition = 0;
+        private string lastPublishedLatencyTrend = "";
         private DateTime lastPublishedTime = DateTime.MinValue;
-        public static TimeSpan MinDelayBetweenPublish = TimeSpan.FromSeconds(10);
+        public static TimeSpan PublishInterval = TimeSpan.FromSeconds(10);
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -115,26 +119,87 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
 
+        
         private async Task PublishPartitionLoad()
         {
-            if (this.CommitLogPosition == this.lastPublishedCommitLogPosition && this.InputQueuePosition == this.lastPublishedInputQueuePosition)
+            var info = new PartitionLoadInfo()
             {
-                return;   // we only submit updates if the state has advanced
-            }
-
-            var info = new LoadMonitorAbstraction.PartitionLoadInfo();
+                CommitLogPosition = this.CommitLogPosition,
+                InputQueuePosition = this.InputQueuePosition,
+                LatencyTrend = this.lastPublishedLatencyTrend,
+            };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
-                (await this.store.GetOrCreate(k)).UpdateInfo(info);
+                (await this.store.GetOrCreate(k)).UpdateLoadInfo(info);
             }
-            info.CommitLogPosition = this.CommitLogPosition;
-            info.InputQueuePosition = this.InputQueuePosition;
+
+            this.UpdateLatencyTrend(info);
+             
+            // to avoid unnecessary traffic for statically provisioned deployments,
+            // suppress load publishing if the state is not changing
+            if (info.CommitLogPosition == this.lastPublishedCommitLogPosition 
+                && info.InputQueuePosition == this.lastPublishedInputQueuePosition
+                && info.LatencyTrend == this.lastPublishedLatencyTrend)
+            {
+                return;
+            }
+
             partition.LoadPublisher.Submit((this.partition.PartitionId, info));
             this.lastPublishedCommitLogPosition = this.CommitLogPosition;
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
+            this.lastPublishedLatencyTrend = info.LatencyTrend;
             this.lastPublishedTime = DateTime.UtcNow;
 
             this.partition.TraceHelper.TracePartitionLoad(info);
+        }
+
+        private void UpdateLatencyTrend(PartitionLoadInfo info)
+        {
+            int activityLatencyCategory;
+
+            if (info.Activities == 0)
+            {
+                activityLatencyCategory = 0;
+            }
+            else if (info.ActivityLatencyMs < 100)
+            {
+                activityLatencyCategory = 1;
+            }
+            else if (info.ActivityLatencyMs < 1000)
+            {
+                activityLatencyCategory = 2;
+            }
+            else
+            {
+                activityLatencyCategory = 3;
+            }
+
+            int workItemLatencyCategory;
+
+            if (info.WorkItems == 0)
+            {
+                workItemLatencyCategory = 0;
+            }
+            else if (info.WorkItemLatencyMs < 100)
+            {
+                workItemLatencyCategory = 1;
+            }
+            else if (info.WorkItemLatencyMs < 1000)
+            {
+                workItemLatencyCategory = 2;
+            }
+            else
+            {
+                workItemLatencyCategory = 3;
+            }
+
+            if (info.LatencyTrend.Length == PartitionLoadInfo.LatencyTrendLength)
+            {
+                info.LatencyTrend = info.LatencyTrend.Substring(1, PartitionLoadInfo.LatencyTrendLength - 1);
+            }
+
+            info.LatencyTrend = info.LatencyTrend
+                + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -152,7 +217,7 @@ namespace DurableTask.EventSourced.Faster
                     this.store.CompletePending();
 
                     // record the current time, for measuring latency in the event processing pipeline
-                    partitionEvent.IssuedTimestamp = this.partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    partitionEvent.IssuedTimestamp = this.partition.CurrentTimeMs;
 
                     // now process the read or update
                     switch (partitionEvent)
@@ -204,7 +269,7 @@ namespace DurableTask.EventSourced.Faster
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
                 }
 
-                if (this.lastPublishedTime + MinDelayBetweenPublish < DateTime.UtcNow)
+                if (this.lastPublishedTime + PublishInterval < DateTime.UtcNow)
                 {
                     await this.PublishPartitionLoad();
                 }

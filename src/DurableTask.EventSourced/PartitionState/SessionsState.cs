@@ -15,12 +15,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Scaling;
 using Dynamitey;
 
 namespace DurableTask.EventSourced
@@ -48,7 +50,13 @@ namespace DurableTask.EventSourced
 
             [DataMember]
             public bool ForceNewExecution { get; set; }
+
+            [IgnoreDataMember]
+            public OrchestrationMessageBatch CurrentBatch { get; set; }
         }
+
+        [IgnoreDataMember]
+        public HashSet<OrchestrationMessageBatch> PendingMessageBatches { get; set; } = new HashSet<OrchestrationMessageBatch>();
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
@@ -58,21 +66,23 @@ namespace DurableTask.EventSourced
 
         public override void OnRecoveryCompleted()
         {
-            // create work items for all sessions
+            // start work items for all sessions
             foreach (var kvp in Sessions)
             {
                 new OrchestrationMessageBatch(kvp.Key, kvp.Value, this.Partition);
             }
         }        
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
             info.WorkItems += this.Sessions.Count;
+            double now = this.Partition.CurrentTimeMs;
+            info.WorkItemLatencyMs = (long) this.Sessions.Values.Select(session => session.CurrentBatch?.WaitTimeMs(now) ?? 0).DefaultIfEmpty().Max();
         }
 
         public override string ToString()
         {
-            return $"Sessions ({Sessions.Count} pending) next={SequenceNumber:D6}";
+            return $"Sessions ({this.Sessions.Count} pending) next={this.SequenceNumber:D6}";
         }
 
         private string GetSessionPosition(Session session) => $"{this.Partition.PartitionId:D2}-S{session.SessionId}:{session.BatchStartPosition + session.Batch.Count}";
@@ -101,8 +111,7 @@ namespace DurableTask.EventSourced
 
                 this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
                 session.Batch.Add(message);
-
-                if (!isReplaying) // we don't start work items until end of recovery
+                if (!isReplaying) // during replay, we don't start work items until end of recovery
                 {
                     new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
@@ -249,7 +258,7 @@ namespace DurableTask.EventSourced
             {
                 if (!inRecovery) // we don't start work items until end of recovery
                 {
-                    // there are more messages. Prepare another work item.
+                    // there are more messages. Start another work item.
                     new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
             }

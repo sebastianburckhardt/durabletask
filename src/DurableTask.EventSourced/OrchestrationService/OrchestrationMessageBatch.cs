@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -30,6 +31,7 @@ namespace DurableTask.EventSourced
         public bool ForceNewExecution;
         public List<TaskMessage> MessagesToProcess;
         public string WorkItemId;
+        public double? WaitingSince; // measures time waiting to execute
 
         public override EventId EventId => EventId.MakePartitionInternalEventId(this.WorkItemId);
 
@@ -42,7 +44,10 @@ namespace DurableTask.EventSourced
             this.ForceNewExecution = session.ForceNewExecution && session.BatchStartPosition == 0;
             this.MessagesToProcess = session.Batch.ToList(); // make a copy, because it can be modified when new messages arrive
             this.WorkItemId = SessionsState.GetWorkItemId(partition.PartitionId, SessionId, BatchStartPosition, BatchLength);
-      
+            this.WaitingSince = partition.CurrentTimeMs;
+
+            session.CurrentBatch = this; 
+
             partition.EventDetailTracer?.TraceEventProcessingDetail($"Prefetching instance={this.InstanceId} batch={this.WorkItemId}");
 
             // continue when we have the history state loaded, which gives us the latest state and/or cursor
@@ -51,10 +56,12 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey ReadTarget => TrackedObjectKey.History(this.InstanceId);
 
+        public double WaitTimeMs(double now) => this.WaitingSince.HasValue ? (now - this.WaitingSince.Value) : 0;
+
         public override void OnReadComplete(TrackedObject s, Partition partition)
         {
             var historyState = (HistoryState)s;
-            OrchestrationWorkItem workItem = null;
+            OrchestrationWorkItem workItem;
 
             if (this.ForceNewExecution || historyState == null)
             {
@@ -64,24 +71,27 @@ namespace DurableTask.EventSourced
             }
             else if (historyState.CachedOrchestrationWorkItem != null)
             {
+                // we have a cached cursor and can resume where we left off
                 workItem = historyState.CachedOrchestrationWorkItem;
                 workItem.SetNextMessageBatch(this);
                 workItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromCursor;
             }
             else
             {
+                // we have to rehydrate the instance from its history
                 workItem = new OrchestrationWorkItem(partition, this, historyState.History);
                 workItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromHistory;
             }
 
             if (!this.IsExecutableInstance(workItem, out var reason))
             {
+                // this instance cannot be executed, so we are discarding the messages
                 foreach (var taskMessage in workItem.MessageBatch.MessagesToProcess)
                 {
                     partition.EventDetailTracer.TraceTaskMessageDiscarded(taskMessage, reason, workItem.MessageBatch.WorkItemId);
                 }
 
-                // we discard the messages by marking the batch as processed, without processing the messages or updating the state
+                // we issue a batch processed event which will remove the messages without updating the instance state
                 partition.SubmitInternalEvent(new BatchProcessed()
                 {
                     PartitionId = partition.PartitionId,
@@ -103,14 +113,15 @@ namespace DurableTask.EventSourced
             {
                 partition.EventTraceHelper.TraceOrchestrationWorkItemQueued(workItem);
 
-                // the work item is ready to process
+                // the work item is ready to process - put it into the OrchestrationWorkItemQueue
                 partition.EnqueueOrchestrationWorkItem(workItem);
             }
         }
 
         bool IsExecutableInstance(TaskOrchestrationWorkItem workItem, out string message)
         {
-            if (workItem.OrchestrationRuntimeState.ExecutionStartedEvent == null && !this.MessagesToProcess.Any(msg => msg.Event is ExecutionStartedEvent))
+            if (workItem.OrchestrationRuntimeState.ExecutionStartedEvent == null
+                && !this.MessagesToProcess.Any(msg => msg.Event is ExecutionStartedEvent))
             {
                 if (DurableTask.Core.Common.Entities.AutoStart(this.InstanceId, this.MessagesToProcess))
                 {

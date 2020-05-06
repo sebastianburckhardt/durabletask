@@ -122,7 +122,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc/>
         public override string ToString()
         {
-            switch (Category)
+            switch (this.Category)
             {
                 case EventCategory.ClientRequest:
                     return $"{Client.GetShortId(this.ClientId)}-{this.Number}{this.IndexSuffix}";

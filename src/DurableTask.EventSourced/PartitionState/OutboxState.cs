@@ -22,6 +22,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Common;
+using DurableTask.EventSourced.Scaling;
 
 namespace DurableTask.EventSourced
 {
@@ -48,7 +49,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
             info.Outbox = this.Outbox.Count;
         }

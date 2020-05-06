@@ -58,10 +58,11 @@ namespace DurableTask.EventSourced.EventHubs
             this.host = host;
             this.settings = settings;
             this.cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
-            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportEtwLevel, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, settings.EventHubsNamespaceName);
+            string namespaceName = TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString);
+            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportEtwLevel, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, namespaceName);
             this.ClientId = Guid.NewGuid();
             this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper);
-            var blobContainerName = $"{settings.EventHubsNamespaceName}-processors";
+            var blobContainerName = $"{namespaceName}-processors";
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
@@ -96,23 +97,7 @@ namespace DurableTask.EventSourced.EventHubs
                 throw new InvalidOperationException("Cannot create TaskHub: Only one TaskHub is allowed per EventHub");
             }
 
-            // get runtime information from the eventhubs
-            var partitionEventHubsClient = this.connections.GetPartitionEventHubsClient();
-            var info = await partitionEventHubsClient.GetRuntimeInformationAsync();
-            var numberPartitions = info.PartitionCount;
-
-            // check the current queue position in all the partitions 
-            var infoTasks = new Task<EventHubPartitionRuntimeInformation>[numberPartitions];
-            var startPositions = new long[numberPartitions];
-            for (uint i = 0; i < numberPartitions; i++)
-            {
-                infoTasks[i] = partitionEventHubsClient.GetPartitionRuntimeInformationAsync(i.ToString());
-            }
-            for (uint i = 0; i < numberPartitions; i++)
-            {
-                var queueInfo = await infoTasks[i];
-                startPositions[i] = queueInfo.LastEnqueuedSequenceNumber + 1;
-            }
+            long[] startPositions = await EventHubsConnections.GetQueuePositions(this.settings.EventHubsConnectionString);
 
             var taskHubParameters = new
             {

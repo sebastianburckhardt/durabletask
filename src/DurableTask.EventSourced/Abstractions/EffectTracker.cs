@@ -69,13 +69,13 @@ namespace DurableTask.EventSourced
         /// <remarks>Called by the storage layer when this object calls applyToStore.</remarks>
         public void ProcessEffectOn(dynamic trackedObject)
         {
-            trackedObject.Process(Effect, this);
+            trackedObject.Process(this.Effect, this);
         }
 
         public async Task ProcessUpdate(PartitionUpdateEvent updateEvent)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
-            double startedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+            double startedTimestamp = this.Partition.CurrentTimeMs;
 
             using (EventTraceContext.MakeContext(commitLogPosition, updateEvent.EventIdString))
             {
@@ -140,7 +140,7 @@ namespace DurableTask.EventSourced
                 }
                 finally
                 {
-                    double finishedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    double finishedTimestamp = this.Partition.CurrentTimeMs;
                     this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, updateEvent, startedTimestamp, finishedTimestamp, this.IsReplaying);
                 }
             }
@@ -150,7 +150,7 @@ namespace DurableTask.EventSourced
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
-            double startedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+            double startedTimestamp = this.Partition.CurrentTimeMs;
             TrackedObjectKey key = readEvent.ReadTarget;
 
             using (EventTraceContext.MakeContext(commitLogPosition, readEvent.EventIdString))
@@ -188,11 +188,11 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readEvent.ToString()}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readEvent}", exception, false, false);
                 }
                 finally
                 {
-                    double finishedTimestamp = this.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    double finishedTimestamp = this.Partition.CurrentTimeMs;
                     this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, readEvent, startedTimestamp, finishedTimestamp, false);
                 }
             }

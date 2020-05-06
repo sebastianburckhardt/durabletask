@@ -220,7 +220,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                await Task.Delay(StoreWorker.MinDelayBetweenPublish, this.terminationToken);
+                await Task.Delay(StoreWorker.PublishInterval, this.terminationToken);
 
                 // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
                 this.storeWorker.Notify();

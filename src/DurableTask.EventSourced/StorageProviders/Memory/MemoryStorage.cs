@@ -112,7 +112,7 @@ namespace DurableTask.EventSourced
                 foreach (var partitionEvent in batch)
                 {
                     // record the current time, for measuring latency in the event processing pipeline
-                    partitionEvent.IssuedTimestamp = this.partition.Stopwatch.Elapsed.TotalMilliseconds;
+                    partitionEvent.IssuedTimestamp = this.partition.CurrentTimeMs;
 
                     try
                     {

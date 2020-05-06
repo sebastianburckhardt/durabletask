@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced.Scaling;
 using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
@@ -35,7 +36,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
             info.WorkItems += this.Pending.Count;
         }

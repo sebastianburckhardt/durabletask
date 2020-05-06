@@ -129,7 +129,13 @@ namespace DurableTask.EventSourced.EventHubs
             if (prior != null)
             {
                 incarnation = prior.Incarnation + 1;
-                await TaskHelpers.WaitForCancellationAsync(prior.ErrorHandler.Token);
+                try
+                {
+                    await Task.Delay(-1, prior.ErrorHandler.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
                 this.eventProcessorShutdown.Token.ThrowIfCancellationRequested();
                 this.currentPartition = prior.Next;
                 this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is restarting partition (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, incarnation);
@@ -236,7 +242,7 @@ namespace DurableTask.EventSourced.EventHubs
                 
                 var batch = new List<PartitionEvent>();
 
-                var receivedTimestamp = current.Partition.Stopwatch.Elapsed.TotalMilliseconds;
+                var receivedTimestamp = current.Partition.CurrentTimeMs;
 
                 lock (this.packetDeliveryBackup) // must prevent race with a partition that is restarting in the background
                 {

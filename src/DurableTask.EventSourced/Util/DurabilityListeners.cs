@@ -11,7 +11,7 @@
 //  ----------------------------------------------------------------------------------
 
 
-using DurableTask.EventSourced.AzureChannels;
+using DurableTask.EventSourced.AzureTableChannels;
 using Dynamitey.DynamicObjects;
 using System;
 using System.Collections.Generic;

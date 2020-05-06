@@ -19,6 +19,7 @@ using System.Text;
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Scaling;
 
 namespace DurableTask.EventSourced
 {
@@ -48,17 +49,20 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public override void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        // how long before the scheduled time the ScalingMonitor should scale up from zero
+        private static TimeSpan WakeupInAdvance = TimeSpan.FromSeconds(20);
+
+        public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
             info.Timers = this.PendingTimers.Count;
 
             if (info.Timers > 0)
             {
-                info.NextTimer = this.PendingTimers.Select(kvp => kvp.Value.Item1).Min();
+                info.Wakeup = this.PendingTimers.Select(kvp => kvp.Value.Item1).Min() - WakeupInAdvance;
             }
             else
             {
-                info.NextTimer = null;
+                info.Wakeup = null;
             }
         }
 

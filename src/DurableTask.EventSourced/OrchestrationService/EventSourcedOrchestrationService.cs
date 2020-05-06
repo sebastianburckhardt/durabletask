@@ -14,7 +14,7 @@
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;
-using DurableTask.EventSourced.Faster;
+using DurableTask.EventSourced.Scaling;
 using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
 using System;
@@ -36,6 +36,8 @@ namespace DurableTask.EventSourced
         IDisposable
     {
         private readonly TransportAbstraction.ITaskHub taskHub;
+        private readonly TransportConnectionString.StorageChoices configuredStorage;
+        private readonly TransportConnectionString.TransportChoices configuredTransport;
 
         private const string LoggerName = "E1";
 
@@ -44,15 +46,15 @@ namespace DurableTask.EventSourced
         //internal Dictionary<uint, Partition> Partitions { get; private set; }
         internal Client Client { get; private set; }
 
-        internal LoadMonitorAbstraction.ILoadMonitorService LoadMonitorService { get; private set; }
+        internal ILoadMonitorService LoadMonitorService { get; private set; }
 
         internal EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         internal uint NumberPartitions { get; private set; }
         uint TransportAbstraction.IHost.NumberPartitions { set => this.NumberPartitions = value; }
         internal string StorageAccountName { get; private set; }
 
-        internal WorkItemQueue<TaskActivityWorkItem> ActivityWorkItemQueue { get; private set; }
-        internal WorkItemQueue<TaskOrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
+        internal WorkItemQueue<ActivityWorkItem> ActivityWorkItemQueue { get; private set; }
+        internal WorkItemQueue<OrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
         internal LoadPublisher LoadPublisher { get; private set; }
 
         internal Guid ServiceInstanceId { get; } = Guid.NewGuid();
@@ -62,7 +64,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc/>
         public override string ToString()
         {
-            return $"EventSourcedOrchestrationService on {this.Settings.TransportComponent}Transport and {this.Settings.StorageComponent}Storage";
+            return $"EventSourcedOrchestrationService on {this.configuredTransport}Transport and {this.configuredStorage}Storage";
         }
 
         /// <summary>
@@ -71,25 +73,27 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationService(EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
         {
             this.Settings = settings;
+            TransportConnectionString.Parse(this.Settings.EventHubsConnectionString, out this.configuredStorage, out this.configuredTransport, out _);
             this.Logger = loggerFactory.CreateLogger(LoggerName);
             this.LoggerFactory = loggerFactory;
             this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
+
             EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
 
-            switch (this.Settings.TransportComponent)
+            switch (this.configuredTransport)
             {
-                case EventSourcedOrchestrationServiceSettings.TransportChoices.Memory:
+                case TransportConnectionString.TransportChoices.Memory:
                     this.taskHub = new Emulated.MemoryTransport(this, settings, loggerFactory);
                     break;
 
-                case EventSourcedOrchestrationServiceSettings.TransportChoices.EventHubs:
+                case TransportConnectionString.TransportChoices.EventHubs:
                     this.taskHub = new EventHubs.EventHubsTransport(this, settings, loggerFactory);
                     break;
 
-                case EventSourcedOrchestrationServiceSettings.TransportChoices.AzureChannels:
-                    this.taskHub = new AzureChannels.AzureChannelsTransport(this, settings, loggerFactory);
+                case TransportConnectionString.TransportChoices.AzureTableChannels:
+                    this.taskHub = new AzureTableChannels.AzureTableChannelsTransport(this, settings, loggerFactory);
                     break;
 
                 default:
@@ -115,12 +119,12 @@ namespace DurableTask.EventSourced
 
         StorageAbstraction.IPartitionState StorageAbstraction.IStorageProvider.CreatePartitionState()
         {
-            switch (this.Settings.StorageComponent)
+            switch (this.configuredStorage)
             {
-                case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
+                case TransportConnectionString.StorageChoices.Memory:
                     return new MemoryStorage();
 
-                case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
+                case TransportConnectionString.StorageChoices.Faster:
                     return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.LoggerFactory);
 
                 default:
@@ -132,13 +136,13 @@ namespace DurableTask.EventSourced
         {
             await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None);
 
-            switch (this.Settings.StorageComponent)
+            switch (this.configuredStorage)
             {
-                case EventSourcedOrchestrationServiceSettings.StorageChoices.Memory:
+                case TransportConnectionString.StorageChoices.Memory:
                     await Task.Delay(10);
                     break;
 
-                case EventSourcedOrchestrationServiceSettings.StorageChoices.Faster:
+                case TransportConnectionString.StorageChoices.Faster:
                     await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName);
                     break;
 
@@ -200,14 +204,14 @@ namespace DurableTask.EventSourced
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
-            this.ActivityWorkItemQueue = new WorkItemQueue<TaskActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
-            this.OrchestrationWorkItemQueue = new WorkItemQueue<TaskOrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
+            this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
             this.LoadPublisher = new LoadPublisher(this.LoadMonitorService);
 
             await taskHub.StartAsync();
 
-            var ignoredTask = Task.Run(() => WorkitemExpirationCheck(this.serviceShutdownSource.Token));
+            var ignoredTask = Task.Run(() => this.WorkitemExpirationCheck(this.serviceShutdownSource.Token));
 
             System.Diagnostics.Debug.Assert(this.Client != null, "Backend should have added client");
         }
@@ -393,11 +397,13 @@ namespace DurableTask.EventSourced
         // Task orchestration methods
         /******************************/
 
-        Task<TaskOrchestrationWorkItem> IOrchestrationService.LockNextTaskOrchestrationWorkItemAsync(
+        async Task<TaskOrchestrationWorkItem> IOrchestrationService.LockNextTaskOrchestrationWorkItemAsync(
             TimeSpan receiveTimeout,
             CancellationToken cancellationToken)
         {
-            return this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            var nextOrchestrationWorkItem = await this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            nextOrchestrationWorkItem.MessageBatch.WaitingSince = null;
+            return nextOrchestrationWorkItem;
         }
 
         Task IOrchestrationService.CompleteTaskOrchestrationWorkItemAsync(
@@ -473,8 +479,9 @@ namespace DurableTask.EventSourced
         Task IOrchestrationService.AbandonTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
             // put it back into the work queue
-            this.OrchestrationWorkItemQueue.Add(workItem);
-
+            var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
+            orchestrationWorkItem.MessageBatch.WaitingSince = orchestrationWorkItem.Partition.CurrentTimeMs;
+            this.OrchestrationWorkItemQueue.Add(orchestrationWorkItem);
             return Task.CompletedTask;
         }
 
@@ -515,15 +522,16 @@ namespace DurableTask.EventSourced
         // Task activity methods
         /******************************/
 
-        Task<TaskActivityWorkItem> IOrchestrationService.LockNextTaskActivityWorkItem(TimeSpan receiveTimeout, CancellationToken cancellationToken)
+        async Task<TaskActivityWorkItem> IOrchestrationService.LockNextTaskActivityWorkItem(TimeSpan receiveTimeout, CancellationToken cancellationToken)
         {
-            return this.ActivityWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            var nextActivityWorkItem = await this.ActivityWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            return nextActivityWorkItem;
         }
 
         Task IOrchestrationService.AbandonTaskActivityWorkItemAsync(TaskActivityWorkItem workItem)
         {
             // put it back into the work queue
-            this.ActivityWorkItemQueue.Add(workItem);
+            this.ActivityWorkItemQueue.Add((ActivityWorkItem)workItem);
             return Task.CompletedTask;
         }
 

@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.EventSourced.Scaling;
 using Dynamitey;
 using Microsoft.Azure.Amqp.Framing;
 using System;
@@ -87,7 +88,7 @@ namespace DurableTask.EventSourced
         /// Is called to update the load information that is published
         /// </summary>
         /// <param name="info"></param>
-        public virtual void UpdateInfo(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public virtual void UpdateLoadInfo(PartitionLoadInfo info)
         {
         }
 

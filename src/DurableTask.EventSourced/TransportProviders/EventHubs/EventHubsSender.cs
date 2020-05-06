@@ -61,7 +61,9 @@ namespace DurableTask.EventSourced.EventHubs
             
             try
             {
-                var batch = sender.CreateBatch();
+                // we manually set the max message size to leave extra room as
+                // we have observed exceptions in practice otherwise.
+                var batch = sender.CreateBatch(new BatchOptions() { MaxMessageSize = 900 * 1024 });
 
                 for (int i = 0; i < toSend.Count; i++)
                 {

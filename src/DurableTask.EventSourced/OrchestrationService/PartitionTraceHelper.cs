@@ -1,7 +1,8 @@
-﻿using Microsoft.Extensions.Logging;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using DurableTask.EventSourced.Scaling;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
@@ -31,13 +32,13 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void TracePartitionLoad(LoadMonitorAbstraction.PartitionLoadInfo info)
+        public void TracePartitionLoad(PartitionLoadInfo info)
         {
             logger.LogInformation("Part{partition:D2} Publishing LoadInfo WorkItems={workItems} Activities={activities} Timers={timers} Outbox={outbox} NextTimer={nextTimer} InputQueuePosition={inputQueuePosition} CommitLogPosition={commitLogPosition}",
-                partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.NextTimer, info.InputQueuePosition, info.CommitLogPosition);
+                partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.Wakeup, info.InputQueuePosition, info.CommitLogPosition);
             if (this.etwLogLevel <= LogLevel.Information)
             {
-                EtwSource.Log.PartitionLoadPublished(this.account, this.taskHub, partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.NextTimer?.ToString("o") ?? "", info.InputQueuePosition, info.CommitLogPosition, TraceUtils.ExtensionVersion);
+                EtwSource.Log.PartitionLoadPublished(this.account, this.taskHub, partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.Wakeup?.ToString("o") ?? "", info.InputQueuePosition, info.CommitLogPosition, TraceUtils.ExtensionVersion);
             }
         }
     }
