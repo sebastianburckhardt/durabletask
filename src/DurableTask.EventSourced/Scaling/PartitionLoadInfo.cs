@@ -66,6 +66,11 @@ namespace DurableTask.EventSourced.Scaling
         public long WorkItemLatencyMs { get; set; }
 
         /// <summary>
+        /// The worker id of the host that is currently running this partition.
+        /// </summary>
+        public string WorkerId { get; set; }
+
+        /// <summary>
         /// A string encoding of the latency trend.
         /// </summary>
         public string LatencyTrend { get; set; }

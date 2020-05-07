@@ -126,6 +126,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 CommitLogPosition = this.CommitLogPosition,
                 InputQueuePosition = this.InputQueuePosition,
+                WorkerId = this.partition.Settings.WorkerId,
                 LatencyTrend = this.lastPublishedLatencyTrend,
             };
             foreach (var k in TrackedObjectKey.GetSingletons())

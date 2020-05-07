@@ -106,6 +106,7 @@ namespace DurableTask.EventSourced.Scaling
                         CommitLogPosition = e.CommitLogPosition,
                         ActivityLatencyMs = e.ActivityLatencyMs,
                         WorkItemLatencyMs = e.WorkItemLatencyMs,
+                        WorkerId = e.WorkerId,
                         LatencyTrend = e.LatencyTrend,
                     });
                 }
@@ -125,6 +126,7 @@ namespace DurableTask.EventSourced.Scaling
             public long CommitLogPosition { get; set; }
             public long ActivityLatencyMs { get; set; }
             public long WorkItemLatencyMs { get; set; }
+            public string WorkerId { get; set; }
             public string LatencyTrend { get; set; }
 
             public PartitionInfoEntity()
@@ -151,6 +153,7 @@ namespace DurableTask.EventSourced.Scaling
                 this.CommitLogPosition = info.CommitLogPosition;
                 this.ActivityLatencyMs = info.ActivityLatencyMs;
                 this.WorkItemLatencyMs = info.WorkItemLatencyMs;
+                this.WorkerId = info.WorkerId;
                 this.LatencyTrend = info.LatencyTrend;
 
                 ETag = "*"; // no conditions when inserting, replace existing
