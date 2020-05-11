@@ -90,9 +90,8 @@ namespace DurableTask.EventSourced
                     this.History.Count, 
                     evt.NewEvents, this.Episode);
 
-                // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
-                bool shouldCacheWorkItemForReuse = evt.State.OrchestrationStatus == OrchestrationStatus.Running;
-                this.CachedOrchestrationWorkItem = shouldCacheWorkItemForReuse ? evt.WorkItem : null;
+                // if present, we keep the work item so we can reuse the execution cursor
+                this.CachedOrchestrationWorkItem = evt.WorkItemForReuse;
             }
         }
     }

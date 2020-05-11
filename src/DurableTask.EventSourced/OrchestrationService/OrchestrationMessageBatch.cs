@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced
                     BatchLength = this.BatchLength,
                     NewEvents = null,
                     State = null,
-                    WorkItem = workItem,
+                    WorkItemForReuse = null,
                     ActivityMessages = null,
                     LocalMessages = null,
                     RemoteMessages = null,

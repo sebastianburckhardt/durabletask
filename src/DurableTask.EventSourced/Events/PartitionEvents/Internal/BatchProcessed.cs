@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced
         public DateTime Timestamp { get; set; }
 
         [IgnoreDataMember]
-        public OrchestrationWorkItem WorkItem { get; set; }
+        public OrchestrationWorkItem WorkItemForReuse { get; set; }
 
         [IgnoreDataMember]
         public string WorkItemId => SessionsState.GetWorkItemId(this.PartitionId, this.SessionId, this.BatchStartPosition, this.BatchLength);

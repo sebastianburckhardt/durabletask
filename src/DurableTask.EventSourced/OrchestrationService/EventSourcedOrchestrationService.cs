@@ -448,6 +448,9 @@ namespace DurableTask.EventSourced
                 }
             }
 
+            // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
+            bool cacheWorkItemForReuse = state.OrchestrationStatus != OrchestrationStatus.Running;           
+
             try
             {
                 partition.SubmitInternalEvent(new BatchProcessed()
@@ -458,7 +461,7 @@ namespace DurableTask.EventSourced
                     BatchStartPosition = messageBatch.BatchStartPosition,
                     BatchLength = messageBatch.BatchLength,
                     NewEvents = (List<HistoryEvent>)newOrchestrationRuntimeState.NewEvents,
-                    WorkItem = orchestrationWorkItem,
+                    WorkItemForReuse = cacheWorkItemForReuse ? orchestrationWorkItem : null,
                     State = state,
                     ActivityMessages = (List<TaskMessage>)outboundMessages,
                     LocalMessages = localMessages,
@@ -478,10 +481,17 @@ namespace DurableTask.EventSourced
 
         Task IOrchestrationService.AbandonTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            // put it back into the work queue
+            // we can get here due to transient execution failures of the functions runtime
+            // in order to guarantee the work is done, we must enqueue a new work item
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
-            orchestrationWorkItem.MessageBatch.WaitingSince = orchestrationWorkItem.Partition.CurrentTimeMs;
-            this.OrchestrationWorkItemQueue.Add(orchestrationWorkItem);
+            var originalHistorySize = orchestrationWorkItem.OrchestrationRuntimeState.Events.Count - orchestrationWorkItem.OrchestrationRuntimeState.NewEvents.Count;
+            var originalHistory = orchestrationWorkItem.OrchestrationRuntimeState.Events.Take(originalHistorySize).ToList();
+            var newWorkItem = new OrchestrationWorkItem(orchestrationWorkItem.Partition, orchestrationWorkItem.MessageBatch, originalHistory);
+            newWorkItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromHistory;
+
+            orchestrationWorkItem.Partition.EventTraceHelper.TraceOrchestrationWorkItemQueued(newWorkItem);
+            orchestrationWorkItem.Partition.EnqueueOrchestrationWorkItem(newWorkItem);
+
             return Task.CompletedTask;
         }
 
