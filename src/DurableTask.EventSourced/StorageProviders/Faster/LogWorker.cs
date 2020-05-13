@@ -117,7 +117,6 @@ namespace DurableTask.EventSourced.Faster
             try
             {
                 //  checkpoint the log
-                this.traceHelper.FasterProgress("Persisting log");
                 var stopwatch = new System.Diagnostics.Stopwatch();
                 stopwatch.Start();
                 long previous = log.CommittedUntilAddress;

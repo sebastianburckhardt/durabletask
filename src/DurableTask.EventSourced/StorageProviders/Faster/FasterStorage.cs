@@ -67,15 +67,22 @@ namespace DurableTask.EventSourced.Faster
 
             this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageEtwLevel, partition.PartitionId, errorHandler);
 
+            this.TraceHelper.FasterProgress("Starting BlobManager");
             await blobManager.StartAsync();
 
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
+            this.TraceHelper.FasterProgress("Creating FasterLog");
             this.log = new FasterLog(this.blobManager);
+
+            this.TraceHelper.FasterProgress("Creating FasterKV");
             this.store = new FasterKV(this.partition, this.blobManager);
 
+            this.TraceHelper.FasterProgress("Creating StoreWorker");
             this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.blobManager, this.terminationToken);
+
+            this.TraceHelper.FasterProgress("Creating LogWorker");
             this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
 
             if (this.log.TailAddress == this.log.BeginAddress)

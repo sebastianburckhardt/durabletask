@@ -241,6 +241,8 @@ namespace DurableTask.EventSourced.Faster
         /// </summary>
         public override unsafe void ReadAsync(int segmentId, ulong sourceAddress, IntPtr destinationAddress, uint readLength, IOCompletionCallback callback, IAsyncResult asyncResult)
         {
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.ReadAsync Called segmentId={segmentId} sourceAddress={sourceAddress} readLength={readLength}");
+
             // It is up to the allocator to make sure no reads are issued to segments before they are written
             if (!blobs.TryGetValue(segmentId, out BlobEntry blobEntry))
             {
@@ -259,10 +261,12 @@ namespace DurableTask.EventSourced.Faster
                   {
                       if (t.IsFaulted)
                       {
+                          this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.ReadAsync Returned (Failure)");
                           callback(uint.MaxValue, readLength, ovNative);
                       }
                       else
                       {
+                          this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.ReadAsync Returned");
                           callback(0, readLength, ovNative);
                       }
                   });
@@ -273,6 +277,8 @@ namespace DurableTask.EventSourced.Faster
         /// </summary>
         public override void WriteAsync(IntPtr sourceAddress, int segmentId, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
         {
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.WriteAsync Called segmentId={segmentId} destinationAddress={destinationAddress} numBytesToWrite={numBytesToWrite}");
+
             if (!blobs.TryGetValue(segmentId, out BlobEntry blobEntry))
             {
                 BlobEntry entry = new BlobEntry(this);
@@ -292,19 +298,19 @@ namespace DurableTask.EventSourced.Faster
                 // Otherwise, some other thread beat us to it. Okay to use their blobs.
                 blobEntry = blobs[segmentId];
             }
-            TryWriteAsync(blobEntry, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
+            this.TryWriteAsync(blobEntry, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
         }
 
         private void TryWriteAsync(BlobEntry blobEntry, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
         {
             // If pageBlob is null, it is being created. Attempt to queue the write for the creator to complete after it is done
             if (blobEntry.PageBlob == null
-                && blobEntry.TryQueueAction(p => WriteToBlobAsync(p, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult)))
+                && blobEntry.TryQueueAction(p => this.WriteToBlobAsync(p, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult)))
             {
                 return;
             }
             // Otherwise, invoke directly.
-            WriteToBlobAsync(blobEntry.PageBlob, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
+            this.WriteToBlobAsync(blobEntry.PageBlob, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
         }
 
         private unsafe void WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
@@ -318,10 +324,12 @@ namespace DurableTask.EventSourced.Faster
                    {
                        if (t.IsFaulted)
                        {
+                           this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned (Failure)");
                            callback(uint.MaxValue, numBytesToWrite, ovNative);
                        }
                        else
                        {
+                           this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned");
                            callback(0, numBytesToWrite, ovNative);
                        }
                    });

@@ -20,6 +20,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
+using DurableTask.Core.Common;
 using DurableTask.Core.History;
 using DurableTask.Core.Tracing;
 using DurableTask.EventSourced.Scaling;
@@ -115,12 +116,11 @@ namespace DurableTask.EventSourced
                 this.TraceHelper.TraceProgress($"Started partition, nextInputQueuePosition={inputQueuePosition}");
                 return inputQueuePosition;
             }
-            catch (Exception e)
+            catch (Exception e) when (!Utils.IsFatal(e))
             {
                 this.ErrorHandler.HandleError(nameof(CreateOrRestoreAsync), "Could not start partition", e, true, false);
                 throw;
             }
-
         }
 
         [Conditional("DEBUG")]
