@@ -22,6 +22,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core.Common;
 using DurableTask.EventSourced.Emulated;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
@@ -52,22 +53,22 @@ namespace DurableTask.EventSourced.EventHubs
         // since EventProcessorHost does not redeliver packets, we need to keep them around until we are sure
         // they are processed durably, so we can redeliver them when recycling/recovering a partition
         // we make this a concurrent queue so we can remove confirmed events concurrently with receiving new ones
-        private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> packetDeliveryBackup;
+        private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> pendingDelivery;
 
         // this points to the latest incarnation of this partition; it gets
         // updated as we recycle partitions (create new incarnations after failures)
-        private volatile Task<CurrentPartition> currentPartition;
+        private volatile Task<PartitionIncarnation> currentIncarnation;
 
         /// <summary>
         /// The event processor can recover after exceptions, so we encapsulate
         /// the currently active partition
         /// </summary>
-        private class CurrentPartition
+        private class PartitionIncarnation
         {
             public int Incarnation;
             public IPartitionErrorHandler ErrorHandler;
             public TransportAbstraction.IPartition Partition;
-            public Task<CurrentPartition> Next;
+            public Task<PartitionIncarnation> Next;
             public long NextPacketToReceive;
         }
 
@@ -83,7 +84,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.host = host;
             this.sender = sender;
             this.parameters = parameters;
-            this.packetDeliveryBackup = new ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)>();
+            this.pendingDelivery = new ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)>();
             this.partitionContext = partitionContext;
             this.eventHubName = this.partitionContext.EventHubPath;
             this.eventHubPartition = this.partitionContext.PartitionId;
@@ -93,13 +94,14 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.OpenAsync(PartitionContext context)
         {
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is starting", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is opening", this.eventHubName, this.eventHubPartition);
             this.eventProcessorShutdown = new CancellationTokenSource();
 
             // we kick off the start-and-retry mechanism for the partition, but don't wait for it to be fully started.
             // instead, we save the task and wait for it when we need it
-            this.currentPartition = this.StartPartitionAsync();
+            this.currentIncarnation = Task.Run(() => this.StartPartitionAsync());
 
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} opened", this.eventHubName, this.eventHubPartition);
             return Task.CompletedTask;
         }
 
@@ -108,9 +110,9 @@ namespace DurableTask.EventSourced.EventHubs
             // this is called after an event has committed (i.e. has been durably persisted in the recovery log).
             // so we know we will never need to deliver it again. We remove it from the local buffer, and also checkpoint
             // with EventHubs occasionally.
-            while (this.packetDeliveryBackup.TryPeek(out var front) && front.evt.NextInputQueuePosition <= ((PartitionEvent)evt).NextInputQueuePosition)
+            while (this.pendingDelivery.TryPeek(out var front) && front.evt.NextInputQueuePosition <= ((PartitionEvent)evt).NextInputQueuePosition)
             {
-                if (this.packetDeliveryBackup.TryDequeue(out var candidate))
+                if (this.pendingDelivery.TryDequeue(out var candidate))
                 {
                     if (this.timeSinceLastCheckpoint.ElapsedMilliseconds > 30000)
                     {
@@ -121,14 +123,18 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        private async Task<CurrentPartition> StartPartitionAsync(CurrentPartition prior = null)
+        private async Task<PartitionIncarnation> StartPartitionAsync(PartitionIncarnation prior = null)
         {
-            int incarnation = 1;
-
-            // if this is not the first incarnation of this partition, wait for the previous incarnation to be terminated.
-            if (prior != null)
+            // create the record for this incarnation
+            var c = new PartitionIncarnation()
             {
-                incarnation = prior.Incarnation + 1;
+                Incarnation = (prior != null) ? (prior.Incarnation + 1) : 1,
+                ErrorHandler = this.host.CreateErrorHandler(this.partitionId),
+            };
+
+            // if this is not the first incarnation, stay on standby until the previous incarnation is terminated.
+            if (c.Incarnation > 1)
+            {
                 try
                 {
                     await Task.Delay(-1, prior.ErrorHandler.Token);
@@ -136,68 +142,90 @@ namespace DurableTask.EventSourced.EventHubs
                 catch (OperationCanceledException)
                 {
                 }
-                this.eventProcessorShutdown.Token.ThrowIfCancellationRequested();
-                this.currentPartition = prior.Next;
-                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is restarting partition (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, incarnation);
-                await Task.Delay(TimeSpan.FromSeconds(12), this.eventProcessorShutdown.Token);
-            }
 
-            // check that we are not already shutting down before even starting this
-            this.eventProcessorShutdown.Token.ThrowIfCancellationRequested();
-
-            // create the record for the this incarnation, and start the next one also.
-            var c = new CurrentPartition();
-            c.Incarnation = incarnation;
-            c.ErrorHandler = this.host.CreateErrorHandler(this.partitionId);
-            c.Next = this.StartPartitionAsync(c);
-            c.Partition = host.AddPartition(this.partitionId, this.sender);
-            c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
-
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, incarnation, c.NextPacketToReceive);
-
-            // receive packets already sitting in the buffer; use lock to prevent race with new packets being delivered
-            lock (this.packetDeliveryBackup)
-            {
-                var batch = packetDeliveryBackup.Select(triple => triple.Item1).Where(evt => evt.NextInputQueuePosition > c.NextPacketToReceive).ToList();
-                if (batch.Count > 0)
+                if (!this.eventProcessorShutdown.IsCancellationRequested)
                 {
-                    c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
-                    c.Partition.SubmitExternalEvents(batch);
-                    this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
+                    // we are now becoming the current incarnation
+                    this.currentIncarnation = prior.Next;
+                    this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is restarting partition (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, c.Incarnation);
+                    await Task.Delay(TimeSpan.FromSeconds(12), this.eventProcessorShutdown.Token);
                 }
             }
 
-            timeSinceLastCheckpoint.Start();
+            // check that we are not already shutting down before even starting this
+            if (this.eventProcessorShutdown.IsCancellationRequested)
+            {
+                return null;
+            }
+
+            // start the next incarnation, will be on standby until after the current one is terminated
+            c.Next = Task.Run(() => this.StartPartitionAsync(c));
+
+            try
+            {
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is starting partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, c.Incarnation);
+
+                // start this partition (which may include waiting for the lease to become available)
+                c.Partition = host.AddPartition(this.partitionId, this.sender);
+                c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
+
+                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, c.Incarnation, c.NextPacketToReceive);
+
+                // receive packets already sitting in the buffer; use lock to prevent race with new packets being delivered
+                lock (this.pendingDelivery)
+                {
+                    var batch = pendingDelivery.Select(triple => triple.Item1).Where(evt => evt.NextInputQueuePosition > c.NextPacketToReceive).ToList();
+                    if (batch.Count > 0)
+                    {
+                        c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
+                        c.Partition.SubmitExternalEvents(batch);
+                        this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
+                    }
+                }
+
+                timeSinceLastCheckpoint.Start();
+            }
+            catch (OperationCanceledException) when (c.ErrorHandler.IsTerminated)
+            {
+                // the partition startup was canceled
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} canceled partition startup (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, c.Incarnation);
+            }
+            catch (Exception e) when (!Utils.IsFatal(e))
+            {
+                c.ErrorHandler.HandleError("EventHubsProcessor.StartPartitionAsync", "failed to start partition", e, true, false);
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} failed during startup (incarnation {incarnation}): {exception}", this.eventHubName, this.eventHubPartition, c.Incarnation, e);
+            }
+
             return c;
         }
 
         async Task IEventProcessor.CloseAsync(PartitionContext context, CloseReason reason)
         {
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is stopping", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is closing", this.eventHubName, this.eventHubPartition);
 
-            this.eventProcessorShutdown.Cancel(); // stops the automatic partition restart, but does not stop the current partition
+            this.eventProcessorShutdown.Cancel(); // stops the automatic partition restart
 
-            try
+            PartitionIncarnation current = await this.currentIncarnation;
+
+            while (current != null && current.ErrorHandler.IsTerminated)
             {
-                CurrentPartition current = await this.currentPartition;
-
-                while (current.ErrorHandler.IsTerminated)
-                {
-                    current = await current.Next;
-                }
-
-                await current.Partition.StopAsync();
-
-                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} cleanly stopped partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
+                current = await current.Next;
             }
-            catch (OperationCanceledException)
+
+            if (current == null)
             {
-                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} terminated partition", this.eventHubName, this.eventHubPartition);
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} already canceled or terminated", this.eventHubName, this.eventHubPartition);
+            }
+            else
+            {
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopping partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
+                await current.Partition.StopAsync();
+                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopped partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
             }
 
             await SaveEventHubsReceiverCheckpoint(context);
 
-            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} stopped", this.eventHubName, this.eventHubPartition);
+            this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} closed", this.eventHubName, this.eventHubPartition);
         }
 
         private async ValueTask SaveEventHubsReceiverCheckpoint(PartitionContext context)
@@ -211,7 +239,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     await context.CheckpointAsync(checkpoint);
                 }
-                catch (Exception e)
+                catch (Exception e) when (!Utils.IsFatal(e))
                 {
                     // updating EventHubs checkpoints has been known to fail occasionally due to leases shifting around; since it is optional anyway
                     // we don't want this exception to cause havoc
@@ -223,28 +251,30 @@ namespace DurableTask.EventSourced.EventHubs
         Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception exception)
         {
             this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} encountered an exception: {exception}", this.eventHubName, this.eventHubPartition, exception);
-
-            return Task.FromResult<object>(null);
+            return Task.CompletedTask;
         }
 
         async Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> packets)
         {
-            CurrentPartition current = null;
+            PartitionIncarnation current = await this.currentIncarnation;
+
+            while (current != null && current.ErrorHandler.IsTerminated)
+            {
+                current = await current.Next;
+            }
+
+            if (current == null)
+            {
+                this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} received packets for closed processor", this.eventHubName, this.eventHubPartition);
+                return;
+            }
 
             try
             {
-                current = await this.currentPartition;
-
-                while (current.ErrorHandler.IsTerminated)
-                {
-                    current = await current.Next;
-                }
-                
                 var batch = new List<PartitionEvent>();
-
                 var receivedTimestamp = current.Partition.CurrentTimeMs;
 
-                lock (this.packetDeliveryBackup) // must prevent race with a partition that is restarting in the background
+                lock (this.pendingDelivery) // must prevent rare race with a partition that is currently restarting
                 {
                     foreach (var eventData in packets)
                     {
@@ -266,7 +296,7 @@ namespace DurableTask.EventSourced.EventHubs
                             current.NextPacketToReceive = seqno + 1;
                             partitionEvent.NextInputQueuePosition = current.NextPacketToReceive;
                             batch.Add(partitionEvent);
-                            packetDeliveryBackup.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
+                            pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                             DurabilityListeners.Register(partitionEvent, this);
                         }
                         else if (seqno > current.NextPacketToReceive)

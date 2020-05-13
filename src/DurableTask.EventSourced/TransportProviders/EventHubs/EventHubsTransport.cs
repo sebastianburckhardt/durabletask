@@ -44,6 +44,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         private TaskhubParameters parameters;
 
+        private Task clientEventLoopTask = Task.CompletedTask;
         private CancellationTokenSource shutdownSource;
 
         private CloudBlobContainer cloudBlobContainer;
@@ -156,7 +157,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.client = host.AddClient(this.ClientId, this);
 
-            var clientEventLoopTask = Task.Run(this.ClientEventLoop);
+            this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
             this.eventProcessorHost = new EventProcessorHost(
                  EventHubsConnections.PartitionsPath,
@@ -177,10 +178,16 @@ namespace DurableTask.EventSourced.EventHubs
         async Task TransportAbstraction.ITaskHub.StopAsync()
         {
             this.traceHelper.LogInformation("Shutting down EventHubsBackend");
-            await client.StopAsync();
+            this.traceHelper.LogDebug("Stopping client event loop");
             this.shutdownSource.Cancel();
+            await this.clientEventLoopTask;
+            this.traceHelper.LogDebug("Stopping client");
+            await client.StopAsync();
+            this.traceHelper.LogDebug("Unregistering event processor");
             await this.eventProcessorHost.UnregisterEventProcessorAsync();
+            this.traceHelper.LogDebug("Closing connections");
             await this.connections.Close();
+            this.traceHelper.LogInformation("EventHubsBackend shutdown completed");
         }
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext partitionContext)
