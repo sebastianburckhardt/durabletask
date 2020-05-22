@@ -62,6 +62,11 @@ namespace DurableTask.EventSourced
         public bool IsReplaying { get; set; }
 
         /// <summary>
+        /// For reads that are waited for on the main session, we use this field to return the result
+        /// </summary>
+        public TrackedObject ReadResult { get; set; }
+
+        /// <summary>
         /// Applies the event to the given tracked object, using dynamic dispatch to 
         /// select the correct Process method overload for the event. 
         /// </summary>
@@ -146,8 +151,16 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void ProcessRead(PartitionReadEvent readEvent, TrackedObject target)
+        public void ProcessReadResult(PartitionReadEvent readEvent, TrackedObject target)
         {
+            if (readEvent == null)
+            {
+                // this read is not caused by a read event but was issued directly
+                // in that case we are passing the result via a field
+                this.ReadResult = target;
+                return;
+            }
+
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
             double startedTimestamp = this.Partition.CurrentTimeMs;
@@ -188,7 +201,7 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessRead), $"Encountered exception while processing read event {readEvent}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessReadResult), $"Encountered exception while processing read event {readEvent}", exception, false, false);
                 }
                 finally
                 {

@@ -78,7 +78,7 @@ namespace DurableTask.EventSourced.Faster
 
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                var target = await store.GetOrCreate(key);
+                var target = await store.CreateAsync(key);
                 target.OnFirstInitialization();
             }
 
@@ -118,8 +118,7 @@ namespace DurableTask.EventSourced.Faster
 
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
-
-        
+       
         private async Task PublishPartitionLoad()
         {
             var info = new PartitionLoadInfo()
@@ -131,7 +130,7 @@ namespace DurableTask.EventSourced.Faster
             };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
-                (await this.store.GetOrCreate(k)).UpdateLoadInfo(info);
+                (await this.store.ReadAsync(k, this.effectTracker))?.UpdateLoadInfo(info);
             }
 
             this.UpdateLatencyTrend(info);
@@ -274,6 +273,18 @@ namespace DurableTask.EventSourced.Faster
                 {
                     await this.PublishPartitionLoad();
                 }
+
+                // make sure to complete ready read requests, or notify this worker
+                // if any read requests become ready to process at some point
+                var t = this.store.ReadyToCompletePendingAsync();
+                if (t.IsCompleted)
+                {
+                    store.CompletePending();
+                }
+                else
+                {
+                    var ignoredTask = t.AsTask().ContinueWith(x => this.Notify());
+                }
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
@@ -326,6 +337,18 @@ namespace DurableTask.EventSourced.Faster
             this.effectTracker.IsReplaying = false;
 
             this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
+        }
+
+        public async Task RestartThingsAtEndOfRecovery()
+        {
+            using (EventTraceContext.MakeContext(this.CommitLogPosition, string.Empty))
+            {
+                foreach (var key in TrackedObjectKey.GetSingletons())
+                {
+                    var target = (TrackedObject)await store.ReadAsync(key, this.effectTracker);
+                    target.OnRecoveryCompleted();
+                }
+            }
         }
 
         public async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)

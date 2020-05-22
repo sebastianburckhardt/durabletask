@@ -121,7 +121,7 @@ namespace DurableTask.EventSourced
                             case PartitionReadEvent readEvent:
                                 readEvent.OnReadIssued(this.partition);
                                 var readTarget = this.GetOrAdd(readEvent.ReadTarget);
-                                effects.ProcessRead(readEvent, readTarget);
+                                effects.ProcessReadResult(readEvent, readTarget);
                                 break;
 
                             case PartitionUpdateEvent updateEvent:

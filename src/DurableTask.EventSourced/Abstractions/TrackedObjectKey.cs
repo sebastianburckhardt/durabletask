@@ -65,6 +65,11 @@ namespace DurableTask.EventSourced
             return result;
         }
 
+        public class Comparer : IComparer<TrackedObjectKey>
+        {
+            public int Compare(TrackedObjectKey x, TrackedObjectKey y) => Compare(x, y); 
+        }
+
         // convenient constructors for singletons
 
         public static TrackedObjectKey Activities = new TrackedObjectKey() { ObjectType = TrackedObjectType.Activities };

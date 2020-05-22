@@ -2,6 +2,7 @@
 using FASTER.core;
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -80,6 +81,11 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        public ValueTask ReadyToCompletePendingAsync()
+        {
+            return this.mainSession.ReadyToCompletePendingAsync(this.terminationToken);
+        }
+
         public bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
             try
@@ -151,7 +157,7 @@ namespace DurableTask.EventSourced.Faster
 
         public EffectTracker NoInput = null;
 
-        // fast path read, synchronous, on the main session
+        // kick off a read of a tracked object, completing asynchronously if necessary
         public void Read(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
             try
@@ -166,7 +172,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     case Status.NOTFOUND:
                     case Status.OK:
-                        effectTracker.ProcessRead(readEvent, target);
+                        effectTracker.ProcessReadResult(readEvent, target);
                         break;
 
                     case Status.PENDING:
@@ -184,25 +190,14 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-         // retrieve or create the tracked object, asynchronously if necessary, on the main session
-        public async ValueTask<TrackedObject> GetOrCreate(Key key)
+        // read a tracked object on the main session (only one of these is executing at a time)
+        public async ValueTask<TrackedObject> ReadAsync(Key key, EffectTracker effectTracker)
         {
             try
             {
-                var (status, target) = await this.mainSession.ReadAsync(key, null, false, this.terminationToken);
-
-                if (status == Status.NOTFOUND)
-                {
-                    target = TrackedObjectKey.Factory(key);
-                    await this.mainSession.UpsertAsync(key, target, false, this.terminationToken);
-                }
-                else if (status != Status.OK)
-                {
-                    throw new Exception("Faster semantics?"); //TODO
-                }
-
-                target.Partition = this.partition;
-                return target;
+                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, null, this.terminationToken);
+                result.CompleteRead();
+                return effectTracker.ReadResult;
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -211,11 +206,29 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public ValueTask ProcessEffectOnTrackedObject(TrackedObjectKey k, EffectTracker tracker)
+        // create a tracked object on the main session (only one of these is executing at a time)
+        public async ValueTask<TrackedObject> CreateAsync(Key key)
+        {
+            try
+            {              
+                TrackedObject newObject = TrackedObjectKey.Factory(key);
+                newObject.Partition = this.partition;
+                Value newValue = newObject;
+                await this.mainSession.UpsertAsync(ref key, ref newValue, null, false, this.terminationToken);
+                return newObject;
+            }
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            {
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+            }
+        }
+
+        public ValueTask ProcessEffectOnTrackedObject(Key k, EffectTracker tracker)
         {
             try
             {
-                return this.mainSession.RMWAsync(k, tracker, false, this.terminationToken);
+                return this.mainSession.RMWAsync(ref k, ref tracker, null, false, this.terminationToken);
             }
             catch (Exception exception)
                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -224,12 +237,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        private async Task<StateDump> DumpCurrentState()
+        private async Task<string> DumpCurrentState(EffectTracker effectTracker)
         {
             try
             {
-                var result = new StateDump();
-                var keysToLookup = new HashSet<TrackedObjectKey>();
+                var results = new SortedDictionary<TrackedObjectKey, TrackedObject>(new TrackedObjectKey.Comparer());
+                var keysToLookup = new HashSet<TrackedObjectKey>();    
 
                 // get the set of keys appearing in the log
                 using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
@@ -243,14 +256,20 @@ namespace DurableTask.EventSourced.Faster
                 // read the current value of each
                 foreach (var k in keysToLookup)
                 {
-                    (Status status, TrackedObject target) = await this.mainSession.ReadAsync(k, null, false, this.terminationToken);
-                    if (status == Status.OK)
+                    TrackedObject target = await this.ReadAsync(k, effectTracker);
+                    if (target != null)
                     {
-                        result.OnReadComplete(target, this.partition);
+                        results.Add(k, target);
                     }
                 }
 
-                return result;
+                var stringBuilder = new StringBuilder();
+                foreach (var trackedObject in results.Values)
+                {
+                    stringBuilder.Append(trackedObject.ToString());
+                    stringBuilder.AppendLine();
+                }
+                return stringBuilder.ToString();
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -424,18 +443,17 @@ namespace DurableTask.EventSourced.Faster
                 return true;
             }
 
-            public void ReadCompletionCallback(ref Key key, ref EffectTracker input, ref TrackedObject output, PartitionReadEvent ctx, Status status)
+            public void ReadCompletionCallback(ref Key key, ref EffectTracker tracker, ref TrackedObject output, PartitionReadEvent evt, Status status)
             {
-                partition.Assert(ctx != null);
-
+                // the result is passed on to the read event
                 switch (status)
                 {
                     case Status.NOTFOUND:
-                        input.ProcessRead(ctx, null);
+                        tracker.ProcessReadResult(evt, null);
                         break;
 
                     case Status.OK:
-                        input.ProcessRead(ctx, output);
+                        tracker.ProcessReadResult(evt, output);
                         break;
 
                     case Status.PENDING:
