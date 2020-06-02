@@ -211,43 +211,17 @@ namespace DurableTask.EventSourced.Faster
 
             try
             {
-                //TODO temporarily uncomment this for isolating repro
-                //if (this.underLease)
-                //{
-                //    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease");
-                //    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
-                //    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease done");
-                //}
-
-                for (int attempt = 1; attempt <= 100; attempt++)
+                if (this.underLease)
                 {
-                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={attempt}");
-
-                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(300));
-
-                    var blobRequestOptions = new BlobRequestOptions()
-                    {
-                        NetworkTimeout = TimeSpan.FromSeconds(60),
-                        MaximumExecutionTime = TimeSpan.FromSeconds(60),
-                        ServerTimeout = TimeSpan.FromSeconds(60),           
-                    };
-
-                    var downloadTask = blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                        accessCondition: null, options: blobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
-
-                    var firstToComplete = await Task.WhenAny(timeoutTask, downloadTask).ConfigureAwait(false);
-
-                    if (firstToComplete == downloadTask)
-                    {
-                        await downloadTask;
-                        break;
-                    }
-                    else 
-                    {
-                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"storage access did not return or throw within 5 minutes, retry");
-                        continue;
-                    }
+                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease");
+                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease done");
                 }
+
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+
+                await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
+                         accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
 
                 this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
 

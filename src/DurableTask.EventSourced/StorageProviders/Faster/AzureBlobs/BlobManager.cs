@@ -339,11 +339,9 @@ namespace DurableTask.EventSourced.Faster
                 var nextLeaseTimer = new System.Diagnostics.Stopwatch();
                 nextLeaseTimer.Start();
 
-
-                //TODO we comment this out temporarily while investigating deadlock, for repro
-                // this.TraceHelper.LeaseProgress("Renewing lease");
-                // await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.PartitionErrorHandler.Token).ConfigureAwait(false);
-                // this.TraceHelper.LeaseProgress("Renewed lease");
+                this.TraceHelper.LeaseProgress("Renewing lease");
+                await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                this.TraceHelper.LeaseProgress("Renewed lease");
 
                 this.leaseTimer = nextLeaseTimer;
             }
