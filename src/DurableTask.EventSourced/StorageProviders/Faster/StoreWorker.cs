@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Faster
         public long InputQueuePosition { get; private set; }
         public long CommitLogPosition { get; private set; }
 
-        public LogWorker LogWorker { get; set; }
+        //public LogWorker LogWorker { get; set; }
 
         // periodic index and store checkpointing
         private Task pendingIndexCheckpoint;
@@ -229,6 +229,8 @@ namespace DurableTask.EventSourced.Faster
                             break;
 
                         case PartitionUpdateEvent updateEvent:
+                            // Q: Is this adequate to use this? Need to test!
+                            updateEvent.NextCommitLogPosition = this.CommitLogPosition + 1;
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
                             break;
 
@@ -311,7 +313,7 @@ namespace DurableTask.EventSourced.Faster
             if (!isIndexCheckpoint)
             {
                 // wait for the commit log so it is never behind the checkpoint
-                await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
+                // await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // TODO: Wait on the speculative events to have been persisted in other partitions
                 // check if the latest persisted in other
@@ -327,22 +329,22 @@ namespace DurableTask.EventSourced.Faster
             return commitLogPosition;
         }
 
-        public async Task ReplayCommitLog(LogWorker logWorker)
-        {
-            this.traceHelper.FasterProgress("Replaying log");
+        //public async Task ReplayCommitLog(LogWorker logWorker)
+        //{
+        //    this.traceHelper.FasterProgress("Replaying log");
 
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
+        //    var stopwatch = new System.Diagnostics.Stopwatch();
+        //    stopwatch.Start();
 
-            var startPosition = this.CommitLogPosition;
-            this.effectTracker.IsReplaying = true;
-            // TODO: Make  this a selective replay
-            await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
-            stopwatch.Stop();
-            this.effectTracker.IsReplaying = false;
+        //    var startPosition = this.CommitLogPosition;
+        //    this.effectTracker.IsReplaying = true;
+        //    // TODO: Make this a selective replay
+        //    await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
+        //    stopwatch.Stop();
+        //    this.effectTracker.IsReplaying = false;
 
-            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
-        }
+        //    this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
+        //}
 
         public async Task RestartThingsAtEndOfRecovery()
         {

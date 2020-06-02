@@ -33,9 +33,9 @@ namespace DurableTask.EventSourced.Faster
 
         private Partition partition;
         private BlobManager blobManager;
-        private LogWorker logWorker;
+        //private LogWorker logWorker;
         private StoreWorker storeWorker;
-        private FasterLog log;
+        //private FasterLog log;
         private FasterKV store;
 
         private CancellationToken terminationToken;
@@ -73,8 +73,8 @@ namespace DurableTask.EventSourced.Faster
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
-            this.TraceHelper.FasterProgress("Creating FasterLog");
-            this.log = new FasterLog(this.blobManager);
+            //this.TraceHelper.FasterProgress("Creating FasterLog");
+            //this.log = new FasterLog(this.blobManager);
 
             this.TraceHelper.FasterProgress("Creating FasterKV");
             this.store = new FasterKV(this.partition, this.blobManager);
@@ -82,18 +82,26 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Creating StoreWorker");
             this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.blobManager, this.terminationToken);
 
-            this.TraceHelper.FasterProgress("Creating LogWorker");
-            this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
+            //this.TraceHelper.FasterProgress("Creating LogWorker");
+            //this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
 
-            if (this.log.TailAddress == this.log.BeginAddress)
+            // Now that we don't have a log we can't know whether we have a checkpoint, so we should just ask FASTER
+            // to recover.
+            //
+            // Q: Is this fine or do we need to initialize FASTER somehow if there is no available checkpoint
+
+            // TODO: Make sure that this is the correct way to check
+            if (this.blobManager.CheckpointInfo.CommitLogPosition == 0)
+            //if (this.log.TailAddress == this.log.BeginAddress)
             {
-                // take an (empty) checkpoint immediately to ensure the paths are working
+                    // take an (empty) checkpoint immediately to ensure the paths are working
                 try
                 {
                     this.TraceHelper.FasterProgress("Creating store");
 
                     // this is a fresh partition
-                    await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition).ConfigureAwait(false);
+                    // Q: Is 0 ok in this case
+                    await storeWorker.Initialize(0, firstInputQueuePosition).ConfigureAwait(false);
 
                     await this.TakeFullCheckpointAsync("initial checkpoint").ConfigureAwait(false);
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -108,6 +116,7 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
+
                 this.TraceHelper.FasterProgress("Loading checkpoint");
 
                 try
@@ -126,19 +135,19 @@ namespace DurableTask.EventSourced.Faster
 
                 this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
 
-                try
-                {
-                    if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
-                    {
-                        // replay log as the store checkpoint lags behind the log
-                        await this.storeWorker.ReplayCommitLog(this.logWorker).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception e)
-                {
-                    this.TraceHelper.FasterStorageError("replaying log", e);
-                    throw;
-                }
+                //try
+                //{
+                //    if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
+                //    {
+                //        // replay log as the store checkpoint lags behind the log
+                //        await this.storeWorker.ReplayCommitLog(this.logWorker).ConfigureAwait(false);
+                //    }
+                //}
+                //catch (Exception e)
+                //{
+                //    this.TraceHelper.FasterStorageError("replaying log", e);
+                //    throw;
+                //}
 
                 // restart pending actitivities, timers, work items etc.
                 await storeWorker.RestartThingsAtEndOfRecovery().ConfigureAwait(false);
@@ -156,11 +165,11 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Stopping workers");
             
             // in parallel, finish processing log requests and stop processing store requests
-            Task t1 = this.logWorker.PersistAndShutdownAsync();
+            //Task t1 = this.logWorker.PersistAndShutdownAsync();
             Task t2 = this.storeWorker.CancelAndShutdown();
 
             // observe exceptions if the clean shutdown is not working correctly
-            await t1.ConfigureAwait(false);
+            //await t1.ConfigureAwait(false);
             await t2.ConfigureAwait(false);
 
             // if the the settings indicate we want to take a final checkpoint, do so now.
@@ -200,20 +209,26 @@ namespace DurableTask.EventSourced.Faster
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
-            this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
-            this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
+            // Q: Is it fine to send all events straight to the store Worker? 
+            //    Or do we first have to update the commitLogPosition for the Update events 
+            //    (as is done in LogWorker.Send)
+            //this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
+            //this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
+            this.storeWorker.SubmitIncomingBatch(evts);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
-            if (evt is PartitionUpdateEvent partitionUpdateEvent)
-            {
-                this.logWorker.Submit(partitionUpdateEvent);
-            }
-            else
-            {
-                this.storeWorker.Submit(evt);
-            }
+            // Q: Similar question as the one above.
+            this.storeWorker.Submit(evt);
+            //if (evt is PartitionUpdateEvent partitionUpdateEvent)
+            //{
+            //    this.logWorker.Submit(partitionUpdateEvent);
+            //}
+            //else
+            //{
+            //    this.storeWorker.Submit(evt);
+            //}
         }
 
         private async Task IdleLoop()

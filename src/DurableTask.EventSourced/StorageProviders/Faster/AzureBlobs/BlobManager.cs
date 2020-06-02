@@ -39,6 +39,8 @@ namespace DurableTask.EventSourced.Faster
         private readonly CloudStorageAccount cloudStorageAccount;
 
         private CloudBlobContainer blobContainer;
+
+        // TODO: Possibly rename this to Lease blob, and only use it for lease
         private CloudBlockBlob eventLogCommitBlob;
         private CloudBlobDirectory partitionDirectory;
 
@@ -55,7 +57,7 @@ namespace DurableTask.EventSourced.Faster
 
         internal bool UseLocalFilesForTestingAndDebugging { get; private set; }
 
-        public IDevice EventLogDevice { get; private set; }
+        //public IDevice EventLogDevice { get; private set; }
         public IDevice HybridLogDevice { get; private set; }
         public IDevice ObjectLogDevice { get; private set; }
 
@@ -65,15 +67,15 @@ namespace DurableTask.EventSourced.Faster
 
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
-        public FasterLogSettings EventLogSettings => new FasterLogSettings
-        {
-            LogDevice = this.EventLogDevice,
-            LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
-                new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256KB since we are just writing and often small portions
-            SegmentSizeBits = 28, // 256 MB
-            MemorySizeBits = 22, // 2MB because 16 pages are the minimum
-        };
+        //public FasterLogSettings EventLogSettings => new FasterLogSettings
+        //{
+        //    LogDevice = this.EventLogDevice,
+        //    LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
+        //        new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
+        //    PageSizeBits = 18, // 256KB since we are just writing and often small portions
+        //    SegmentSizeBits = 28, // 256 MB
+        //    MemorySizeBits = 22, // 2MB because 16 pages are the minimum
+        //};
 
         public LogSettings StoreLogSettings => new LogSettings
         {
@@ -158,7 +160,6 @@ namespace DurableTask.EventSourced.Faster
             {
                 Directory.CreateDirectory($"{this.LocalDirectoryPath}\\{PartitionFolder}");
 
-                this.EventLogDevice = Devices.CreateLogDevice($"{this.LocalDirectoryPath}\\{PartitionFolder}\\{EventLogBlobName}");
                 this.HybridLogDevice = Devices.CreateLogDevice($"{this.LocalDirectoryPath}\\{PartitionFolder}\\{HybridLogBlobName}");
                 this.ObjectLogDevice = Devices.CreateLogDevice($"{this.LocalDirectoryPath}\\{PartitionFolder}\\{ObjectLogBlobName}");
             }
@@ -169,17 +170,15 @@ namespace DurableTask.EventSourced.Faster
 
                 this.eventLogCommitBlob = this.partitionDirectory.GetBlockBlobReference(CommitBlobName);
 
-                var eventLogDevice = new AzureStorageDevice(EventLogBlobName, this.partitionDirectory.GetDirectoryReference(EventLogBlobName), this, true);
                 var hybridLogDevice = new AzureStorageDevice(HybridLogBlobName, this.partitionDirectory.GetDirectoryReference(HybridLogBlobName), this, true);
                 var objectLogDevice = new AzureStorageDevice(ObjectLogBlobName, this.partitionDirectory.GetDirectoryReference(ObjectLogBlobName), this, true);
 
                 await this.AcquireOwnership().ConfigureAwait(false);
 
                 this.TraceHelper.FasterProgress("Starting Faster Devices");
-                await Task.WhenAll(eventLogDevice.StartAsync(), hybridLogDevice.StartAsync(), objectLogDevice.StartAsync()).ConfigureAwait(false);
+                await Task.WhenAll(hybridLogDevice.StartAsync(), objectLogDevice.StartAsync()).ConfigureAwait(false);
                 this.TraceHelper.FasterProgress("Started Faster Devices");
 
-                this.EventLogDevice = eventLogDevice;
                 this.HybridLogDevice = hybridLogDevice;
                 this.ObjectLogDevice = objectLogDevice;
             }
