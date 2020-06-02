@@ -257,7 +257,7 @@ namespace DurableTask.EventSourced.Faster
                     {
                         await this.pendingIndexCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingIndexCheckpoint = null;
-                        var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
+                        var token = await this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition, this.effectTracker);
                         this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
                         this.numberEventsSinceLastCheckpoint = 0;
                     }
@@ -313,6 +313,10 @@ namespace DurableTask.EventSourced.Faster
                 // wait for the commit log so it is never behind the checkpoint
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
+                // TODO: Wait on the speculative events to have been persisted in other partitions
+                // check if the latest persisted in other
+                await this.store.CheckpointHasNoUnconfirmeDependencies.Task;
+
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
             }
@@ -332,6 +336,7 @@ namespace DurableTask.EventSourced.Faster
 
             var startPosition = this.CommitLogPosition;
             this.effectTracker.IsReplaying = true;
+            // TODO: Make  this a selective replay
             await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
             stopwatch.Stop();
             this.effectTracker.IsReplaying = false;

@@ -28,6 +28,12 @@ namespace DurableTask.EventSourced
         [DataMember]
         public Dictionary<uint, long> LastProcessed { get; set; } = new Dictionary<uint, long>();
 
+        // Q: Should this be serialized or not?
+        public Dictionary<uint, long> LastConfirmed { get; set; } = new Dictionary<uint, long>();
+
+        [IgnoreDataMember]
+        public Action<Dictionary<uint, long>> ConfirmationListener;
+
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
 
@@ -46,6 +52,41 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public bool KeepWaitingForPersistenceConfirmation(Dictionary<uint, long> waitingFor, Dictionary<uint, long> lastConfirmed)
+        {
+            var keepWaiting = false;
+            foreach (var partitionPosition in waitingFor)
+            {
+                // Q: Is this an eager or? Is the following check ok?
+                if (!lastConfirmed.ContainsKey(partitionPosition.Key)
+                    || lastConfirmed[partitionPosition.Key] < partitionPosition.Value)
+                {
+                    keepWaiting = true;
+                    break;
+                }
+            }
+            return keepWaiting;
+        }
+
+        public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
+        {
+            // Q: Is this check necessary, or is it expected that confirmed are non-decreasing?
+            long previousConfirmed;
+            long newConfirmed;
+            if (this.LastConfirmed.TryGetValue(evt.OriginPartition, out previousConfirmed))
+            {
+                newConfirmed = Math.Max(previousConfirmed, evt.OriginPosition);
+            }
+            else 
+            {
+                newConfirmed = evt.OriginPosition;
+            }
+            this.LastConfirmed[evt.OriginPartition] = newConfirmed;
+
+            // If the Confirmation listener is set, it means that a checkpoint is waiting for 
+            // persistence confirmation to complete
+            this.ConfirmationListener?.Invoke(this.LastConfirmed);
+        }
         public void Process(ActivityOffloadReceived evt, EffectTracker effects)
         {
             // queues activities originating from a remote partition to execute on this partition

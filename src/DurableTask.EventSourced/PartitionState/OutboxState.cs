@@ -59,26 +59,60 @@ namespace DurableTask.EventSourced
             return $"Outbox ({Outbox.Count} pending)";
         }
 
-        private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
+        private void SendBatchAndSetupConfirmation(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
         {
-            // put the messages in the outbox where they are kept until actually sent
+            // Put the messages in the outbox to be able to send a confirmation afterwards.
+            // TODO: We might actually not need to store the batch here
             var commitPosition = evt.NextCommitLogPosition;
             this.Outbox[commitPosition] = batch;
             batch.Position = commitPosition;
             batch.Partition = this.Partition;
 
+            // If we are replaying we don't need to resend the messages 
+            // since they will be replayed in the other partitions from their commit logs
+            // Q: Is that assumption correct?
+
             if (!effects.IsReplaying)
             {
+                this.Send(this.Outbox[commitPosition]);
                 DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
             }
         }
+
+        //private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
+        //{
+        //    // put the messages in the outbox where they are kept until actually sent
+        //    var commitPosition = evt.NextCommitLogPosition;
+        //    this.Outbox[commitPosition] = batch;
+        //    batch.Position = commitPosition;
+        //    batch.Partition = this.Partition;
+
+        //    if (!effects.IsReplaying)
+        //    {
+        //        DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
+        //    }
+        //}
 
         public void ConfirmDurable(Event evt)
         {
             long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
             this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
-            this.Send(this.Outbox[commitPosition]);
+
+            var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+            {
+                OriginPartition = this.Partition.PartitionId,
+                OriginPosition = commitPosition
+            };
+
+            this.Partition.Send(persistenceConfirmationEvent);
         }
+
+        //public void OldConfirmDurable(Event evt)
+        //{
+        //    long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
+        //    this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
+        //    this.Send(this.Outbox[commitPosition]);
+        //}
 
         private void Send(Batch batch)
         {
@@ -137,7 +171,7 @@ namespace DurableTask.EventSourced
                 ActivityId = evt.ActivityId,
                 ActivitiesQueueSize = evt.ReportedLoad,
             });
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
 
         public void Process(BatchProcessed evt, EffectTracker effects)
@@ -166,7 +200,7 @@ namespace DurableTask.EventSourced
             }
             var batch = new Batch();
             batch.AddRange(sorted.Values);
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
 
         public void Process(OffloadDecision evt, EffectTracker effects)
@@ -178,7 +212,7 @@ namespace DurableTask.EventSourced
                 OffloadedActivities = evt.OffloadedActivities,
                 Timestamp = evt.Timestamp,
             });
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
     }
 }

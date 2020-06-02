@@ -70,7 +70,7 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256k since we are just writing and often small portions
+            PageSizeBits = 18, // 256KB since we are just writing and often small portions
             SegmentSizeBits = 28, // 256 MB
             MemorySizeBits = 22, // 2MB because 16 pages are the minimum
         };
@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // For testing and debugging with local files
-        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"C:\Faster";
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.ContainerName}";
 

@@ -206,6 +206,18 @@ namespace DurableTask.EventSourced.Faster
 
                         if (partitionEvent != null)
                         {
+                            // If the event depends on a later commit position that the one that is persisted
+                            // we have to stop replaying the commit log
+                            PartitionMessageEvent partitionMessageEvent = partitionEvent as PartitionMessageEvent;
+                            if (partitionMessageEvent != null)
+                            {
+                                // Q: What is a good maybe type as an argument for this function to hold
+                                //    maybe a dictionary from partitionIds to commitLogPositions
+                                if (partitionMessageEvent.OriginPosition > beforePositions[partitionMessageEvent.OriginPartition])
+                                {
+                                    // TODO: Stop the replay
+                                }
+                            }
                             partitionEvent.NextCommitLogPosition = iter.NextAddress;
                             await worker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
                         }

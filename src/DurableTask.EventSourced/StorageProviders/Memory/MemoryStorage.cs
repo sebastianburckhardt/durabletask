@@ -145,6 +145,10 @@ namespace DurableTask.EventSourced
                         }
                     }
                 }
+                catch(Exception e)
+                {
+                    partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {partitionEvent}", e, false, false);
+                }
             }
             catch (Exception e)
             {

@@ -387,6 +387,19 @@ namespace DurableTask.EventSourced
             string instanceId, 
             string executionId)
         {
+            // Q: Shouldn't this be async?
+
+            // Q: Is this for debugging purposes?
+
+            // Q: Why does several methods here call Client.cs ? What is the architecture involving these two? 
+            //    I would expect the Client to call the Orchestration Service and not the other way around.
+            //
+            //    In any case, since these methods exist in the Client too, we should probably call them 
+            //    from here and implement them there.
+
+            // We should make some new event (like StateRequestReceived that should inherit from ClientReadRequestEvent).
+
+            // In the end we should call: JsonConvert.SerializeObject(history.Events);
             throw new NotSupportedException(); //TODO
         }
 
