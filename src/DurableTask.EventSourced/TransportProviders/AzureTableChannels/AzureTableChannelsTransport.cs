@@ -16,7 +16,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.WindowsAzure.Storage;
+using Microsoft.Azure.Cosmos.Table;
 
 namespace DurableTask.EventSourced.AzureTableChannels
 {
@@ -46,7 +46,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
-            await Task.Delay(simulatedDelay);
+            await Task.Delay(simulatedDelay).ConfigureAwait(false);
             this.partitionTransports = new Transport[this.numberPartitions]; // TODO use number hosts instead
             this.partitionStates = new StorageAbstraction.IPartitionState[this.numberPartitions];
             this.partitions = new TransportAbstraction.IPartition[this.numberPartitions];
@@ -54,13 +54,13 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
-            await Task.Delay(simulatedDelay);
+            await Task.Delay(simulatedDelay).ConfigureAwait(false);
             this.partitionTransports = null;
         }
 
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {
-            await Task.Delay(simulatedDelay);
+            await Task.Delay(simulatedDelay).ConfigureAwait(false);
             return this.partitionTransports != null;
         }
 
@@ -92,12 +92,12 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
                 if (i == 0)
                 {
-                    await partitionTransport.CreateTableIfNotExistAsync();
+                    await partitionTransport.CreateTableIfNotExistAsync().ConfigureAwait(false);
                 }
 
                 var partition = partitions[i] = this.host.AddPartition(i, partitionTransport.PartitionSender);
 
-                await partition.CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0);
+                await partition.CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0).ConfigureAwait(false);
             }
 
             // create a client
@@ -121,8 +121,8 @@ namespace DurableTask.EventSourced.AzureTableChannels
                 this.shutdownTokenSource.Cancel();
                 this.shutdownTokenSource = null;
 
-                await this.client.StopAsync();
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(this.settings.TakeStateCheckpointWhenStoppingPartition)));
+                await this.client.StopAsync().ConfigureAwait(false);
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(this.settings.TakeStateCheckpointWhenStoppingPartition))).ConfigureAwait(false);
             }
         }
 

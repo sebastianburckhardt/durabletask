@@ -18,8 +18,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core.Common;
 using Microsoft.Azure.EventHubs;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Queue;
+using Microsoft.Azure.Cosmos.Table;
 
 namespace DurableTask.EventSourced.Scaling
 {
@@ -61,9 +60,9 @@ namespace DurableTask.EventSourced.Scaling
         /// <returns></returns>
         public async Task<ScaleRecommendation> GetScaleRecommendation(int workerCount)
         {
-            Dictionary<uint, PartitionLoadInfo> loadInformation = await this.table.QueryAsync(CancellationToken.None);
+            Dictionary<uint, PartitionLoadInfo> loadInformation = await this.table.QueryAsync(CancellationToken.None).ConfigureAwait(false);
 
-            bool taskHubIsIdle = await this.TaskHubIsIdleAsync(loadInformation);
+            bool taskHubIsIdle = await this.TaskHubIsIdleAsync(loadInformation).ConfigureAwait(false);
 
             if (workerCount == 0 && !taskHubIsIdle)
             {
@@ -154,11 +153,11 @@ namespace DurableTask.EventSourced.Scaling
             switch (this.configuredTransport)
             {
                 case TransportConnectionString.TransportChoices.EventHubs:
-                    positions = await EventHubs.EventHubsConnections.GetQueuePositions(this.eventHubsConnectionString);
+                    positions = await EventHubs.EventHubsConnections.GetQueuePositions(this.eventHubsConnectionString).ConfigureAwait(false);
                     break;
 
                 case TransportConnectionString.TransportChoices.AzureTableChannels:
-                    positions = await AzureTableChannels.AzureTableChannelsTransport.GetQueuePositions(this.storageConnectionString);
+                    positions = await AzureTableChannels.AzureTableChannelsTransport.GetQueuePositions(this.storageConnectionString).ConfigureAwait(false);
                     break;
 
                 default:

@@ -10,7 +10,6 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -20,7 +19,7 @@ namespace DurableTask.EventSourced
 {
     /// <summary>
     /// General pattern for an asynchronous worker that performs a work task, when notified,
-    /// to service queued work. Each work cycle handles ALL the queued work. 
+    /// to service queued work on the thread pool. Each work cycle handles ALL the queued work. 
     /// If new work arrives during a work cycle, another cycle is scheduled. 
     /// The worker never executes more than one instance of the work cycle at a time, 
     /// and consumes no thread or task resources when idle.
@@ -91,7 +90,7 @@ namespace DurableTask.EventSourced
             {
                if (this.waiters == null)
                {
-                  this.waiters = new TaskCompletionSource<bool>();
+                  this.waiters = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                }
 
                this.Notify();
@@ -121,7 +120,7 @@ namespace DurableTask.EventSourced
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await this.Process(batch);
+                await this.Process(batch).ConfigureAwait(false);
 
                 waiters?.SetResult(true);
             }

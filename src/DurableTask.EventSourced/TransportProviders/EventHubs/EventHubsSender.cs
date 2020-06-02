@@ -86,7 +86,7 @@ namespace DurableTask.EventSourced.EventHubs
                         {
                             // send the batch we have so far
                             maybeSent = i - 1;
-                            await sender.SendAsync(batch);
+                            await sender.SendAsync(batch).ConfigureAwait(false);
                             sentSuccessfully = i - 1;
 
                             this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced.EventHubs
                                 stream.Seek(0, SeekOrigin.Begin);
                                 Packet.Serialize((Event)fragment, stream);
                                 length = (int)stream.Position;
-                                await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length)));
+                                await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length))).ConfigureAwait(false);
                                 this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);
                             }
                             sentSuccessfully = i;
@@ -125,7 +125,7 @@ namespace DurableTask.EventSourced.EventHubs
                 if (batch.Count > 0)
                 {
                     maybeSent = toSend.Count - 1;
-                    await sender.SendAsync(batch);
+                    await sender.SendAsync(batch).ConfigureAwait(false);
                     sentSuccessfully = toSend.Count - 1;
 
                     this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent batch of {numPackets} packets", this.eventHubName, this.eventHubPartition, batch.Count);
@@ -182,7 +182,7 @@ namespace DurableTask.EventSourced.EventHubs
                 if (requeue != null)
                 {
                     // take a deep breath before trying again
-                    await Task.Delay(backoff);
+                    await Task.Delay(backoff).ConfigureAwait(false);
 
                     this.Requeue(requeue);
                 }

@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.EventSourced;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -28,8 +29,8 @@ namespace DurableTask.EventSourced.Emulated
     {
         private readonly TransportAbstraction.IClient client;
 
-        public MemoryClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken)
-            : base(cancellationToken)
+        public MemoryClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken, ILogger logger)
+            : base(cancellationToken, logger)
         {
             this.client = client;
         }

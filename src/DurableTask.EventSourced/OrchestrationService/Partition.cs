@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced
 
                 // goes to storage to create or restore the partition state
                 this.TraceHelper.TraceProgress("Loading partition state");
-                var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition);
+                var inputQueuePosition = await State.CreateOrRestoreAsync(this, this.ErrorHandler, firstInputQueuePosition).ConfigureAwait(false);
 
                 this.RecoveryIsComplete = true;
 
@@ -148,7 +148,7 @@ namespace DurableTask.EventSourced
                 if (!this.ErrorHandler.IsTerminated)
                 {
                     // for a clean shutdown we try to save some of the latest progress to storage and then release the lease
-                    await this.State.CleanShutdown(this.Settings.TakeStateCheckpointWhenStoppingPartition);
+                    await this.State.CleanShutdown(this.Settings.TakeStateCheckpointWhenStoppingPartition).ConfigureAwait(false);
                 }
             }
             catch(OperationCanceledException) when (this.ErrorHandler.IsTerminated)

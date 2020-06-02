@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced.EventHubs
             // try load the taskhub parameters
             try
             {
-                var jsonText = await this.taskhubParameters.DownloadTextAsync();
+                var jsonText = await this.taskhubParameters.DownloadTextAsync().ConfigureAwait(false);
                 return  JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
             }
             catch (StorageException ex) when (ex.RequestInformation.HttpStatusCode == 404)
@@ -85,15 +85,15 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {
-            var parameters = await TryLoadExistingTaskhubAsync();
+            var parameters = await TryLoadExistingTaskhubAsync().ConfigureAwait(false);
             return (parameters != null && parameters.TaskhubName == this.settings.TaskHubName);
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
-            await this.cloudBlobContainer.CreateIfNotExistsAsync();
+            await this.cloudBlobContainer.CreateIfNotExistsAsync().ConfigureAwait(false);
 
-            if (await TryLoadExistingTaskhubAsync() != null)
+            if (await TryLoadExistingTaskhubAsync().ConfigureAwait(false) != null)
             {
                 throw new InvalidOperationException("Cannot create TaskHub: Only one TaskHub is allowed per EventHub");
             }
@@ -112,7 +112,7 @@ namespace DurableTask.EventSourced.EventHubs
                 taskHubParameters,
                 Formatting.Indented,
                 new JsonSerializerSettings() { TypeNameHandling = TypeNameHandling.None });
-            await this.taskhubParameters.UploadTextAsync(jsonText);
+            await this.taskhubParameters.UploadTextAsync(jsonText).ConfigureAwait(false);
         }
 
         [DataContract]
@@ -130,13 +130,13 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
-            if (await this.taskhubParameters.ExistsAsync())
+            if (await this.taskhubParameters.ExistsAsync().ConfigureAwait(false))
             {
-                await BlobUtils.ForceDeleteAsync(this.taskhubParameters);
+                await BlobUtils.ForceDeleteAsync(this.taskhubParameters).ConfigureAwait(false);
             }
 
             // todo delete consumption checkpoints
-            await this.host.StorageProvider.DeleteAllPartitionStatesAsync();
+            await this.host.StorageProvider.DeleteAllPartitionStatesAsync().ConfigureAwait(false);
         }
 
         async Task TransportAbstraction.ITaskHub.StartAsync()
@@ -144,7 +144,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.shutdownSource = new CancellationTokenSource();
 
             // load the taskhub parameters
-            var jsonText = await this.taskhubParameters.DownloadTextAsync();
+            var jsonText = await this.taskhubParameters.DownloadTextAsync().ConfigureAwait(false);
             this.parameters = JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
 
             // check that we are the correct taskhub!
@@ -172,7 +172,7 @@ namespace DurableTask.EventSourced.EventHubs
                 MaxBatchSize = MaxReceiveBatchSize,
             };
 
-            await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions);
+            await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
         }
 
         async Task TransportAbstraction.ITaskHub.StopAsync()
@@ -180,13 +180,12 @@ namespace DurableTask.EventSourced.EventHubs
             this.traceHelper.LogInformation("Shutting down EventHubsBackend");
             this.traceHelper.LogDebug("Stopping client event loop");
             this.shutdownSource.Cancel();
-            await this.clientEventLoopTask;
             this.traceHelper.LogDebug("Stopping client");
-            await client.StopAsync();
+            await client.StopAsync().ConfigureAwait(false);
             this.traceHelper.LogDebug("Unregistering event processor");
-            await this.eventProcessorHost.UnregisterEventProcessorAsync();
+            await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
             this.traceHelper.LogDebug("Closing connections");
-            await this.connections.Close();
+            await this.connections.Close().ConfigureAwait(false);
             this.traceHelper.LogInformation("EventHubsBackend shutdown completed");
         }
 
@@ -224,7 +223,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
-                IEnumerable<EventData> eventData = await clientReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1));
+                IEnumerable<EventData> eventData = await clientReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
 
                 if (eventData != null)
                 {

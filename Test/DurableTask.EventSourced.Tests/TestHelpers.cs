@@ -72,7 +72,7 @@ namespace DurableTask.EventSourced.Tests
 
         public static string GetEventHubsConnectionString()
         {
-            // NOTE: If using any of the memory options, modify GetStorageConnectionString use the local file system.
+            // NOTE: If using any of the memory options, modify GetStorageConnectionString to use the local file system.
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";

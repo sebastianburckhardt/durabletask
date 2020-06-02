@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageEtwLevel, partition.PartitionId, errorHandler);
 
             this.TraceHelper.FasterProgress("Starting BlobManager");
-            await blobManager.StartAsync();
+            await blobManager.StartAsync().ConfigureAwait(false);
 
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
@@ -93,9 +93,9 @@ namespace DurableTask.EventSourced.Faster
                     this.TraceHelper.FasterProgress("Creating store");
 
                     // this is a fresh partition
-                    await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition);
+                    await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition).ConfigureAwait(false);
 
-                    await this.TakeFullCheckpointAsync("initial checkpoint");
+                    await this.TakeFullCheckpointAsync("initial checkpoint").ConfigureAwait(false);
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
 
                     this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced.Faster
                     if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
                     {
                         // replay log as the store checkpoint lags behind the log
-                        await this.storeWorker.ReplayCommitLog(this.logWorker);
+                        await this.storeWorker.ReplayCommitLog(this.logWorker).ConfigureAwait(false);
                     }
                 }
                 catch (Exception e)
@@ -141,7 +141,7 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 // restart pending actitivities, timers, work items etc.
-                await storeWorker.RestartThingsAtEndOfRecovery();
+                await storeWorker.RestartThingsAtEndOfRecovery().ConfigureAwait(false);
 
                 this.TraceHelper.FasterProgress("Recovery complete");
             }
@@ -160,18 +160,18 @@ namespace DurableTask.EventSourced.Faster
             Task t2 = this.storeWorker.CancelAndShutdown();
 
             // observe exceptions if the clean shutdown is not working correctly
-            await t1;
-            await t2;
+            await t1.ConfigureAwait(false);
+            await t2.ConfigureAwait(false);
 
             // if the the settings indicate we want to take a final checkpoint, do so now.
             if (takeFinalCheckpoint)
             {
                 this.TraceHelper.FasterProgress("Writing final checkpoint");
-                await this.TakeFullCheckpointAsync("final checkpoint");
+                await this.TakeFullCheckpointAsync("final checkpoint").ConfigureAwait(false);
             }
 
             this.TraceHelper.FasterProgress("Stopping BlobManager");
-            await this.blobManager.StopAsync();
+            await this.blobManager.StopAsync().ConfigureAwait(false);
         }
 
         private async ValueTask TakeFullCheckpointAsync(string reason)
@@ -189,8 +189,8 @@ namespace DurableTask.EventSourced.Faster
             }
 
             // do the faster full checkpoint and then write the checkpoint info file
-            await this.store.CompleteCheckpointAsync();
-            await this.blobManager.WriteCheckpointCompletedAsync();
+            await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
+            await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
 
             if (success)
             {
@@ -220,7 +220,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                await Task.Delay(StoreWorker.PublishInterval, this.terminationToken);
+                await Task.Delay(StoreWorker.PublishInterval, this.terminationToken).ConfigureAwait(false);
 
                 // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
                 this.storeWorker.Notify();

@@ -25,10 +25,9 @@ namespace DurableTask.EventSourced.Tests
     using DurableTask.Core;
     using DurableTask.Core.Exceptions;
     using DurableTask.Core.Stats;
+    using Microsoft.Azure.Cosmos.Table;
     using Microsoft.Extensions.Logging;
     //using Microsoft.Practices.EnterpriseLibrary.SemanticLogging.Utility;
-    using Microsoft.WindowsAzure.Storage;
-    using Microsoft.WindowsAzure.Storage.Table;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
     using Xunit;

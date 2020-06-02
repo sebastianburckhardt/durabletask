@@ -11,13 +11,13 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Azure.Cosmos.Table;
 
 namespace DurableTask.EventSourced.AzureTableChannels
 {
@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             {
                 try
                 {
-                    var received = await this.Receive();
+                    var received = await this.Receive().ConfigureAwait(false);
 
                     foreach (var entity in received)
                     {
@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
                         partition.SubmitExternalEvents(partitionBatch);
 
-                        await partitionBatch.Tcs.Task; // TODO add cancellation token
+                        await partitionBatch.Tcs.Task.ConfigureAwait(false); // TODO add cancellation token
 
                         partitionBatch.Clear();
                     }
@@ -158,7 +158,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         private class PartitionBatch : List<PartitionUpdateEvent>, TransportAbstraction.IDurabilityListener
         {
-            public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>();
+            public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             public void ConfirmDurable(Event evt)
             {

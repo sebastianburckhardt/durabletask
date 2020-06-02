@@ -137,7 +137,7 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 try
                 {
-                    await Task.Delay(-1, prior.ErrorHandler.Token);
+                    await Task.Delay(-1, prior.ErrorHandler.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -148,7 +148,7 @@ namespace DurableTask.EventSourced.EventHubs
                     // we are now becoming the current incarnation
                     this.currentIncarnation = prior.Next;
                     this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} is restarting partition (incarnation {incarnation}) soon", this.eventHubName, this.eventHubPartition, c.Incarnation);
-                    await Task.Delay(TimeSpan.FromSeconds(12), this.eventProcessorShutdown.Token);
+                    await Task.Delay(TimeSpan.FromSeconds(12), this.eventProcessorShutdown.Token).ConfigureAwait(false);
                 }
             }
 
@@ -167,7 +167,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                 // start this partition (which may include waiting for the lease to become available)
                 c.Partition = host.AddPartition(this.partitionId, this.sender);
-                c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]);
+                c.NextPacketToReceive = await c.Partition.CreateOrRestoreAsync(c.ErrorHandler, this.parameters.StartPositions[this.partitionId]).ConfigureAwait(false);
 
                 this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, c.Incarnation, c.NextPacketToReceive);
 
@@ -205,11 +205,11 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.eventProcessorShutdown.Cancel(); // stops the automatic partition restart
 
-            PartitionIncarnation current = await this.currentIncarnation;
+            PartitionIncarnation current = await this.currentIncarnation.ConfigureAwait(false);
 
             while (current != null && current.ErrorHandler.IsTerminated)
             {
-                current = await current.Next;
+                current = await current.Next.ConfigureAwait(false);
             }
 
             if (current == null)
@@ -219,11 +219,11 @@ namespace DurableTask.EventSourced.EventHubs
             else
             {
                 this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopping partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
-                await current.Partition.StopAsync();
+                await current.Partition.StopAsync().ConfigureAwait(false);
                 this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopped partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
             }
 
-            await SaveEventHubsReceiverCheckpoint(context);
+            await SaveEventHubsReceiverCheckpoint(context).ConfigureAwait(false);
 
             this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} closed", this.eventHubName, this.eventHubPartition);
         }
@@ -237,7 +237,7 @@ namespace DurableTask.EventSourced.EventHubs
                 this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is checkpointing receive position through #{seqno}", this.eventHubName, this.eventHubPartition, checkpoint.SequenceNumber);
                 try
                 {
-                    await context.CheckpointAsync(checkpoint);
+                    await context.CheckpointAsync(checkpoint).ConfigureAwait(false);
                 }
                 catch (Exception e) when (!Utils.IsFatal(e))
                 {
@@ -256,11 +256,13 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task IEventProcessor.ProcessEventsAsync(PartitionContext context, IEnumerable<EventData> packets)
         {
-            PartitionIncarnation current = await this.currentIncarnation;
+            this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} receiving #{seqno}", this.eventHubName, this.eventHubPartition, packets.First().SystemProperties.SequenceNumber);
+
+            PartitionIncarnation current = await this.currentIncarnation.ConfigureAwait(false);
 
             while (current != null && current.ErrorHandler.IsTerminated)
             {
-                current = await current.Next;
+                current = await current.Next.ConfigureAwait(false);
             }
 
             if (current == null)
@@ -318,7 +320,7 @@ namespace DurableTask.EventSourced.EventHubs
                     current.Partition.SubmitExternalEvents(batch);
                 }
 
-                await this.SaveEventHubsReceiverCheckpoint(context);
+                await this.SaveEventHubsReceiverCheckpoint(context).ConfigureAwait(false);
 
                 // can use this for testing: terminates partition after every one packet received, but
                 // that packet is then processed once the partition recovers, so in the end there is progress

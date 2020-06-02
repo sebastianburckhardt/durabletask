@@ -27,6 +27,7 @@ namespace DurableTask.EventSourced.Emulated
         private readonly TransportAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly uint numberPartitions;
+        private readonly ILogger logger;
 
         private Dictionary<Guid, IMemoryQueue<ClientEvent>> clientQueues;
         private IMemoryQueue<PartitionEvent>[] partitionQueues;
@@ -36,17 +37,18 @@ namespace DurableTask.EventSourced.Emulated
 
         private static readonly TimeSpan simulatedDelay = TimeSpan.FromMilliseconds(1);
 
-        public MemoryTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILoggerFactory loggerFactory)
+        public MemoryTransport(TransportAbstraction.IHost host, EventSourcedOrchestrationServiceSettings settings, ILogger logger)
         {
             this.host = host;
             this.settings = settings;
             TransportConnectionString.Parse(settings.EventHubsConnectionString, out _, out _, out int? numberPartitions);
             this.numberPartitions = (uint) numberPartitions.Value;
+            this.logger = logger;
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
         {
-            await Task.Delay(simulatedDelay);
+            await Task.Delay(simulatedDelay).ConfigureAwait(false);
             this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
             this.partitionQueues = new IMemoryQueue<PartitionEvent>[this.numberPartitions];
             this.partitions = new TransportAbstraction.IPartition[this.numberPartitions];
@@ -62,7 +64,7 @@ namespace DurableTask.EventSourced.Emulated
 
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {
-            await Task.Delay(simulatedDelay);
+            await Task.Delay(simulatedDelay).ConfigureAwait(false);
             return this.partitionQueues != null;
         }
 
@@ -78,7 +80,7 @@ namespace DurableTask.EventSourced.Emulated
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
             this.client = this.host.AddClient(clientId, clientSender);
-            var clientQueue = new MemoryClientQueue(this.client, this.shutdownTokenSource.Token);
+            var clientQueue = new MemoryClientQueue(this.client, this.shutdownTokenSource.Token, this.logger);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
@@ -90,14 +92,14 @@ namespace DurableTask.EventSourced.Emulated
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
                 var partition = this.host.AddPartition(partitionId, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token);
+                this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token, this.logger);
                 this.partitions[i] = partition;
             });
 
             // create or recover all the partitions
             for (uint i = 0; i < this.numberPartitions; i++)
             {
-                var nextInputQueuePosition = await partitions[i].CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0);
+                var nextInputQueuePosition = await partitions[i].CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0).ConfigureAwait(false);
                 partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;
             }
 
@@ -116,14 +118,14 @@ namespace DurableTask.EventSourced.Emulated
                 this.shutdownTokenSource.Cancel();
                 this.shutdownTokenSource = null;
 
-                await this.client.StopAsync();
+                await this.client.StopAsync().ConfigureAwait(false);
 
                 var tasks = new List<Task>();
                 foreach(var p in this.partitions)
                 {
                     tasks.Add(p.StopAsync());
                 }
-                await Task.WhenAll(tasks);
+                await Task.WhenAll(tasks).ConfigureAwait(false);
             }
         }
 
@@ -131,7 +133,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                SendEvents(events, null);
+                this.SendEvents(events, null);
             }
             catch (TaskCanceledException)
             {
@@ -147,7 +149,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             try
             {
-                SendEvents(events, partition.PartitionId);
+                this.SendEvents(events, partition.PartitionId);
             }
             catch (TaskCanceledException)
             {

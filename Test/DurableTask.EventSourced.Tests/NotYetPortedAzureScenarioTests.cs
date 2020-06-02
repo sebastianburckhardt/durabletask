@@ -28,9 +28,6 @@ namespace DurableTask.EventSourced.Tests
     using DurableTask.Core.History;
     //using Microsoft.Practices.EnterpriseLibrary.SemanticLogging.Utility;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
-    using Microsoft.WindowsAzure.Storage;
-    using Microsoft.WindowsAzure.Storage.Blob;
-    using Microsoft.WindowsAzure.Storage.Table;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
 

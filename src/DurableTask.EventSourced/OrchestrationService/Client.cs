@@ -239,7 +239,7 @@ namespace DurableTask.EventSourced
                 Timeout = timeout,         
             };
 
-            var response = await PerformRequestWithTimeoutAndCancellation(cancellationToken, request, false);            
+            var response = await PerformRequestWithTimeoutAndCancellation(cancellationToken, request, false).ConfigureAwait(false);
             return ((WaitResponseReceived)response)?.OrchestrationState;
         }
 
@@ -259,7 +259,7 @@ namespace DurableTask.EventSourced
                 Timeout = DefaultTimeout,
             };
 
-            var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false);
+            var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false).ConfigureAwait(false);
             return ((StateResponseReceived)response)?.OrchestrationState;
         }
 
@@ -296,7 +296,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            return (await Task.WhenAll(launchQueries())).Cast<QueryResponseReceived>().SelectMany(response => response.OrchestrationStates).ToList();
+            return (await Task.WhenAll(launchQueries()).ConfigureAwait(false)).Cast<QueryResponseReceived>().SelectMany(response => response.OrchestrationStates).ToList();
         }
 
         public Task ForceTerminateTaskOrchestrationAsync(uint partitionId, string instanceId, string message)

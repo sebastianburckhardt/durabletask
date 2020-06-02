@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.Faster
 
             this.isShuttingDown = true;
 
-            await this.WaitForCompletionAsync();
+            await this.WaitForCompletionAsync().ConfigureAwait(false);
 
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }
@@ -121,7 +121,7 @@ namespace DurableTask.EventSourced.Faster
                 stopwatch.Start();
                 long previous = log.CommittedUntilAddress;
 
-                await log.CommitAsync(); // may commit more events than just the ones in the batch, but that is o.k.
+                await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
 
                 this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
 
@@ -177,7 +177,7 @@ namespace DurableTask.EventSourced.Faster
                             {
                                 return;
                             }
-                            await iter.WaitAsync(this.cancellationToken);
+                            await iter.WaitAsync(this.cancellationToken).ConfigureAwait(false);
                         }
 
                         if ((result[0] & first) != none)
@@ -207,7 +207,7 @@ namespace DurableTask.EventSourced.Faster
                         if (partitionEvent != null)
                         {
                             partitionEvent.NextCommitLogPosition = iter.NextAddress;
-                            await worker.ProcessUpdate(partitionEvent);
+                            await worker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
                         }
                     }
                 }

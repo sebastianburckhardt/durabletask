@@ -78,14 +78,13 @@ namespace DurableTask.EventSourced
             this.LoggerFactory = loggerFactory;
             this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
-
             EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
-            this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}, transport={transport}, storage={storage}", this.ServiceInstanceId, this.configuredTransport, this.configuredStorage);
 
             switch (this.configuredTransport)
             {
                 case TransportConnectionString.TransportChoices.Memory:
-                    this.taskHub = new Emulated.MemoryTransport(this, settings, loggerFactory);
+                    this.taskHub = new Emulated.MemoryTransport(this, settings, this.Logger);
                     break;
 
                 case TransportConnectionString.TransportChoices.EventHubs:
@@ -101,16 +100,23 @@ namespace DurableTask.EventSourced
             }
 
             this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
+
+            this.Logger.LogInformation(
+                "ETW trace levels: core.IsTraceEnabled={core}, E1={e1} , transport={transport}, storage={storage}",
+                DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled,
+                settings.EtwLevel,
+                settings.TransportEtwLevel,
+                settings.StorageEtwLevel);
         }
 
         private async Task WorkitemExpirationCheck(CancellationToken token)
         {
-            await Task.Delay(10, token);
+            await Task.Delay(10, token).ConfigureAwait(false);
 
             this.ActivityWorkItemQueue.CheckExpirations();
             this.OrchestrationWorkItemQueue.CheckExpirations();
 
-            var ignoredTask = Task.Run(() => WorkitemExpirationCheck(token));
+            var ignoredTask = Task.Run(() => this.WorkitemExpirationCheck(token));
         }
 
         /******************************/
@@ -122,7 +128,7 @@ namespace DurableTask.EventSourced
             switch (this.configuredStorage)
             {
                 case TransportConnectionString.StorageChoices.Memory:
-                    return new MemoryStorage();
+                    return new MemoryStorage(this.Logger);
 
                 case TransportConnectionString.StorageChoices.Faster:
                     return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.LoggerFactory);
@@ -134,16 +140,16 @@ namespace DurableTask.EventSourced
 
         async Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None);
+            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
 
             switch (this.configuredStorage)
             {
                 case TransportConnectionString.StorageChoices.Memory:
-                    await Task.Delay(10);
+                    await Task.Delay(10).ConfigureAwait(false);
                     break;
 
                 case TransportConnectionString.StorageChoices.Faster:
-                    await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName);
+                    await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName).ConfigureAwait(false);
                     break;
 
                 default:
@@ -156,40 +162,40 @@ namespace DurableTask.EventSourced
         /******************************/
 
         /// <inheritdoc />
-        public async Task CreateAsync() => await ((IOrchestrationService)this).CreateAsync(true);
+        public async Task CreateAsync() => await ((IOrchestrationService)this).CreateAsync(true).ConfigureAwait(false);
 
         /// <inheritdoc />
         public async Task CreateAsync(bool recreateInstanceStore)
         {
-            if (await this.taskHub.ExistsAsync())
+            if (await this.taskHub.ExistsAsync().ConfigureAwait(false))
             {
                 if (recreateInstanceStore)
                 {
-                    await this.taskHub.DeleteAsync();
-                    await this.taskHub.CreateAsync();
+                    await this.taskHub.DeleteAsync().ConfigureAwait(false);
+                    await this.taskHub.CreateAsync().ConfigureAwait(false);
                 }
             }
             else
             {
-                await this.taskHub.CreateAsync();
+                await this.taskHub.CreateAsync().ConfigureAwait(false);
             }
 
-            await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None);
+            await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public async Task CreateIfNotExistsAsync() => await ((IOrchestrationService)this).CreateAsync(false);
+        public async Task CreateIfNotExistsAsync() => await ((IOrchestrationService)this).CreateAsync(false).ConfigureAwait(false);
 
         /// <inheritdoc />
         public async Task DeleteAsync()
         {
-            await this.taskHub.DeleteAsync();
+            await this.taskHub.DeleteAsync().ConfigureAwait(false);
 
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None);
+            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public async Task DeleteAsync(bool deleteInstanceStore) => await this.DeleteAsync();
+        public async Task DeleteAsync(bool deleteInstanceStore) => await this.DeleteAsync().ConfigureAwait(false);
 
         /// <inheritdoc />
         public async Task StartAsync()
@@ -207,9 +213,9 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
             this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
-            this.LoadPublisher = new LoadPublisher(this.LoadMonitorService);
+            this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
 
-            await taskHub.StartAsync();
+            await taskHub.StartAsync().ConfigureAwait(false);
 
             var ignoredTask = Task.Run(() => this.WorkitemExpirationCheck(this.serviceShutdownSource.Token));
 
@@ -235,7 +241,7 @@ namespace DurableTask.EventSourced
                 this.serviceShutdownSource.Dispose();
                 this.serviceShutdownSource = null;
 
-                await this.taskHub.StopAsync();
+                await this.taskHub.StopAsync().ConfigureAwait(false);
 
                 this.Logger.LogInformation("EventSourcedOrchestrationService stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
@@ -334,7 +340,7 @@ namespace DurableTask.EventSourced
             string instanceId, 
             string executionId)
         {
-            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId);
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId).ConfigureAwait(false);
             return state != null && (executionId == null || executionId == state.OrchestrationInstance.ExecutionId)
                 ? state
                 : null;
@@ -346,7 +352,7 @@ namespace DurableTask.EventSourced
             bool allExecutions)
         {
             // TODO: allExecutions is ignored both here and AzureStorageOrchestrationService?
-            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId);
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId).ConfigureAwait(false);
             return state != null 
                 ? (new[] { state }) 
                 : (new OrchestrationState[0]);
@@ -401,7 +407,7 @@ namespace DurableTask.EventSourced
             TimeSpan receiveTimeout,
             CancellationToken cancellationToken)
         {
-            var nextOrchestrationWorkItem = await this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            var nextOrchestrationWorkItem = await this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken).ConfigureAwait(false);
             nextOrchestrationWorkItem.MessageBatch.WaitingSince = null;
             return nextOrchestrationWorkItem;
         }
@@ -534,7 +540,7 @@ namespace DurableTask.EventSourced
 
         async Task<TaskActivityWorkItem> IOrchestrationService.LockNextTaskActivityWorkItem(TimeSpan receiveTimeout, CancellationToken cancellationToken)
         {
-            var nextActivityWorkItem = await this.ActivityWorkItemQueue.GetNext(receiveTimeout, cancellationToken);
+            var nextActivityWorkItem = await this.ActivityWorkItemQueue.GetNext(receiveTimeout, cancellationToken).ConfigureAwait(false);
             return nextActivityWorkItem;
         }
 

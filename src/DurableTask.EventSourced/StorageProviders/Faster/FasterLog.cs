@@ -80,7 +80,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                await this.log.CommitAsync(this.terminationToken);
+                await this.log.CommitAsync(this.terminationToken).ConfigureAwait(false);
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))

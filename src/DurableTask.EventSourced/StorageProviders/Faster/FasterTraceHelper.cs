@@ -1,6 +1,4 @@
-﻿using Dynamitey;
-using Microsoft.Azure.Storage.Blob;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -76,16 +74,16 @@ namespace DurableTask.EventSourced.Faster
             this.etwLogError?.FasterStorageError(this.account, this.taskHub, partitionId, context, exception.ToString(), TraceUtils.ExtensionVersion);
         }
 
-        public void FasterBlobStorageError(string context, CloudBlob blob, Exception exception)
+        public void FasterBlobStorageWarning(string context, string blobName, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blob?.Name, exception);
-            this.etwLogError?.FasterBlobStorageError(this.account, this.taskHub, partitionId, context, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blobName, exception);
+            this.etwLogError?.FasterBlobStorageWarning(this.account, this.taskHub, partitionId, context, blobName ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
         }
 
-        public void FasterBlobStorageWarning(string context, CloudBlob blob, Exception exception)
+        public void FasterBlobStorageError(string context, string blobName, Exception exception)
         {
-            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blob?.Name, exception);
-            this.etwLogError?.FasterBlobStorageWarning(this.account, this.taskHub, partitionId, context, blob?.Name ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
+            logger.LogError(exception, "Part{partition:D2} !!! Faster Blob Storage error : {context} blobName={blobName} {exception}", partitionId, context, blobName, exception);
+            this.etwLogError?.FasterBlobStorageError(this.account, this.taskHub, partitionId, context, blobName ?? string.Empty, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
         }
 
         public void FasterProgress(string details)

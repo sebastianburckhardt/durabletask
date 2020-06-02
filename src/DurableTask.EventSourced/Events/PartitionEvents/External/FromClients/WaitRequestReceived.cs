@@ -55,7 +55,7 @@ namespace DurableTask.EventSourced
         {
             try
             {
-                var response = await this.waiter.Task;
+                var response = await this.waiter.Task.ConfigureAwait(false);
 
                 if (response != null)
                 {

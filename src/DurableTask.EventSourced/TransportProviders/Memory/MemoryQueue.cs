@@ -17,6 +17,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced.Emulated
 {
@@ -26,9 +27,11 @@ namespace DurableTask.EventSourced.Emulated
     internal abstract class MemoryQueue<T,B> : BatchWorker<B> where T:Event
     {
         private long position = 0;
+        private readonly ILogger logger;
 
-        public MemoryQueue(CancellationToken cancellationToken) : base(cancellationToken, true)
+        public MemoryQueue(CancellationToken cancellationToken, ILogger logger) : base(cancellationToken, true)
         {
+            this.logger = logger;
         }
 
         protected abstract B Serialize(T evt);
@@ -40,38 +43,45 @@ namespace DurableTask.EventSourced.Emulated
 
         protected override Task Process(IList<B> batch)
         {
-            if (batch.Count > 0)
+            try
             {
-                var eventbatch = new T[batch.Count];
-
-                for (int i = 0; i < batch.Count; i++)
+                if (batch.Count > 0)
                 {
-                    if (cancellationToken.IsCancellationRequested)
+                    var eventbatch = new T[batch.Count];
+
+                    for (int i = 0; i < batch.Count; i++)
                     {
-                        return Task.CompletedTask;
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return Task.CompletedTask;
+                        }
+
+                        var evt = this.Deserialize(batch[i]);
+
+                        if (evt is PartitionEvent partitionEvent)
+                        {
+                            partitionEvent.NextInputQueuePosition = FirstInputQueuePosition + this.position + i + 1;
+                        }
+
+                        eventbatch[i] = evt;
                     }
 
-                    var evt = this.Deserialize(batch[i]);
-
-                    if (evt is PartitionEvent partitionEvent)
+                    foreach (var evt in eventbatch)
                     {
-                        partitionEvent.NextInputQueuePosition = FirstInputQueuePosition + this.position + i + 1;
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return Task.CompletedTask;
+                        }
+
+                        Deliver(evt);
                     }
 
-                    eventbatch[i] = evt;       
+                    this.position = this.position + batch.Count;
                 }
-
-                foreach (var evt in eventbatch)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return Task.CompletedTask;
-                    }
-
-                    Deliver(evt);
-                }
-
-                this.position = this.position + batch.Count;
+            }
+            catch(Exception e)
+            {
+                this.logger.LogError("Exception in MemoryQueue BatchWorker: {exception}", e);
             }
 
             return Task.CompletedTask;

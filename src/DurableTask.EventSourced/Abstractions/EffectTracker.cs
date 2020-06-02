@@ -62,11 +62,6 @@ namespace DurableTask.EventSourced
         public bool IsReplaying { get; set; }
 
         /// <summary>
-        /// For reads that are waited for on the main session, we use this field to return the result
-        /// </summary>
-        public TrackedObject ReadResult { get; set; }
-
-        /// <summary>
         /// Applies the event to the given tracked object, using dynamic dispatch to 
         /// select the correct Process method overload for the event. 
         /// </summary>
@@ -96,7 +91,7 @@ namespace DurableTask.EventSourced
                     // process until there are no more targets
                     while (this.Count > 0)
                     {
-                        await ProcessRecursively();
+                        await ProcessRecursively().ConfigureAwait(false);
                     }
 
                     async ValueTask ProcessRecursively()
@@ -107,12 +102,12 @@ namespace DurableTask.EventSourced
                         this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Process on [{key}]");
 
                         // start with processing the event on this object 
-                        await this.applyToStore(key, this);
+                        await this.applyToStore(key, this).ConfigureAwait(false);
 
                         // recursively process all additional objects to process
                         while (this.Count - 1 > startPos)
                         {
-                            await ProcessRecursively();
+                            await ProcessRecursively().ConfigureAwait(false);
                         }
 
                         // pop this object now since we are done processing
@@ -156,8 +151,7 @@ namespace DurableTask.EventSourced
             if (readEvent == null)
             {
                 // this read is not caused by a read event but was issued directly
-                // in that case we are passing the result via a field
-                this.ReadResult = target;
+                // in that case we are not processing the result here
                 return;
             }
 

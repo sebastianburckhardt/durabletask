@@ -11,8 +11,7 @@
 //  ----------------------------------------------------------------------------------
 
 using Dynamitey;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Table;
+using Microsoft.Azure.Cosmos.Table;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -38,7 +37,7 @@ namespace DurableTask.EventSourced.Scaling
 
         public async Task DeleteIfExistsAsync(CancellationToken cancellationToken)
         {
-            if (! await table.ExistsAsync())
+            if (! await table.ExistsAsync().ConfigureAwait(false))
             {
                 return;
             }
@@ -47,7 +46,7 @@ namespace DurableTask.EventSourced.Scaling
             TableContinuationToken continuationToken = null;
             do
             {
-                var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken);
+                var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken).ConfigureAwait(false);
 
                 if (batch.Count() > 0)
                 {
@@ -59,7 +58,7 @@ namespace DurableTask.EventSourced.Scaling
                         tableBatch.Add(TableOperation.Delete(e));
                     }
 
-                    await this.table.ExecuteBatchAsync(tableBatch);
+                    await this.table.ExecuteBatchAsync(tableBatch).ConfigureAwait(false);
                 }
             }
             while (continuationToken != null);
@@ -67,12 +66,12 @@ namespace DurableTask.EventSourced.Scaling
 
         public async Task CreateIfNotExistsAsync(CancellationToken cancellationToken)
         {
-            if (await table.ExistsAsync())
+            if (await table.ExistsAsync().ConfigureAwait(false))
             {
                 return;
             }
 
-            await table.CreateAsync();
+            await table.CreateAsync().ConfigureAwait(false);
         }
 
         public Task PublishAsync(Dictionary<uint, PartitionLoadInfo> info, CancellationToken cancellationToken)
@@ -92,7 +91,7 @@ namespace DurableTask.EventSourced.Scaling
             Dictionary<uint, PartitionLoadInfo> result = new Dictionary<uint, PartitionLoadInfo>();
             do
             {
-                var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken);
+                var batch = await this.table.ExecuteQuerySegmentedAsync<PartitionInfoEntity>(query, continuationToken, null, null, cancellationToken).ConfigureAwait(false);
                 foreach (var e in batch)
                 {
                     result.Add(e.PartitionId, new PartitionLoadInfo()

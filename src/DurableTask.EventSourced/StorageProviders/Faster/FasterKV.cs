@@ -105,7 +105,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                await this.fht.CompleteCheckpointAsync(this.terminationToken);
+                await this.fht.CompleteCheckpointAsync(this.terminationToken).ConfigureAwait(false);
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -195,9 +195,9 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, null, this.terminationToken);
-                result.CompleteRead();
-                return effectTracker.ReadResult;
+                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, null, this.terminationToken).ConfigureAwait(false);
+                var (status, output) = result.CompleteRead();
+                return output;
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -214,7 +214,7 @@ namespace DurableTask.EventSourced.Faster
                 TrackedObject newObject = TrackedObjectKey.Factory(key);
                 newObject.Partition = this.partition;
                 Value newValue = newObject;
-                await this.mainSession.UpsertAsync(ref key, ref newValue, null, false, this.terminationToken);
+                await this.mainSession.UpsertAsync(ref key, ref newValue, null, false, this.terminationToken).ConfigureAwait(false);
                 return newObject;
             }
             catch (Exception exception)
@@ -256,7 +256,7 @@ namespace DurableTask.EventSourced.Faster
                 // read the current value of each
                 foreach (var k in keysToLookup)
                 {
-                    TrackedObject target = await this.ReadAsync(k, effectTracker);
+                    TrackedObject target = await this.ReadAsync(k, effectTracker).ConfigureAwait(false);
                     if (target != null)
                     {
                         results.Add(k, target);

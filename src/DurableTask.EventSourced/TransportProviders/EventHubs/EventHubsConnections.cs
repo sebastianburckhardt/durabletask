@@ -69,7 +69,7 @@ namespace DurableTask.EventSourced.EventHubs
         {
             // get runtime information from the eventhubs
             var partitionEventHubsClient = GetEventHubClient(connectionString);
-            var info = await partitionEventHubsClient.GetRuntimeInformationAsync();
+            var info = await partitionEventHubsClient.GetRuntimeInformationAsync().ConfigureAwait(false);
             var numberPartitions = info.PartitionCount;
 
             // get the queue position in all the partitions 
@@ -81,7 +81,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
             for (uint i = 0; i < numberPartitions; i++)
             {
-                var queueInfo = await infoTasks[i];
+                var queueInfo = await infoTasks[i].ConfigureAwait(false);
                 positions[i] = queueInfo.LastEnqueuedSequenceNumber + 1;
             }
 
@@ -163,16 +163,16 @@ namespace DurableTask.EventSourced.EventHubs
             if (ClientReceiver != null)
             {
                 traceHelper.LogDebug("Closing Client Receiver");
-                await ClientReceiver.CloseAsync();
+                await ClientReceiver.CloseAsync().ConfigureAwait(false);
             }
 
             traceHelper.LogDebug($"Closing Client Bucket Clients");
-            await Task.WhenAll(_clientEventHubsClients.Values.Select(s => s.CloseAsync()).ToList());
+            await Task.WhenAll(_clientEventHubsClients.Values.Select(s => s.CloseAsync()).ToList()).ConfigureAwait(false);
 
             if (_partitionEventHubsClient != null)
             {
                 traceHelper.LogDebug("Closing Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
-                await _partitionEventHubsClient.CloseAsync();
+                await _partitionEventHubsClient.CloseAsync().ConfigureAwait(false);
             }
         }
 

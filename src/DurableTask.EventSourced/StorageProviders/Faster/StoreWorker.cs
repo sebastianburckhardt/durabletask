@@ -78,7 +78,7 @@ namespace DurableTask.EventSourced.Faster
 
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                var target = await store.CreateAsync(key);
+                var target = await store.CreateAsync(key).ConfigureAwait(false);
                 target.OnFirstInitialization();
             }
 
@@ -101,20 +101,20 @@ namespace DurableTask.EventSourced.Faster
 
             this.isShuttingDown = true;
 
-            await this.WaitForCompletionAsync();
+            await this.WaitForCompletionAsync().ConfigureAwait(false);
 
             // wait for any in-flight checkpoints. It is unlikely but not impossible.
             if (this.pendingIndexCheckpoint != null)
             {
-                await this.pendingIndexCheckpoint;
+                await this.pendingIndexCheckpoint.ConfigureAwait(false);
             }
             if (this.pendingStoreCheckpoint != null)
             {
-                await this.pendingStoreCheckpoint;
+                await this.pendingStoreCheckpoint.ConfigureAwait(false);
             }
 
             // always publish the final load since it indicates whether there is unprocessed work
-            await this.PublishPartitionLoad();
+            await this.PublishPartitionLoad().ConfigureAwait(false);
 
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
@@ -130,7 +130,7 @@ namespace DurableTask.EventSourced.Faster
             };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
-                (await this.store.ReadAsync(k, this.effectTracker))?.UpdateLoadInfo(info);
+                (await this.store.ReadAsync(k, this.effectTracker).ConfigureAwait(false))?.UpdateLoadInfo(info);
             }
 
             this.UpdateLatencyTrend(info);
@@ -229,7 +229,7 @@ namespace DurableTask.EventSourced.Faster
                             break;
 
                         case PartitionUpdateEvent updateEvent:
-                            await this.ProcessUpdate(updateEvent);
+                            await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
                             break;
 
                         default:
@@ -247,7 +247,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     if (this.pendingStoreCheckpoint.IsCompleted == true)
                     {
-                        this.lastCheckpointedPosition = await this.pendingStoreCheckpoint; // observe exceptions here
+                        this.lastCheckpointedPosition = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingStoreCheckpoint = null;
                     }
                 }
@@ -255,7 +255,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     if (this.pendingIndexCheckpoint.IsCompleted == true)
                     {
-                        await this.pendingIndexCheckpoint; // observe exceptions here
+                        await this.pendingIndexCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingIndexCheckpoint = null;
                         var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
                         this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
@@ -271,7 +271,7 @@ namespace DurableTask.EventSourced.Faster
 
                 if (this.lastPublishedTime + PublishInterval < DateTime.UtcNow)
                 {
-                    await this.PublishPartitionLoad();
+                    await this.PublishPartitionLoad().ConfigureAwait(false);
                 }
 
                 // make sure to complete ready read requests, or notify this worker
@@ -306,15 +306,15 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
 
             // first do the faster checkpoint
-            await store.CompleteCheckpointAsync();
+            await store.CompleteCheckpointAsync().ConfigureAwait(false);
 
             if (!isIndexCheckpoint)
             {
                 // wait for the commit log so it is never behind the checkpoint
-                await this.LogWorker.WaitForCompletionAsync();
+                await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // finally we write the checkpoint info file
-                await this.blobManager.WriteCheckpointCompletedAsync();
+                await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
             }
  
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -332,7 +332,7 @@ namespace DurableTask.EventSourced.Faster
 
             var startPosition = this.CommitLogPosition;
             this.effectTracker.IsReplaying = true;
-            await logWorker.ReplayCommitLog(startPosition, this);
+            await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
             stopwatch.Stop();
             this.effectTracker.IsReplaying = false;
 
@@ -345,7 +345,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 foreach (var key in TrackedObjectKey.GetSingletons())
                 {
-                    var target = (TrackedObject)await store.ReadAsync(key, this.effectTracker);
+                    var target = (TrackedObject)await store.ReadAsync(key, this.effectTracker).ConfigureAwait(false);
                     target.OnRecoveryCompleted();
                 }
             }
@@ -361,7 +361,7 @@ namespace DurableTask.EventSourced.Faster
                 return;
             }
 
-            await this.effectTracker.ProcessUpdate(partitionEvent);
+            await this.effectTracker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
             this.numberEventsSinceLastCheckpoint++;
         }
     }

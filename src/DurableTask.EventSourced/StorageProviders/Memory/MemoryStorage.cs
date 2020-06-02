@@ -11,7 +11,6 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -19,11 +18,14 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Azure.Cosmos.Table;
+using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
     internal class MemoryStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
     {
+        private readonly ILogger logger;
         private Partition partition;
         private long nextSubmitPosition = 0;
         private long commitPosition = 0;
@@ -32,8 +34,9 @@ namespace DurableTask.EventSourced
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
 
-        public MemoryStorage()
+        public MemoryStorage(ILogger logger)
         {
+            this.logger = logger;
             this.GetOrAdd(TrackedObjectKey.Activities);
             this.GetOrAdd(TrackedObjectKey.Dedup);
             this.GetOrAdd(TrackedObjectKey.Outbox);
@@ -86,7 +89,7 @@ namespace DurableTask.EventSourced
 
         public async Task CleanShutdown(bool takeFinalStateCheckpoint)
         {
-            await Task.Delay(10);
+            await Task.Delay(10).ConfigureAwait(false);
             
             this.partition.ErrorHandler.TerminateNormally();
         }
@@ -100,45 +103,52 @@ namespace DurableTask.EventSourced
 
         protected override async Task Process(IList<PartitionEvent> batch)
         {
-            var effects = new EffectTracker(
-                this.partition, 
-                this.ApplyToStore,
-                () => (this.commitPosition, this.inputQueuePosition),
-                (c, i) => { this.commitPosition = c; this.inputQueuePosition = i; }
-            );
-
-            if (batch.Count != 0)
+            try
             {
-                foreach (var partitionEvent in batch)
+                var effects = new EffectTracker(
+                    this.partition,
+                    this.ApplyToStore,
+                    () => (this.commitPosition, this.inputQueuePosition),
+                    (c, i) => { this.commitPosition = c; this.inputQueuePosition = i; }
+                );
+
+                if (batch.Count != 0)
                 {
-                    // record the current time, for measuring latency in the event processing pipeline
-                    partitionEvent.IssuedTimestamp = this.partition.CurrentTimeMs;
-
-                    try
+                    foreach (var partitionEvent in batch)
                     {
-                        switch (partitionEvent)
+                        // record the current time, for measuring latency in the event processing pipeline
+                        partitionEvent.IssuedTimestamp = this.partition.CurrentTimeMs;
+
+                        try
                         {
-                            case PartitionReadEvent readEvent:
-                                readEvent.OnReadIssued(this.partition);
-                                var readTarget = this.GetOrAdd(readEvent.ReadTarget);
-                                effects.ProcessReadResult(readEvent, readTarget);
-                                break;
+                            switch (partitionEvent)
+                            {
+                                case PartitionReadEvent readEvent:
+                                    readEvent.OnReadIssued(this.partition);
+                                    var readTarget = this.GetOrAdd(readEvent.ReadTarget);
+                                    effects.ProcessReadResult(readEvent, readTarget);
+                                    break;
 
-                            case PartitionUpdateEvent updateEvent:
-                                updateEvent.NextCommitLogPosition = commitPosition + 1;
-                                await effects.ProcessUpdate(updateEvent);
-                                DurabilityListeners.ConfirmDurable(updateEvent);
-                                break;
+                                case PartitionUpdateEvent updateEvent:
+                                    updateEvent.NextCommitLogPosition = commitPosition + 1;
+                                    await effects.ProcessUpdate(updateEvent).ConfigureAwait(false);
+                                    DurabilityListeners.ConfirmDurable(updateEvent);
+                                    break;
 
-                            default:
-                                throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                                default:
+                                    throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {partitionEvent}", e, false, false);
                         }
                     }
-                    catch(Exception e)
-                    {
-                        partition.ErrorHandler.HandleError(nameof(Process), $"Encountered exception while processing event {partitionEvent}", e, false, false);
-                    }
                 }
+            }
+            catch (Exception e)
+            {
+                this.logger.LogError("Exception in MemoryQueue BatchWorker: {exception}", e);
             }
         }
 

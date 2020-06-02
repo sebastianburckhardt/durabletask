@@ -11,8 +11,8 @@
 //  ----------------------------------------------------------------------------------
 
 using Dynamitey;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Table;
+using Microsoft.Azure.Cosmos.Table;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,15 +25,17 @@ namespace DurableTask.EventSourced.Scaling
     internal class LoadPublisher : BatchWorker<(uint, PartitionLoadInfo)>
     {
         private readonly ILoadMonitorService service;
+        private readonly ILogger logger;
 
         // we are pushing the aggregated load information on a somewhat slower interval
         public static TimeSpan AggregatePublishInterval = TimeSpan.FromSeconds(15);
 
         private CancellationTokenSource cancelWait = new CancellationTokenSource();
 
-        public LoadPublisher(ILoadMonitorService service)
+        public LoadPublisher(ILoadMonitorService service, ILogger logger)
         {
             this.service = service;
+            this.logger = logger;
             this.cancelWait = new CancellationTokenSource();
         }
 
@@ -44,36 +46,43 @@ namespace DurableTask.EventSourced.Scaling
 
         protected override async Task Process(IList<(uint, PartitionLoadInfo)> batch)
         {
-            if (batch.Count != 0)
+            try
             {
-                var latestForEachPartition = new Dictionary<uint, PartitionLoadInfo>();
-
-                foreach (var (partitionId, info) in batch)
+                if (batch.Count != 0)
                 {
-                    latestForEachPartition[partitionId] = info;
+                    var latestForEachPartition = new Dictionary<uint, PartitionLoadInfo>();
+
+                    foreach (var (partitionId, info) in batch)
+                    {
+                        latestForEachPartition[partitionId] = info;
+                    }
+
+                    try
+                    {
+                        await this.service.PublishAsync(latestForEachPartition, this.cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // o.k. during shutdown
+                    }
+                    catch
+                    {
+                        // we swallow exceptions so we can tolerate temporary Azure storage errors
+                        // TODO log
+                    }
                 }
 
                 try
                 {
-                    await this.service.PublishAsync(latestForEachPartition, this.cancellationToken);
+                    await Task.Delay(AggregatePublishInterval, this.cancelWait.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
-                    // o.k. during shutdown
-                }
-                catch
-                {
-                    // we swallow exceptions so we can tolerate temporary Azure storage errors
-                    // TODO log
                 }
             }
-
-            try
+            catch(Exception e)
             {
-                await Task.Delay(AggregatePublishInterval, this.cancelWait.Token);
-            }
-            catch(OperationCanceledException)
-            {
+                logger.LogWarning("Could not publish load {exception}", e);
             }
         }
     }

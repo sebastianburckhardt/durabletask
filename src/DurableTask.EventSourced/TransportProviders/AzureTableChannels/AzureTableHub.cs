@@ -18,8 +18,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Table;
+using Microsoft.Azure.Cosmos.Table;
 
 namespace DurableTask.EventSourced.AzureTableChannels
 {
@@ -92,7 +91,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             {
                 do // continue query while there is a continuation token
                 {
-                    var nextbatch = await this.Table.ExecuteQuerySegmentedAsync<ContentEntity>(query, continuationToken, null, null, this.cancellationToken);
+                    var nextbatch = await this.Table.ExecuteQuerySegmentedAsync<ContentEntity>(query, continuationToken, null, null, this.cancellationToken).ConfigureAwait(false);
 
                     foreach (var entity in nextbatch)
                     {
@@ -192,14 +191,14 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
                 if (tableBatch.Count == 100)
                 {
-                    await ExecuteBatch(tableBatch, messages);
+                    await ExecuteBatch(tableBatch, messages).ConfigureAwait(false);
                 }
             }
 
 
             if (tableBatch.Count > 0)
             {
-                await ExecuteBatch(tableBatch, messages);
+                await ExecuteBatch(tableBatch, messages).ConfigureAwait(false);
             }
         }
 
@@ -207,7 +206,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
         {
             try
             {               
-                await Table.ExecuteBatchAsync(tableBatch);
+                await Table.ExecuteBatchAsync(tableBatch).ConfigureAwait(false);
                 foreach(var msg in messages)
                 {
                     if (msg != null)

@@ -71,7 +71,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (this.waitingCount != 0)
                 {
-                    this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "expect to be called on blobs that don't already exist and exactly once", pageBlob, null, false, false);
+                    this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "expect to be called on blobs that don't already exist and exactly once", pageBlob?.Name, null, false, false);
                 }
 
                 await pageBlob.CreateAsync(size,
@@ -99,7 +99,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "could not create page blob", pageBlob, e, true, this.azureStorageDevice.PartitionErrorHandler.IsTerminated);
+                this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "could not create page blob", pageBlob?.Name, e, true, this.azureStorageDevice.PartitionErrorHandler.IsTerminated);
                 throw;
             }
         }

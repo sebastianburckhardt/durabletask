@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
             {
                 try
                 {
-                    await blob.BreakLeaseAsync(TimeSpan.Zero);
+                    await blob.BreakLeaseAsync(TimeSpan.Zero).ConfigureAwait(false);
                 }
                 catch
                 {
@@ -35,7 +35,7 @@ namespace DurableTask.EventSourced
                 // retry the delete
                 try
                 {
-                    await blob.DeleteAsync();
+                    await blob.DeleteAsync().ConfigureAwait(false);
                     return true;
                 }
                 catch (StorageException ex) when (BlobDoesNotExist(ex))

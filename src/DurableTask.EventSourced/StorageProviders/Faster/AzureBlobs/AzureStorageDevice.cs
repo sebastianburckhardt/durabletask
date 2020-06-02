@@ -17,11 +17,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core.Common;
 using DurableTask.EventSourced.Faster;
 using FASTER.core;
 using Microsoft.Azure.Storage;
@@ -81,10 +83,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (this.underLease)
                 {
-                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync();
+                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
                 var response = await this.blobDirectory.ListBlobsSegmentedAsync(useFlatBlobListing: false, blobListingDetails: BlobListingDetails.None, maxResults: 1000,
-                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null);
+                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null).ConfigureAwait(false);
 
                 foreach (IListBlobItem item in response.Results)
                 {
@@ -155,18 +157,15 @@ namespace DurableTask.EventSourced.Faster
 
                 if (!this.PartitionErrorHandler.IsTerminated)
                 {
-                    pageBlob.BeginDelete(ar =>
-                    {
-                        try
-                        {
-                            pageBlob.EndDelete(ar);
-                        }
-                        catch (Exception exception)
-                        {
-                            this.BlobManager?.HandleBlobError(nameof(RemoveSegmentAsync), "could not remove page blob for segment", pageBlob, exception, false, true);
-                        }
-                        callback(ar);
-                    }, result);
+                    pageBlob.DeleteAsync(cancellationToken: this.PartitionErrorHandler.Token)
+                       .ContinueWith((Task t) =>
+                       {
+                           if (t.IsFaulted)
+                           {
+                               this.BlobManager?.HandleBlobError(nameof(RemoveSegmentAsync), "could not remove page blob for segment", pageBlob?.Name, t.Exception, false, true);
+                           }
+                           callback(result);
+                       });
                 }
             }
         }
@@ -184,15 +183,15 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (this.underLease)
                 {
-                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync();
+                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
 
                 await blob.WritePagesAsync(stream, destinationAddress + offset,
-                    contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                    contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
-                this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob, exception, true, this.PartitionErrorHandler.IsTerminated);
+                this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
                 throw;
             }
             finally
@@ -208,15 +207,49 @@ namespace DurableTask.EventSourced.Faster
 
         private async Task ReadFromBlobAsync(UnmanagedMemoryStream stream, CloudPageBlob blob, long sourceAddress, long destinationAddress, uint readLength)
         {
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.ReadFromBlobAsync Called target={blob.Name}");
+
             try
             {
-                if (this.underLease)
+                //TODO temporarily uncomment this for isolating repro
+                //if (this.underLease)
+                //{
+                //    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease");
+                //    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+                //    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease done");
+                //}
+
+                for (int attempt = 1; attempt <= 100; attempt++)
                 {
-                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync();
+                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={attempt}");
+
+                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(300));
+
+                    var blobRequestOptions = new BlobRequestOptions()
+                    {
+                        NetworkTimeout = TimeSpan.FromSeconds(60),
+                        MaximumExecutionTime = TimeSpan.FromSeconds(60),
+                        ServerTimeout = TimeSpan.FromSeconds(60),           
+                    };
+
+                    var downloadTask = blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
+                        accessCondition: null, options: blobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+
+                    var firstToComplete = await Task.WhenAny(timeoutTask, downloadTask).ConfigureAwait(false);
+
+                    if (firstToComplete == downloadTask)
+                    {
+                        await downloadTask;
+                        break;
+                    }
+                    else 
+                    {
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"storage access did not return or throw within 5 minutes, retry");
+                        continue;
+                    }
                 }
 
-                await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                    accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
 
                 if (stream.Position != readLength)
                 {
@@ -225,7 +258,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception exception)
             {
-                this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), "could not read from page blob", blob, exception, true, this.PartitionErrorHandler.IsTerminated);
+                this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), "could not read from page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
                 throw;
             }
             finally
@@ -248,7 +281,7 @@ namespace DurableTask.EventSourced.Faster
             {
                 var nonLoadedBlob = this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
                 var exception = new InvalidOperationException("Attempt to read a non-loaded segment");
-                this.BlobManager?.HandleBlobError(nameof(ReadAsync), exception.Message, nonLoadedBlob, exception, true, false);
+                this.BlobManager?.HandleBlobError(nameof(ReadAsync), exception.Message, nonLoadedBlob?.Name, exception, true, false);
                 throw exception;
             }
 
@@ -320,19 +353,19 @@ namespace DurableTask.EventSourced.Faster
             NativeOverlapped* ovNative = ov.UnsafePack(callback, IntPtr.Zero);
 
             this.WriteToBlobAsync(blob, sourceAddress, (long)destinationAddress, numBytesToWrite)
-                   .ContinueWith((Task t) =>
-                   {
-                       if (t.IsFaulted)
-                       {
-                           this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned (Failure)");
-                           callback(uint.MaxValue, numBytesToWrite, ovNative);
-                       }
-                       else
-                       {
-                           this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned");
-                           callback(0, numBytesToWrite, ovNative);
-                       }
-                   });
+                .ContinueWith((Task t) =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned (Failure)");
+                            callback(uint.MaxValue, numBytesToWrite, ovNative);
+                        }
+                        else
+                        {
+                            this.BlobManager?.StorageTracer?.FasterStorageProgress("AzureStorageDevice.WriteAsync Returned");
+                            callback(0, numBytesToWrite, ovNative);
+                        }
+                    });
         }
 
         const int maxPortionSizeForPageBlobWrites = 4 * 1024 * 1024; // 4 MB is a limit on page blob write portions, apparently
@@ -343,7 +376,7 @@ namespace DurableTask.EventSourced.Faster
             while (numBytesToWrite > 0)
             {
                 var length = Math.Min(numBytesToWrite, maxPortionSizeForPageBlobWrites);
-                await this.WritePortionToBlobUnsafeAsync(blob, sourceAddress, destinationAddress, offset, length);
+                await this.WritePortionToBlobUnsafeAsync(blob, sourceAddress, destinationAddress, offset, length).ConfigureAwait(false);
                 numBytesToWrite -= length;
                 offset += length;
             }
