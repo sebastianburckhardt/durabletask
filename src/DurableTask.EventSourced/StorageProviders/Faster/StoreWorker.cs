@@ -99,31 +99,31 @@ namespace DurableTask.EventSourced.Faster
         {
             this.traceHelper.FasterProgress("Stopping StoreWorker");
 
-            // Take a final consistent checkpoint.
-            // Q: Could this ever lead to deadlock? Here in order to take the checkpoint,
-            //    we need to get confirmation from other partitions that dependent events are persisted.
-            //    If one of them crashes, could we wait arbitrarily long here and not shutdown?
-            if (takeFinalCheckpoint)
-            {
-                // Q: Do we need to also take an index Checkpoint? I don't think so!
-                //var token = this.store.StartIndexCheckpoint();
-                //this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
-                //await this.pendingIndexCheckpoint; // observe exceptions here
-                //this.pendingIndexCheckpoint = null;
-                if (this.pendingIndexCheckpoint != null)
-                {
-                    await this.pendingIndexCheckpoint.ConfigureAwait(false);
-                }
-                await this.SetupUnconfirmedDependenciesListener();
-                // We don't want to do a checkpoint if there is one happening already
-                if (this.pendingStoreCheckpoint == null)
-                {
-                    var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
-                    this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
-                    this.numberEventsSinceLastCheckpoint = 0;
-                }
-                await this.pendingStoreCheckpoint.ConfigureAwait(false);
-            }
+            //// Take a final consistent checkpoint.
+            //// Q: Could this ever lead to deadlock? Here in order to take the checkpoint,
+            ////    we need to get confirmation from other partitions that dependent events are persisted.
+            ////    If one of them crashes, could we wait arbitrarily long here and not shutdown?
+            //if (takeFinalCheckpoint)
+            //{
+            //    // Q: Do we need to also take an index Checkpoint? I don't think so!
+            //    //var token = this.store.StartIndexCheckpoint();
+            //    //this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
+            //    //await this.pendingIndexCheckpoint; // observe exceptions here
+            //    //this.pendingIndexCheckpoint = null;
+            //    if (this.pendingIndexCheckpoint != null)
+            //    {
+            //        await this.pendingIndexCheckpoint.ConfigureAwait(false);
+            //    }
+            //    await this.SetupUnconfirmedDependenciesListener();
+            //    // We don't want to do a checkpoint if there is one happening already
+            //    if (this.pendingStoreCheckpoint == null)
+            //    {
+            //        var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
+            //        this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
+            //        this.numberEventsSinceLastCheckpoint = 0;
+            //    }
+            //    await this.pendingStoreCheckpoint.ConfigureAwait(false);
+            //}
 
             this.isShuttingDown = true;
 
@@ -228,31 +228,31 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
-        public async Task SetupUnconfirmedDependenciesListener()
-        {
-            // We want to ensure that a checkpoint is only completed if events that 
-            // it depends on have already been persisted in other partitions.
-            DedupState dedupState = (DedupState)(await this.store.ReadAsync(TrackedObjectKey.Dedup, this.effectTracker));
+        //public async Task SetupUnconfirmedDependenciesListener()
+        //{
+        //    // We want to ensure that a checkpoint is only completed if events that 
+        //    // it depends on have already been persisted in other partitions.
+        //    DedupState dedupState = (DedupState)(await this.store.ReadAsync(TrackedObjectKey.Dedup, this.effectTracker));
 
 
-            // Q: Could LastProcessed be faster than the real events that we are waiting for?
-            //    If we can't use dedupState.LastProcessed, we might be able to keep this information
-            //    by tracking every PartitionUpdateEvent that we process
-            Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
-            Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
-            if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
-            {
-                dedupState.ConfirmationListener = (lastConfirmed) =>
-                {
-                    if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
-                        this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-                };
-            }
-            else
-            {
-                this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-            }
-        }
+        //    // Q: Could LastProcessed be faster than the real events that we are waiting for?
+        //    //    If we can't use dedupState.LastProcessed, we might be able to keep this information
+        //    //    by tracking every PartitionUpdateEvent that we process
+        //    Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
+        //    Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
+        //    if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
+        //    {
+        //        dedupState.ConfirmationListener = (lastConfirmed) =>
+        //        {
+        //            if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
+        //                this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
+        //        };
+        //    }
+        //    else
+        //    {
+        //        this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
+        //    }
+        //}
 
         protected override async Task Process(IList<PartitionEvent> batch)
         {
@@ -312,7 +312,7 @@ namespace DurableTask.EventSourced.Faster
                     {
                         await this.pendingIndexCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingIndexCheckpoint = null;
-                        await SetupUnconfirmedDependenciesListener();
+                        //await SetupUnconfirmedDependenciesListener();
                         var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
                         this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
                         this.numberEventsSinceLastCheckpoint = 0;
@@ -366,22 +366,23 @@ namespace DurableTask.EventSourced.Faster
 
             if (!isIndexCheckpoint)
             {
+                // TODO: Should we wait for that here?
                 // wait for the commit log so it is never behind the checkpoint
                 // await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
-                // Wait on the speculative events to have been persisted in other partitions
-                // check if the latest persisted in other
-                await this.store.CheckpointHasNoUnconfirmeDependencies.Task;
+                //// Wait on the speculative events to have been persisted in other partitions
+                //// check if the latest persisted in other
+                //await this.store.CheckpointHasNoUnconfirmeDependencies.Task;
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
 
-                // We have to confirm that all processed events are durable.
-                //
-                // Q: Is this a problem that this doesn't happen atomically with the one above?
-                //
-                // Q: Do we actually have to wait on that?
-                await this.NotifyUpdateEventsDurableListeners(commitLogPosition);
+                //// We have to confirm that all processed events are durable.
+                ////
+                //// Q: Is this a problem that this doesn't happen atomically with the one above?
+                ////
+                //// Q: Do we actually have to wait on that?
+                //await this.NotifyUpdateEventsDurableListeners(commitLogPosition);
 
             }
 

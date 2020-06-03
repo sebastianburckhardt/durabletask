@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // TODO: Move this higher up
-        public TaskCompletionSource<object> CheckpointHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+        // public TaskCompletionSource<object> CheckpointHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
 
 
         public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)

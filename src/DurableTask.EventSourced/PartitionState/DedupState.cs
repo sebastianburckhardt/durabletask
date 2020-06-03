@@ -29,7 +29,11 @@ namespace DurableTask.EventSourced
         public Dictionary<uint, long> LastProcessed { get; set; } = new Dictionary<uint, long>();
 
         // Q: Should this be serialized or not?
+        // TODO: This might not be needed after all
         public Dictionary<uint, long> LastConfirmed { get; set; } = new Dictionary<uint, long>();
+
+        // I assume that this list contains pointers to the events
+        public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
 
         [IgnoreDataMember]
         public Action<Dictionary<uint, long>> ConfirmationListener;
@@ -52,6 +56,26 @@ namespace DurableTask.EventSourced
             }
         }
 
+        private void SetConfirmationWaiter(PartitionMessageEvent evt)
+        {
+            var originPartition = evt.OriginPartition;
+            var originPosition = evt.OriginPosition;
+            evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+            var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
+
+            if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
+            {
+                var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
+                waitingList.Add(tuple);
+                WaitingForConfirmation[originPartition] = waitingList;
+            }
+            else
+            {
+                oldWaitingList.Add(tuple);
+                WaitingForConfirmation[originPartition] = oldWaitingList;
+            }
+        }
+
         public bool KeepWaitingForPersistenceConfirmation(Dictionary<uint, long> waitingFor, Dictionary<uint, long> lastConfirmed)
         {
             var keepWaiting = false;
@@ -70,6 +94,27 @@ namespace DurableTask.EventSourced
 
         public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
         {
+            var originPartition = evt.OriginPartition;
+            var originPosition = evt.OriginPosition;
+
+            // It must be the case that there exists an entry for this partition (except if we failed)
+            if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
+            {
+                // TODO: Do this in a more elegant way. (Using filter?)
+                // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
+                //       cost is amortized.
+                for (int i = waitingList.Count - 1; i >= 0; --i)
+                {
+                    var tuple = waitingList[i];
+                    if (tuple.Item1 <= originPosition)
+                    {
+                        tuple.Item2.EventHasNoUnconfirmeDependencies.TrySetResult(null);
+                        waitingList.RemoveAt(i);
+                    }
+                }                    
+            }
+
+            // TODO: This whole thing below might be unneccessary
             // Q: Is this check necessary, or is it expected that confirmed are non-decreasing?
             long previousConfirmed;
             long newConfirmed;
@@ -85,13 +130,35 @@ namespace DurableTask.EventSourced
 
             // If the Confirmation listener is set, it means that a checkpoint is waiting for 
             // persistence confirmation to complete
-            this.ConfirmationListener?.Invoke(this.LastConfirmed);
+            //this.ConfirmationListener?.Invoke(this.LastConfirmed);
         }
+
+        //public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
+        //{
+        //    // Q: Is this check necessary, or is it expected that confirmed are non-decreasing?
+        //    long previousConfirmed;
+        //    long newConfirmed;
+        //    if (this.LastConfirmed.TryGetValue(evt.OriginPartition, out previousConfirmed))
+        //    {
+        //        newConfirmed = Math.Max(previousConfirmed, evt.OriginPosition);
+        //    }
+        //    else
+        //    {
+        //        newConfirmed = evt.OriginPosition;
+        //    }
+        //    this.LastConfirmed[evt.OriginPartition] = newConfirmed;
+
+        //    // If the Confirmation listener is set, it means that a checkpoint is waiting for 
+        //    // persistence confirmation to complete
+        //    this.ConfirmationListener?.Invoke(this.LastConfirmed);
+        //}
+
         public void Process(ActivityOffloadReceived evt, EffectTracker effects)
         {
             // queues activities originating from a remote partition to execute on this partition
             if (this.IsNotDuplicate(evt))
             {
+                this.SetConfirmationWaiter(evt);
                 effects.Add(TrackedObjectKey.Activities);
             }
         }
@@ -101,6 +168,7 @@ namespace DurableTask.EventSourced
             // returns a response to an ongoing orchestration, and reports load data to the offload logic
             if (this.IsNotDuplicate(evt))
             {
+                this.SetConfirmationWaiter(evt);
                 effects.Add(TrackedObjectKey.Sessions);
                 effects.Add(TrackedObjectKey.Activities);
             }
@@ -111,6 +179,7 @@ namespace DurableTask.EventSourced
             // contains messages to be processed by sessions and/or to be scheduled by timer
             if (this.IsNotDuplicate(evt))
             {
+                this.SetConfirmationWaiter(evt);
                 if (evt.TaskMessages != null)
                 {
                     effects.Add(TrackedObjectKey.Sessions);

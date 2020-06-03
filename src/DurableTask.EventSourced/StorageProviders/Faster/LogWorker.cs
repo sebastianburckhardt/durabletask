@@ -32,6 +32,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly StoreWorker storeWorker;
         private readonly FasterTraceHelper traceHelper;
         private bool isShuttingDown;
+        private long ProspectiveTailAddress;
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
@@ -41,6 +42,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
+            this.ProspectiveTailAddress = this.log.TailAddress;
 
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
@@ -59,9 +61,16 @@ namespace DurableTask.EventSourced.Faster
             {
                 lock (this.thisLock)
                 {
-                    Enqueue(bytes);
+                    // Ideally, we would like to enqueue everything here as before, but only commit events when
+                    // their dependencies are persisted. However, there is no "commitUntil" in FASTERLog API,
+                    // so we can instead do enqueue, commit at the same time to ensure that this works.
+                    //
+                    // Instead of enqueuing the bytes, we just "predict" how much will they take
+                    //Enqueue(bytes);
+                    //evt.NextCommitLogPosition = this.log.TailAddress;
 
-                    evt.NextCommitLogPosition = this.log.TailAddress;
+                    FakeEnqueue(bytes);
+                    evt.NextCommitLogPosition = this.ProspectiveTailAddress;
 
                     base.Submit(evt);
 
@@ -78,6 +87,12 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.Submit(evt);
             }
+        }
+
+        private void FakeEnqueue(byte[] bytes)
+        {
+            // TODO: Ask FASTER about this size
+            this.ProspectiveTailAddress = this.ProspectiveTailAddress + bytes.Length;
         }
 
         private void Enqueue(byte[] bytes)
@@ -112,34 +127,92 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }
 
+        //public async Task SetupUnconfirmedDependenciesListener()
+        //{
+        //    // We want to ensure that a checkpoint is only completed if events that 
+        //    // it depends on have already been persisted in other partitions.
+        //    DedupState dedupState = (DedupState)(await this.storeWorker.store.ReadAsync(TrackedObjectKey.Dedup, this.storeWorker.effectTracker));
+
+
+        //    // Q: Could LastProcessed be faster than the real events that we are waiting for?
+        //    //    If we can't use dedupState.LastProcessed, we might be able to keep this information
+        //    //    by tracking every PartitionUpdateEvent that we process
+        //    Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
+        //    Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
+        //    if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
+        //    {
+        //        dedupState.ConfirmationListener = (lastConfirmed) =>
+        //        {
+        //            if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
+        //                this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
+        //        };
+        //    }
+        //    else
+        //    {
+        //        this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
+        //    }
+        //}
+
         protected override async Task Process(IList<PartitionUpdateEvent> batch)
         {
             try
             {
-                //  checkpoint the log
-                var stopwatch = new System.Diagnostics.Stopwatch();
-                stopwatch.Start();
-                long previous = log.CommittedUntilAddress;
+                // Q: Could this be a problem that this here takes a long time possibly blocking
 
-                await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-
-                this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-
-                foreach (var evt in batch)
+                // Iteratively
+                // - Find the next event that has a dependency (by checking if their Task is set)
+                // - The ones before it can be safely commited.
+                // - For event that is commited we also inform its durability listener
+                // - Wait until the waiting for dependence is complete.
+                // - go back to step 1
+                var lastEnqueuedCommited = 0;
+                for (var i=0; i < batch.Count; i++)
                 {
-                    if (! (this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+                    var evt = batch[i];
+                    if (evt.EventHasNoUnconfirmeDependencies != null)
                     {
-                        try
+                        // Send all events between sent and i
+                        for (var j=lastEnqueuedCommited; j<i; j++)
                         {
-                            DurabilityListeners.ConfirmDurable(evt);
+                            var currEvt = batch[j];
+                            byte[] bytes = Serializer.SerializeEvent(currEvt, first | last);
+                            Enqueue(bytes);
                         }
-                        catch (Exception exception) when (!(exception is OutOfMemoryException))
+
+                        //  checkpoint the log
+                        var stopwatch = new System.Diagnostics.Stopwatch();
+                        stopwatch.Start();
+                        long previous = log.CommittedUntilAddress;
+
+                        await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+                        this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+
+                        // Now that the log is commited, we can send persistence confirmation events for
+                        // the commited events.
+                        for (var j = lastEnqueuedCommited; j < i; j++)
                         {
-                            // for robustness, swallow exceptions, but report them
-                            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                            var currEvt = batch[j];
+                            try
+                            {
+                                DurabilityListeners.ConfirmDurable(currEvt);
+                            }
+                            catch (Exception exception) when (!(exception is OutOfMemoryException))
+                            {
+                                // for robustness, swallow exceptions, but report them
+                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {currEvt} id={currEvt.EventIdString}", exception, false, false);
+                            }
                         }
+
+                        // Progress the last commited index
+                        lastEnqueuedCommited = i;
+                        // Before continuing, wait for the dependencies of this update to be done, so that we can continue
+                        await evt.EventHasNoUnconfirmeDependencies.Task;
+
                     }
+                    
                 }
+
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
@@ -148,8 +221,48 @@ namespace DurableTask.EventSourced.Faster
             catch (Exception e) when (!(e is OutOfMemoryException))
             {
                 this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
-            }        
+            }
         }
+
+
+        //protected override async Task Process(IList<PartitionUpdateEvent> batch)
+        //{
+        //    try
+        //    {
+        //        //  checkpoint the log
+        //        var stopwatch = new System.Diagnostics.Stopwatch();
+        //        stopwatch.Start();
+        //        long previous = log.CommittedUntilAddress;
+
+        //        await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+        //        this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+
+        //        foreach (var evt in batch)
+        //        {
+        //            if (! (this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+        //            {
+        //                try
+        //                {
+        //                    DurabilityListeners.ConfirmDurable(evt);
+        //                }
+        //                catch (Exception exception) when (!(exception is OutOfMemoryException))
+        //                {
+        //                    // for robustness, swallow exceptions, but report them
+        //                    this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+        //                }
+        //            }
+        //        }
+        //    }
+        //    catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
+        //    {
+        //        // o.k. during shutdown
+        //    }
+        //    catch (Exception e) when (!(e is OutOfMemoryException))
+        //    {
+        //        this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
+        //    }        
+        //}
     
 
         public async Task ReplayCommitLog(long from, StoreWorker worker)

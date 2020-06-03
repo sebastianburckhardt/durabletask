@@ -216,23 +216,23 @@ namespace DurableTask.EventSourced.Faster
             // Q: Is it fine to send all events straight to the store Worker? 
             //    Or do we first have to update the commitLogPosition for the Update events 
             //    (as is done in LogWorker.Send)
-            //this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
-            //this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
-            this.storeWorker.SubmitIncomingBatch(evts);
+            this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
+            this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
+            //this.storeWorker.SubmitIncomingBatch(evts);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
             // Q: Similar question as the one above.
-            this.storeWorker.Submit(evt);
-            //if (evt is PartitionUpdateEvent partitionUpdateEvent)
-            //{
-            //    this.logWorker.Submit(partitionUpdateEvent);
-            //}
-            //else
-            //{
-            //    this.storeWorker.Submit(evt);
-            //}
+            //this.storeWorker.Submit(evt);
+            if (evt is PartitionUpdateEvent partitionUpdateEvent)
+            {
+                this.logWorker.Submit(partitionUpdateEvent);
+            }
+            else
+            {
+                this.storeWorker.Submit(evt);
+            }
         }
 
         private async Task IdleLoop()
