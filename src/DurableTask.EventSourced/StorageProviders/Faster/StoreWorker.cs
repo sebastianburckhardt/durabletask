@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.Faster
         public long InputQueuePosition { get; private set; }
         public long CommitLogPosition { get; private set; }
 
-        //public LogWorker LogWorker { get; set; }
+        public LogWorker LogWorker { get; set; }
 
         // periodic index and store checkpointing
         private Task pendingIndexCheckpoint;
@@ -106,14 +106,23 @@ namespace DurableTask.EventSourced.Faster
             if (takeFinalCheckpoint)
             {
                 // Q: Do we need to also take an index Checkpoint? I don't think so!
-                var token = this.store.StartIndexCheckpoint();
-                this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
-                await this.pendingIndexCheckpoint; // observe exceptions here
-                this.pendingIndexCheckpoint = null;
+                //var token = this.store.StartIndexCheckpoint();
+                //this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
+                //await this.pendingIndexCheckpoint; // observe exceptions here
+                //this.pendingIndexCheckpoint = null;
+                if (this.pendingIndexCheckpoint != null)
+                {
+                    await this.pendingIndexCheckpoint.ConfigureAwait(false);
+                }
                 await this.SetupUnconfirmedDependenciesListener();
-                token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
-                this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
-                this.numberEventsSinceLastCheckpoint = 0;
+                // We don't want to do a checkpoint if there is one happening already
+                if (this.pendingStoreCheckpoint == null)
+                {
+                    var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
+                    this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
+                    this.numberEventsSinceLastCheckpoint = 0;
+                }
+                await this.pendingStoreCheckpoint.ConfigureAwait(false);
             }
 
             this.isShuttingDown = true;
@@ -225,8 +234,6 @@ namespace DurableTask.EventSourced.Faster
             // it depends on have already been persisted in other partitions.
             DedupState dedupState = (DedupState)(await this.store.ReadAsync(TrackedObjectKey.Dedup, this.effectTracker));
 
-            // ERROR: I am doing some goof here and this is NULL. The result is returned internally,
-            //        so it has to do something with the effects. Is this because of the shutdown?
 
             // Q: Could LastProcessed be faster than the real events that we are waiting for?
             //    If we can't use dedupState.LastProcessed, we might be able to keep this information
@@ -275,7 +282,7 @@ namespace DurableTask.EventSourced.Faster
 
                         case PartitionUpdateEvent updateEvent:
                             // Q: Is this adequate to use this? Need to test!
-                            updateEvent.NextCommitLogPosition = this.CommitLogPosition + 1;
+                            //updateEvent.NextCommitLogPosition = this.CommitLogPosition + 1;
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
                             break;
 
@@ -374,7 +381,7 @@ namespace DurableTask.EventSourced.Faster
                 // Q: Is this a problem that this doesn't happen atomically with the one above?
                 //
                 // Q: Do we actually have to wait on that?
-                await this.NotifyUpdateEventsDurableListeners();
+                await this.NotifyUpdateEventsDurableListeners(commitLogPosition);
 
             }
 
@@ -384,40 +391,48 @@ namespace DurableTask.EventSourced.Faster
             return commitLogPosition;
         }
 
-        public async Task NotifyUpdateEventsDurableListeners()
+        public async Task NotifyUpdateEventsDurableListeners(long commitLogPosition)
         {
             // TODO: We have to confirm that all processed events are durable.
             // The code below does this (and is taken from LogWorker)
-            //try
-            //{
-            //    DurabilityListeners.ConfirmDurable(evt);
-            //}
-            //catch (Exception exception) when (!(exception is OutOfMemoryException))
-            //{
-            //    // for robustness, swallow exceptions, but report them
-            //    this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-            //}
+            
             OutboxState outboxState = (OutboxState)(await this.store.ReadAsync(TrackedObjectKey.Outbox, this.effectTracker));
 
-
+            var start = this.lastCheckpointedPosition;
+            var end = commitLogPosition;
+            var outbox = outboxState.Outbox;
+            for (var i = start; i < end; i++)
+            {
+                var evt = outbox[i].Event;
+                try
+                {
+                    DurabilityListeners.ConfirmDurable(evt);
+                }
+                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                {
+                    // for robustness, swallow exceptions, but report them
+                    this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                }
+            }
+            
         }
 
-        //public async Task ReplayCommitLog(LogWorker logWorker)
-        //{
-        //    this.traceHelper.FasterProgress("Replaying log");
+        public async Task ReplayCommitLog(LogWorker logWorker)
+        {
+            this.traceHelper.FasterProgress("Replaying log");
 
-        //    var stopwatch = new System.Diagnostics.Stopwatch();
-        //    stopwatch.Start();
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
 
-        //    var startPosition = this.CommitLogPosition;
-        //    this.effectTracker.IsReplaying = true;
-        //    // TODO: Make this a selective replay
-        //    await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
-        //    stopwatch.Stop();
-        //    this.effectTracker.IsReplaying = false;
+            var startPosition = this.CommitLogPosition;
+            this.effectTracker.IsReplaying = true;
+            // TODO: Make this a selective replay
+            await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
+            stopwatch.Stop();
+            this.effectTracker.IsReplaying = false;
 
-        //    this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
-        //}
+            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
+        }
 
         public async Task RestartThingsAtEndOfRecovery()
         {

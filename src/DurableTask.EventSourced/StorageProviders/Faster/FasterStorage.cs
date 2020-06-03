@@ -33,9 +33,9 @@ namespace DurableTask.EventSourced.Faster
 
         private Partition partition;
         private BlobManager blobManager;
-        //private LogWorker logWorker;
+        private LogWorker logWorker;
         private StoreWorker storeWorker;
-        //private FasterLog log;
+        private FasterLog log;
         private FasterKV store;
 
         private CancellationToken terminationToken;
@@ -73,8 +73,8 @@ namespace DurableTask.EventSourced.Faster
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
 
-            //this.TraceHelper.FasterProgress("Creating FasterLog");
-            //this.log = new FasterLog(this.blobManager);
+            this.TraceHelper.FasterProgress("Creating FasterLog");
+            this.log = new FasterLog(this.blobManager);
 
             this.TraceHelper.FasterProgress("Creating FasterKV");
             this.store = new FasterKV(this.partition, this.blobManager);
@@ -82,26 +82,25 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Creating StoreWorker");
             this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.blobManager, this.terminationToken);
 
-            //this.TraceHelper.FasterProgress("Creating LogWorker");
-            //this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
+            this.TraceHelper.FasterProgress("Creating LogWorker");
+            this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
 
             // Now that we don't have a log we can't know whether we have a checkpoint, so we should just ask FASTER
             // to recover.
             //
             // Q: Is this fine or do we need to initialize FASTER somehow if there is no available checkpoint
 
-            // TODO: Make sure that this is the correct way to check
-            if (this.blobManager.CheckpointInfo.CommitLogPosition == 0)
-            //if (this.log.TailAddress == this.log.BeginAddress)
+            // Old way of doing this when I deleted the log
+            // if (this.blobManager.CheckpointInfo.CommitLogPosition == 0)
+            if (this.log.TailAddress == this.log.BeginAddress)
             {
-                    // take an (empty) checkpoint immediately to ensure the paths are working
+                // take an (empty) checkpoint immediately to ensure the paths are working
                 try
                 {
                     this.TraceHelper.FasterProgress("Creating store");
 
                     // this is a fresh partition
-                    // Q: Is 0 ok in this case
-                    await storeWorker.Initialize(0, firstInputQueuePosition).ConfigureAwait(false);
+                    await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition).ConfigureAwait(false);
 
                     await this.TakeFullCheckpointAsync("initial checkpoint").ConfigureAwait(false);
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -121,6 +120,7 @@ namespace DurableTask.EventSourced.Faster
 
                 try
                 {
+                    // TODO: With the new causal checkpointing mechanism, we might have to rever to an older store checkpoint. INVESTIGATE
                     // we are recovering the last checkpoint of the store
                     this.store.Recover();
                     storeWorker.ReadCheckpointPositions(this.blobManager);
@@ -135,19 +135,19 @@ namespace DurableTask.EventSourced.Faster
 
                 this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
 
-                //try
-                //{
-                //    if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
-                //    {
-                //        // replay log as the store checkpoint lags behind the log
-                //        await this.storeWorker.ReplayCommitLog(this.logWorker).ConfigureAwait(false);
-                //    }
-                //}
-                //catch (Exception e)
-                //{
-                //    this.TraceHelper.FasterStorageError("replaying log", e);
-                //    throw;
-                //}
+                try
+                {
+                    if (this.log.TailAddress > (long)storeWorker.CommitLogPosition)
+                    {
+                        // replay log as the store checkpoint lags behind the log
+                        await this.storeWorker.ReplayCommitLog(this.logWorker).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception e)
+                {
+                    this.TraceHelper.FasterStorageError("replaying log", e);
+                    throw;
+                }
 
                 // restart pending actitivities, timers, work items etc.
                 await storeWorker.RestartThingsAtEndOfRecovery().ConfigureAwait(false);

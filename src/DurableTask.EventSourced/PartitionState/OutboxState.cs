@@ -61,6 +61,9 @@ namespace DurableTask.EventSourced
 
         private void SendBatchAndSetupConfirmation(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
         {
+            // Keep the event with the batch so that we can confirm it in the snapshot
+            // TODO: There should be a better way to do this.
+            batch.Event = evt;
             // Put the messages in the outbox to be able to send a confirmation afterwards.
             // TODO: We might actually not need to store the batch here
             var commitPosition = evt.NextCommitLogPosition;
@@ -75,7 +78,7 @@ namespace DurableTask.EventSourced
             if (!effects.IsReplaying)
             {
                 this.Send(this.Outbox[commitPosition]);
-                DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
+                DurabilityListeners.Register(evt, this); // we need to send a persistence confirmation after this event is durable
             }
         }
 
@@ -137,6 +140,10 @@ namespace DurableTask.EventSourced
 
             [IgnoreDataMember]
             private int numAcks = 0;
+
+            // Q: Maybe we should be able to serialize this? Is this necessary? Probably not
+            [IgnoreDataMember]
+            public PartitionUpdateEvent Event { get; set; }
 
             public void ConfirmDurable(Event evt)
             {

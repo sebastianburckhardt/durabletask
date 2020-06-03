@@ -120,7 +120,7 @@ namespace DurableTask.EventSourced
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await this.Process(batch).ConfigureAwait(false);
+                await this.Process(batch); //.ConfigureAwait(false);
 
                 waiters?.SetResult(true);
             }
