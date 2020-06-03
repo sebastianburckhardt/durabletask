@@ -86,12 +86,22 @@ namespace DurableTask.EventSourced.Faster
             return this.mainSession.ReadyToCompletePendingAsync(this.terminationToken);
         }
 
+        /// <summary>
+        /// This is only called at the start and end, so we don't actually need to wait on unconfirmed events since
+        /// there is no storeWorker running.
+        /// TODO: I think this needs to only run in the start and not in the end
+        /// </summary>
+        /// <param name="commitLogPosition"></param>
+        /// <param name="inputQueuePosition"></param>
+        /// <param name="checkpointGuid"></param>
+        /// <returns></returns>
         public bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
             try
             {
                 this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
                 this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
+
                 return this.fht.TakeFullCheckpoint(out checkpointGuid);
             }
             catch (Exception exception)
@@ -135,34 +145,16 @@ namespace DurableTask.EventSourced.Faster
         // TODO: Move this higher up
         public TaskCompletionSource<object> CheckpointHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
 
-        public async Task<Guid> StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition, EffectTracker effects)
+
+        public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
             try
             {
                 this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
                 this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
 
-                // We want to ensure that a checkpoint is only completed if events that 
-                // it depends on have already been persisted in other partitions.
-                DedupState dedupState = (DedupState)(await ReadAsync(TrackedObjectKey.Dedup, effects));
-                
-                // Q: Could LastProcessed be faster than the real events that we are waiting for?
-                //    If we can't use dedupState.LastProcessed, we might be able to keep this information
-                //    by tracking every PartitionUpdateEvent that we process
-                Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
-                Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
-                if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
-                {
-                    dedupState.ConfirmationListener = (lastConfirmed) =>
-                    {                        
-                        if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
-                            this.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-                    };
-                }
-                else
-                {
-                    this.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-                }
+                // Moved it in the storeWorker
+                //await SetupUnconfirmedDependenciesListener(effects);
 
                 bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 
