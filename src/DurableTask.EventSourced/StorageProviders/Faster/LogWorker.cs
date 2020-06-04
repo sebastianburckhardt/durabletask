@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Faster
         {
             byte[] bytes = Serializer.SerializeEvent(evt, first | last);
 
-            if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested)
+            if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
             {
                 lock (this.thisLock)
                 {
@@ -66,17 +66,22 @@ namespace DurableTask.EventSourced.Faster
                     // so we can instead do enqueue, commit at the same time to ensure that this works.
                     //
                     // Instead of enqueuing the bytes, we just "predict" how much will they take
-                    //Enqueue(bytes);
-                    //evt.NextCommitLogPosition = this.log.TailAddress;
+                    Enqueue(bytes);
+                    evt.NextCommitLogPosition = this.log.TailAddress;
 
-                    FakeEnqueue(bytes);
-                    evt.NextCommitLogPosition = this.ProspectiveTailAddress;
+                    // My calculation is wrong. Probably we are going to do it with selective commits.
+                    //FakeEnqueue(bytes);
+                    //evt.NextCommitLogPosition = this.ProspectiveTailAddress;
 
                     base.Submit(evt);
 
                     // add to store worker (under lock for consistent ordering)
                     this.storeWorker.Submit(evt);
                 }
+            }
+            else
+            {
+                this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
             }
         }
 
@@ -168,7 +173,11 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Start();
             long previous = log.CommittedUntilAddress;
 
+            // Old way of doing it, waiting to commit the whole thing
             await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+            // TODO: Update a field somewhere to show that this is the point until we have a consistent snapshot
+            // await log.CommitAndWaitUntil(this.log.TailAddress);
 
             this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
         }
@@ -188,7 +197,8 @@ namespace DurableTask.EventSourced.Faster
             var count = to - from;
             if (count > 0)
             {
-                EnqueueEvents(batch, from, to);
+                // We are enqueuing events before
+                //EnqueueEvents(batch, from, to);
 
                 await this.CheckpointLog(count);
 

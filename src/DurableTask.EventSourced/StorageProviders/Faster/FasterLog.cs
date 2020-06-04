@@ -89,6 +89,24 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        // At the moment this commits the whole log but only waits until it
+        // reaches a specific point. TODO: Make this ONLY commit up to a specific
+        // point.
+        public async ValueTask CommitAndWaitUntil(long untilAddress)
+        {
+            try
+            {
+                // Issue the commit
+                this.log.Commit();
+                await this.log.WaitForCommitAsync(untilAddress, this.terminationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            {
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+            }
+        }
+
         public FasterLogScanIterator Scan(long beginAddress, long endAddress)
         {
             // used during recovery only

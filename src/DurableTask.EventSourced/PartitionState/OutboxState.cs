@@ -32,10 +32,17 @@ namespace DurableTask.EventSourced
         [DataMember]
         public SortedDictionary<long, Batch> Outbox { get; private set; } = new SortedDictionary<long, Batch>();
 
+        // Contains the partition identifiers that we need to inform when events have been persisted
+        [DataMember]
+        public SortedDictionary<long, HashSet<uint>> WaitingForConfirmation { get; private set; } = new SortedDictionary<long, HashSet<uint>>();
+
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
         public override void OnRecoveryCompleted()
         {
+            // TODO: We might need to resend persistence confirmations to all partitions if we recover 
+            //       (and also clean up the WaitingForConfirmation based on that)
+
             // resend all pending
             foreach (var kvp in Outbox)
             {
@@ -98,17 +105,23 @@ namespace DurableTask.EventSourced
 
         public void ConfirmDurable(Event evt)
         {
-            long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
-            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
+            var commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
+            var destinationPartitionIds = WaitingForConfirmation[commitPosition];
+            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending messages");
 
-            var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+            foreach (var destinationPartitionId in destinationPartitionIds)
             {
-                OriginPartition = this.Partition.PartitionId,
-                OriginPosition = commitPosition
-                
-            };
+                var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+                {
+                    PartitionId = destinationPartitionId,
+                    OriginPartition = this.Partition.PartitionId,
+                    OriginPosition = commitPosition
 
-            this.Partition.Send(persistenceConfirmationEvent);
+                };
+
+                this.Partition.Send(persistenceConfirmationEvent);
+            }
+            WaitingForConfirmation.Remove(commitPosition);
         }
 
         //public void OldConfirmDurable(Event evt)
@@ -120,14 +133,22 @@ namespace DurableTask.EventSourced
 
         private void Send(Batch batch)
         {
+            // Gather all destination partitions in a list
+            var destinationPartitionIds = new HashSet<uint>();
+
             // now that we know the sending event is persisted, we can send the messages
             foreach (var outmessage in batch)
             {
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
+                destinationPartitionIds.Add(outmessage.PartitionId);
                 Partition.Send(outmessage);
             }
+            // Get the identifier of the update event that caused this batch to be sent
+            var nextCommitLogAddress = batch.Event.NextCommitLogPosition;
+            WaitingForConfirmation.Add(nextCommitLogAddress, destinationPartitionIds);
+
         }
 
         [DataContract]
