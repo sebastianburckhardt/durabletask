@@ -15,10 +15,11 @@ using System.Runtime.Serialization;
 
 namespace DurableTask.EventSourced
 {
+    [DataContract]
     internal class PersistenceConfirmationEvent : PartitionMessageEvent
     {
         // TODO: Implement this
         [IgnoreDataMember]
-        public override EventId EventId => throw new System.NotImplementedException();
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId("temp", this.PartitionId);
     }
 }

@@ -77,6 +77,7 @@ namespace DurableTask.EventSourced
             yield return typeof(TaskMessagesReceived);
             yield return typeof(OffloadDecision);
             yield return typeof(PartitionEventFragment);
+            yield return typeof(PersistenceConfirmationEvent);
         }
 
         public bool SafeToDuplicateInTransport()

@@ -165,11 +165,11 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Stopping workers");
             
             // in parallel, finish processing log requests and stop processing store requests
-            //Task t1 = this.logWorker.PersistAndShutdownAsync();
+            Task t1 = this.logWorker.PersistAndShutdownAsync();
             Task t2 = this.storeWorker.CancelAndShutdown(takeFinalCheckpoint);
 
             // observe exceptions if the clean shutdown is not working correctly
-            //await t1.ConfigureAwait(false);
+            await t1.ConfigureAwait(false);
             await t2.ConfigureAwait(false);
 
             // if the the settings indicate we want to take a final checkpoint, do so now.
@@ -225,8 +225,14 @@ namespace DurableTask.EventSourced.Faster
         {
             // Q: Similar question as the one above.
             //this.storeWorker.Submit(evt);
+
             if (evt is PartitionUpdateEvent partitionUpdateEvent)
             {
+                // Before submitting internal update events, we need to 
+                // configure them to not wait for external dependency confirmation
+                // TODO: Find a way to do this somewhere else. This is not the right place
+                partitionUpdateEvent.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+                partitionUpdateEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
                 this.logWorker.Submit(partitionUpdateEvent);
             }
             else

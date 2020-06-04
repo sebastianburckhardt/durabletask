@@ -60,7 +60,7 @@ namespace DurableTask.EventSourced
         {
             var originPartition = evt.OriginPartition;
             var originPosition = evt.OriginPosition;
-            evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+            //evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<bool>();
             var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
             if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
@@ -108,7 +108,7 @@ namespace DurableTask.EventSourced
                     var tuple = waitingList[i];
                     if (tuple.Item1 <= originPosition)
                     {
-                        tuple.Item2.EventHasNoUnconfirmeDependencies.TrySetResult(null);
+                        tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
                         waitingList.RemoveAt(i);
                     }
                 }                    

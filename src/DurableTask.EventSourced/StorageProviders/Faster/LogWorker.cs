@@ -85,6 +85,15 @@ namespace DurableTask.EventSourced.Faster
             // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
             foreach (var evt in events)
             {
+                // Before submitting external update events, we need to 
+                // configure them to wait for external dependency confirmation
+                // TODO: Find a way to do this somewhere else. This is not the right place
+                evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+                if (!(evt is PartitionMessageEvent))
+                { 
+                    // Bad code
+                    evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+                }
                 this.Submit(evt);
             }
         }
@@ -153,6 +162,54 @@ namespace DurableTask.EventSourced.Faster
         //    }
         //}
 
+        private async Task CheckpointLog(int count)
+        {
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+            long previous = log.CommittedUntilAddress;
+
+            await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+            this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+        }
+
+        private void EnqueueEvents(IList<PartitionUpdateEvent> batch, int from, int to)
+        {
+            for (var j = from; j < to; j++)
+            {
+                var currEvt = batch[j];
+                byte[] bytes = Serializer.SerializeEvent(currEvt, first | last);
+                Enqueue(bytes);
+            }
+        }
+
+        private async Task EnqueueEventsAndCheckpoint(IList<PartitionUpdateEvent> batch, int from, int to)
+        {
+            var count = to - from;
+            if (count > 0)
+            {
+                EnqueueEvents(batch, from, to);
+
+                await this.CheckpointLog(count);
+
+                // Now that the log is commited, we can send persistence confirmation events for
+                // the commited events.
+                for (var j = from; j < to; j++)
+                {
+                    var currEvt = batch[j];
+                    try
+                    {
+                        DurabilityListeners.ConfirmDurable(currEvt);
+                    }
+                    catch (Exception exception) when (!(exception is OutOfMemoryException))
+                    {
+                        // for robustness, swallow exceptions, but report them
+                        this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {currEvt} id={currEvt.EventIdString}", exception, false, false);
+                    }
+                }
+            }
+        }
+
         protected override async Task Process(IList<PartitionUpdateEvent> batch)
         {
             try
@@ -169,49 +226,17 @@ namespace DurableTask.EventSourced.Faster
                 for (var i=0; i < batch.Count; i++)
                 {
                     var evt = batch[i];
-                    if (evt.EventHasNoUnconfirmeDependencies != null)
+                    if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
                     {
-                        // Send all events between sent and i
-                        for (var j=lastEnqueuedCommited; j<i; j++)
-                        {
-                            var currEvt = batch[j];
-                            byte[] bytes = Serializer.SerializeEvent(currEvt, first | last);
-                            Enqueue(bytes);
-                        }
-
-                        //  checkpoint the log
-                        var stopwatch = new System.Diagnostics.Stopwatch();
-                        stopwatch.Start();
-                        long previous = log.CommittedUntilAddress;
-
-                        await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-
-                        this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-
-                        // Now that the log is commited, we can send persistence confirmation events for
-                        // the commited events.
-                        for (var j = lastEnqueuedCommited; j < i; j++)
-                        {
-                            var currEvt = batch[j];
-                            try
-                            {
-                                DurabilityListeners.ConfirmDurable(currEvt);
-                            }
-                            catch (Exception exception) when (!(exception is OutOfMemoryException))
-                            {
-                                // for robustness, swallow exceptions, but report them
-                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {currEvt} id={currEvt.EventIdString}", exception, false, false);
-                            }
-                        }
+                        await EnqueueEventsAndCheckpoint(batch, lastEnqueuedCommited, i);
 
                         // Progress the last commited index
                         lastEnqueuedCommited = i;
                         // Before continuing, wait for the dependencies of this update to be done, so that we can continue
                         await evt.EventHasNoUnconfirmeDependencies.Task;
-
                     }
-                    
                 }
+                await EnqueueEventsAndCheckpoint(batch, lastEnqueuedCommited, batch.Count);
 
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)

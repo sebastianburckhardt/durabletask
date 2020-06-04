@@ -105,6 +105,7 @@ namespace DurableTask.EventSourced
             {
                 OriginPartition = this.Partition.PartitionId,
                 OriginPosition = commitPosition
+                
             };
 
             this.Partition.Send(persistenceConfirmationEvent);

@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced
 
         private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();
 
-        // TODO: There must be a better way to do this
+        // TODO: There must be a better way to do this. Also we might not need the bool
         [IgnoreDataMember]
         public TaskCompletionSource<object> EventHasNoUnconfirmeDependencies = null;
 
