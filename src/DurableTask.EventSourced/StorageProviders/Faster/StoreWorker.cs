@@ -392,31 +392,31 @@ namespace DurableTask.EventSourced.Faster
             return commitLogPosition;
         }
 
-        public async Task NotifyUpdateEventsDurableListeners(long commitLogPosition)
-        {
-            // TODO: We have to confirm that all processed events are durable.
-            // The code below does this (and is taken from LogWorker)
+        //public async Task NotifyUpdateEventsDurableListeners(long commitLogPosition)
+        //{
+        //    // TODO: We have to confirm that all processed events are durable.
+        //    // The code below does this (and is taken from LogWorker)
             
-            OutboxState outboxState = (OutboxState)(await this.store.ReadAsync(TrackedObjectKey.Outbox, this.effectTracker));
+        //    OutboxState outboxState = (OutboxState)(await this.store.ReadAsync(TrackedObjectKey.Outbox, this.effectTracker));
 
-            var start = this.lastCheckpointedPosition;
-            var end = commitLogPosition;
-            var outbox = outboxState.Outbox;
-            for (var i = start; i < end; i++)
-            {
-                var evt = outbox[i].Event;
-                try
-                {
-                    DurabilityListeners.ConfirmDurable(evt);
-                }
-                catch (Exception exception) when (!(exception is OutOfMemoryException))
-                {
-                    // for robustness, swallow exceptions, but report them
-                    this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-                }
-            }
+        //    var start = this.lastCheckpointedPosition;
+        //    var end = commitLogPosition;
+        //    var outbox = outboxState.Outbox;
+        //    for (var i = start; i < end; i++)
+        //    {
+        //        var evt = outbox[i].Event;
+        //        try
+        //        {
+        //            DurabilityListeners.ConfirmDurable(evt);
+        //        }
+        //        catch (Exception exception) when (!(exception is OutOfMemoryException))
+        //        {
+        //            // for robustness, swallow exceptions, but report them
+        //            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+        //        }
+        //    }
             
-        }
+        //}
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {

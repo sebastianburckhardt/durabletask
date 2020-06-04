@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using System;
 using System.Runtime.Serialization;
 
 namespace DurableTask.EventSourced
@@ -20,6 +21,6 @@ namespace DurableTask.EventSourced
     {
         // TODO: Implement this
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionToPartitionEventId("temp", this.PartitionId);
+        public override EventId EventId => EventId.MakePartitionToPartitionEventId(String.Format("pers-conf-{0}-{1}", this.OriginPartition, this.OriginPosition), this.PartitionId);
     }
 }

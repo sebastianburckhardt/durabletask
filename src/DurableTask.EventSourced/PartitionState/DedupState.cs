@@ -94,6 +94,9 @@ namespace DurableTask.EventSourced
 
         public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
         {
+            // PersistenceConfirmationEvents need not wait
+            evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+
             var originPartition = evt.OriginPartition;
             var originPosition = evt.OriginPosition;
 
