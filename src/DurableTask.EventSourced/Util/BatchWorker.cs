@@ -84,6 +84,7 @@ namespace DurableTask.EventSourced
             }
         }
 
+        // Returns after ALL enqueued work is done processing in the batch worker
         public virtual Task WaitForCompletionAsync()
         {
             lock (this.thisLock)

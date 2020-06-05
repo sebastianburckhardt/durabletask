@@ -54,6 +54,9 @@ namespace DurableTask.EventSourced
                 Partition.EventDetailTracer?.TraceEventProcessingDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
             }
+
+            // TODO: Add the above for persistence confirmation sending
+            // TODO: Make sure that persistence confirmation events are persisted in event hubs...
         }
 
         public override void UpdateLoadInfo(PartitionLoadInfo info)

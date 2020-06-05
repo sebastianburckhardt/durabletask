@@ -85,6 +85,8 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
+        
         public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
         {
             // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
@@ -98,6 +100,14 @@ namespace DurableTask.EventSourced.Faster
                 { 
                     // Bad code
                     evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+                }
+                else 
+                {
+                    // TODO: Compute unconfirmed dependencies here
+                }
+                if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
+                {
+                    // TODO: Confirm dependencies here
                 }
                 this.Submit(evt);
             }
@@ -174,7 +184,9 @@ namespace DurableTask.EventSourced.Faster
             long previous = log.CommittedUntilAddress;
 
             // Old way of doing it, waiting to commit the whole thing
-            await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+            await this.log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+            //this.PersistenceInProgress = log.CommitAsync(); 
+            //await this.PersistenceInProgress.ConfigureAwait(false);
 
             // TODO: Update a field somewhere to show that this is the point until we have a consistent snapshot
             // await log.CommitAndWaitUntil(this.log.TailAddress);

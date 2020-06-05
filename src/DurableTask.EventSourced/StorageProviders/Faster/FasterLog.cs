@@ -94,10 +94,15 @@ namespace DurableTask.EventSourced.Faster
         // point.
         public async ValueTask CommitAndWaitUntil(long untilAddress)
         {
+            // Issue the commit
+            this.log.Commit();
+            await this.WaitUntilCommitted(untilAddress).ConfigureAwait(false);
+        }
+
+        public async ValueTask WaitUntilCommitted(long untilAddress)
+        {
             try
             {
-                // Issue the commit
-                this.log.Commit();
                 await this.log.WaitForCommitAsync(untilAddress, this.terminationToken).ConfigureAwait(false);
             }
             catch (Exception exception)

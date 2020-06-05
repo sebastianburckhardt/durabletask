@@ -366,23 +366,16 @@ namespace DurableTask.EventSourced.Faster
 
             if (!isIndexCheckpoint)
             {
-                // TODO: Should we wait for that here?
                 // wait for the commit log so it is never behind the checkpoint
-                // await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
-
-                //// Wait on the speculative events to have been persisted in other partitions
-                //// check if the latest persisted in other
-                //await this.store.CheckpointHasNoUnconfirmeDependencies.Task;
+                // Old way of waiting: This was fine because logWorker committed every batch that it got. 
+                await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
+                // TODO: Wait until the log commits at least as much as our current checkpoint.
+                //       However, we might not want to block here, but rather call the blobmanager 
+                //       write checkpointcompleted async from the log worker
+                // TODO: Make a note about this behavior
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
-
-                //// We have to confirm that all processed events are durable.
-                ////
-                //// Q: Is this a problem that this doesn't happen atomically with the one above?
-                ////
-                //// Q: Do we actually have to wait on that?
-                //await this.NotifyUpdateEventsDurableListeners(commitLogPosition);
 
             }
 

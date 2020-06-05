@@ -467,6 +467,11 @@ namespace DurableTask.EventSourced.Faster
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
+            //FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
+            //using (var r = new BinaryReader(new MemoryStream(commitMetadata)))
+            //{
+            //    info.Initialize(r);
+            //}
 
             while (true)
             {
