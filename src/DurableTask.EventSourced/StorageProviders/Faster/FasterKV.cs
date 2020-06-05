@@ -14,8 +14,9 @@ namespace DurableTask.EventSourced.Faster
 
         private readonly Partition partition;
         private readonly BlobManager blobManager;
-        private readonly ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> mainSession;
         private readonly CancellationToken terminationToken;
+
+        private ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> mainSession;
 
         public FasterKV(Partition partition, BlobManager blobManager)
         {
@@ -32,7 +33,6 @@ namespace DurableTask.EventSourced.Faster
                     keySerializer = () => new Key.Serializer(),
                     valueSerializer = () => new Value.Serializer(),
                 });
-            this.mainSession = fht.NewSession();
 
             this.terminationToken = partition.ErrorHandler.Token;
 
@@ -40,7 +40,7 @@ namespace DurableTask.EventSourced.Faster
                 () => {
                     try
                     {
-                        this.mainSession.Dispose();
+                        this.mainSession?.Dispose();
                         fht.Dispose();
                         this.blobManager.HybridLogDevice.Close();
                         this.blobManager.ObjectLogDevice.Close();
@@ -54,12 +54,18 @@ namespace DurableTask.EventSourced.Faster
 
             this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
-        
+
+        public void InitMainSession()
+        {
+            this.mainSession = fht.NewSession();
+        }
+
         public void Recover()
         {
             try
             {
                 this.fht.Recover();
+                this.mainSession = fht.NewSession();
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))

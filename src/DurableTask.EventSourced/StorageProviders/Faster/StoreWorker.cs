@@ -75,10 +75,12 @@ namespace DurableTask.EventSourced.Faster
         {
             this.InputQueuePosition = initialInputQueuePosition;
             this.CommitLogPosition = initialCommitLogPosition;
+           
+            this.store.InitMainSession();
 
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                var target = await store.CreateAsync(key).ConfigureAwait(false);
+                var target = await this.store.CreateAsync(key).ConfigureAwait(false);
                 target.OnFirstInitialization();
             }
 
