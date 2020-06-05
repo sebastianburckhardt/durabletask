@@ -56,25 +56,25 @@ namespace DurableTask.EventSourced
             }
         }
 
-        private void SetConfirmationWaiter(PartitionMessageEvent evt)
-        {
-            var originPartition = evt.OriginPartition;
-            var originPosition = evt.OriginPosition;
-            //evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<bool>();
-            var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
+        //private void SetConfirmationWaiter(PartitionMessageEvent evt)
+        //{
+        //    var originPartition = evt.OriginPartition;
+        //    var originPosition = evt.OriginPosition;
+        //    //evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<bool>();
+        //    var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
-            if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
-            {
-                var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
-                waitingList.Add(tuple);
-                WaitingForConfirmation[originPartition] = waitingList;
-            }
-            else
-            {
-                oldWaitingList.Add(tuple);
-                WaitingForConfirmation[originPartition] = oldWaitingList;
-            }
-        }
+        //    if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
+        //    {
+        //        var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
+        //        waitingList.Add(tuple);
+        //        WaitingForConfirmation[originPartition] = waitingList;
+        //    }
+        //    else
+        //    {
+        //        oldWaitingList.Add(tuple);
+        //        WaitingForConfirmation[originPartition] = oldWaitingList;
+        //    }
+        //}
 
         public bool KeepWaitingForPersistenceConfirmation(Dictionary<uint, long> waitingFor, Dictionary<uint, long> lastConfirmed)
         {
@@ -92,49 +92,49 @@ namespace DurableTask.EventSourced
             return keepWaiting;
         }
 
-        public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
-        {
-            // PersistenceConfirmationEvents need not wait
-            evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+        //public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
+        //{
+        //    // PersistenceConfirmationEvents need not wait
+        //    evt.EventHasNoUnconfirmeDependencies.SetResult(null);
 
-            var originPartition = evt.OriginPartition;
-            var originPosition = evt.OriginPosition;
+        //    var originPartition = evt.OriginPartition;
+        //    var originPosition = evt.OriginPosition;
 
-            // It must be the case that there exists an entry for this partition (except if we failed)
-            if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
-            {
-                // TODO: Do this in a more elegant way. (Using filter?)
-                // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
-                //       cost is amortized.
-                for (int i = waitingList.Count - 1; i >= 0; --i)
-                {
-                    var tuple = waitingList[i];
-                    if (tuple.Item1 <= originPosition)
-                    {
-                        tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
-                        waitingList.RemoveAt(i);
-                    }
-                }                    
-            }
+        //    // It must be the case that there exists an entry for this partition (except if we failed)
+        //    if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
+        //    {
+        //        // TODO: Do this in a more elegant way. (Using filter?)
+        //        // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
+        //        //       cost is amortized.
+        //        for (int i = waitingList.Count - 1; i >= 0; --i)
+        //        {
+        //            var tuple = waitingList[i];
+        //            if (tuple.Item1 <= originPosition)
+        //            {
+        //                tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
+        //                waitingList.RemoveAt(i);
+        //            }
+        //        }                    
+        //    }
 
-            // TODO: This whole thing below might be unneccessary
-            // Q: Is this check necessary, or is it expected that confirmed are non-decreasing?
-            long previousConfirmed;
-            long newConfirmed;
-            if (this.LastConfirmed.TryGetValue(evt.OriginPartition, out previousConfirmed))
-            {
-                newConfirmed = Math.Max(previousConfirmed, evt.OriginPosition);
-            }
-            else 
-            {
-                newConfirmed = evt.OriginPosition;
-            }
-            this.LastConfirmed[evt.OriginPartition] = newConfirmed;
+        //    // TODO: This whole thing below might be unneccessary
+        //    // Q: Is this check necessary, or is it expected that confirmed are non-decreasing?
+        //    long previousConfirmed;
+        //    long newConfirmed;
+        //    if (this.LastConfirmed.TryGetValue(evt.OriginPartition, out previousConfirmed))
+        //    {
+        //        newConfirmed = Math.Max(previousConfirmed, evt.OriginPosition);
+        //    }
+        //    else 
+        //    {
+        //        newConfirmed = evt.OriginPosition;
+        //    }
+        //    this.LastConfirmed[evt.OriginPartition] = newConfirmed;
 
-            // If the Confirmation listener is set, it means that a checkpoint is waiting for 
-            // persistence confirmation to complete
-            //this.ConfirmationListener?.Invoke(this.LastConfirmed);
-        }
+        //    // If the Confirmation listener is set, it means that a checkpoint is waiting for 
+        //    // persistence confirmation to complete
+        //    //this.ConfirmationListener?.Invoke(this.LastConfirmed);
+        //}
 
         //public void Process(PersistenceConfirmationEvent evt, EffectTracker effects)
         //{
@@ -161,7 +161,7 @@ namespace DurableTask.EventSourced
             // queues activities originating from a remote partition to execute on this partition
             if (this.IsNotDuplicate(evt))
             {
-                this.SetConfirmationWaiter(evt);
+                //this.SetConfirmationWaiter(evt);
                 effects.Add(TrackedObjectKey.Activities);
             }
         }
@@ -171,7 +171,7 @@ namespace DurableTask.EventSourced
             // returns a response to an ongoing orchestration, and reports load data to the offload logic
             if (this.IsNotDuplicate(evt))
             {
-                this.SetConfirmationWaiter(evt);
+                //this.SetConfirmationWaiter(evt);
                 effects.Add(TrackedObjectKey.Sessions);
                 effects.Add(TrackedObjectKey.Activities);
             }
@@ -182,7 +182,7 @@ namespace DurableTask.EventSourced
             // contains messages to be processed by sessions and/or to be scheduled by timer
             if (this.IsNotDuplicate(evt))
             {
-                this.SetConfirmationWaiter(evt);
+                //this.SetConfirmationWaiter(evt);
                 if (evt.TaskMessages != null)
                 {
                     effects.Add(TrackedObjectKey.Sessions);

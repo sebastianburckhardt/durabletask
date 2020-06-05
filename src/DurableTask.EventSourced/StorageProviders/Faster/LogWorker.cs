@@ -32,7 +32,13 @@ namespace DurableTask.EventSourced.Faster
         private readonly StoreWorker storeWorker;
         private readonly FasterTraceHelper traceHelper;
         private bool isShuttingDown;
+
+        // TODO: Delete this
         private long ProspectiveTailAddress;
+
+        // I assume that this list contains pointers to the events
+        public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
+
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
@@ -86,7 +92,51 @@ namespace DurableTask.EventSourced.Faster
         }
 
         public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
-        
+
+        private void SetConfirmationWaiter(PartitionMessageEvent evt)
+        {
+            var originPartition = evt.OriginPartition;
+            var originPosition = evt.OriginPosition;
+            //evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<bool>();
+            var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
+
+            if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
+            {
+                var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
+                waitingList.Add(tuple);
+                WaitingForConfirmation[originPartition] = waitingList;
+            }
+            else
+            {
+                oldWaitingList.Add(tuple);
+                WaitingForConfirmation[originPartition] = oldWaitingList;
+            }
+        }
+
+        public void ConfirmDependencyPersistence(PersistenceConfirmationEvent evt)
+        {
+            var originPartition = evt.OriginPartition;
+            var originPosition = evt.OriginPosition;
+
+            // It must be the case that there exists an entry for this partition (except if we failed)
+            if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
+            {
+                // TODO: Do this in a more elegant way. (Using filter?)
+                // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
+                //       cost is amortized.
+                for (int i = waitingList.Count - 1; i >= 0; --i)
+                {
+                    var tuple = waitingList[i];
+                    if (tuple.Item1 <= originPosition)
+                    {
+                        tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
+                        waitingList.RemoveAt(i);
+                    }
+                }
+            }
+        }
+
+
         public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
         {
             // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
@@ -94,22 +144,33 @@ namespace DurableTask.EventSourced.Faster
             {
                 // Before submitting external update events, we need to 
                 // configure them to wait for external dependency confirmation
-                // TODO: Find a way to do this somewhere else. This is not the right place
                 evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
-                if (!(evt is PartitionMessageEvent))
-                { 
-                    // Bad code
-                    evt.EventHasNoUnconfirmeDependencies.SetResult(null);
-                }
-                else 
-                {
-                    // TODO: Compute unconfirmed dependencies here
-                }
+                // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
+                // Commiting the events implies that persistence of their dependencies was confirmed.
                 if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
                 {
-                    // TODO: Confirm dependencies here
+                    // PersistenceConfirmationEvents need not wait
+                    // TODO: This might actually be unnecessary since we don't submit them
+                    persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
+
+                    this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
                 }
-                this.Submit(evt);
+                else
+                {
+                    if (evt is PartitionMessageEvent partitionMessageEvent)
+                    {
+                        // It is actually fine keeping the dependencies of events in the log worker, since
+                        // if the partition crashes, all uncommited messages (that are the only ones that have unconfirmed dependencies)
+                        // will be re-received and re-submitted. Since every event will be followed by its confirmation, this cannot lead
+                        // to a deadlock.
+                        SetConfirmationWaiter(partitionMessageEvent);
+                    }
+                    else
+                    {
+                        evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+                    }
+                    this.Submit(evt);
+                }                
             }
         }
 
@@ -144,6 +205,10 @@ namespace DurableTask.EventSourced.Faster
         {
             this.traceHelper.FasterProgress($"Stopping LogWorker");
 
+            // By turning this on here, we don't allow further events to be processed.
+            // This means that persistence confirmations will NOT be sent to other partitions
+            // from this partition, even though it might persist some events. This has to be solved in the outbox though
+            // since it could happen when we are non-gracefully shutting down too.
             this.isShuttingDown = true;
 
             await this.WaitForCompletionAsync().ConfigureAwait(false);

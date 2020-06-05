@@ -165,13 +165,12 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Stopping workers");
             
             // in parallel, finish processing log requests and stop processing store requests
+            // It is fine doing them in parallel, since the log processes the persistence confirmation events before submitting them.
             Task t1 = this.logWorker.PersistAndShutdownAsync();
-            
+            Task t2 = this.storeWorker.CancelAndShutdown(takeFinalCheckpoint);
+
             // observe exceptions if the clean shutdown is not working correctly
             await t1.ConfigureAwait(false);
-
-            // First we have to shutdown the log, since it performs the persistence confirmation events
-            Task t2 = this.storeWorker.CancelAndShutdown(takeFinalCheckpoint);
             await t2.ConfigureAwait(false);
 
             // if the the settings indicate we want to take a final checkpoint, do so now.
