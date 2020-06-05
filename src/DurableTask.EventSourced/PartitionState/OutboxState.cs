@@ -40,8 +40,10 @@ namespace DurableTask.EventSourced
 
         public override void OnRecoveryCompleted()
         {
-            // TODO: We might need to resend persistence confirmations to all partitions if we recover 
-            //       (and also clean up the WaitingForConfirmation based on that)
+            // TODO: Since PersistenceConfirmation events are not Confirmed with a SendConfirmed in the commit log,
+            //       we need to make sure that whenever we recover we inform all other partitions, about our latest
+            //       commit position, and this should let them clear out their dependencies. When we do that, we should
+            //       remove the SendPersistenceConfirmation below.
 
             // resend all pending
             foreach (var kvp in Outbox)
@@ -53,10 +55,10 @@ namespace DurableTask.EventSourced
                 // resend (anything we have recovered is of course persisted)
                 Partition.EventDetailTracer?.TraceEventProcessingDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
-            }
 
-            // TODO: Add the above for persistence confirmation sending
-            // TODO: Make sure that persistence confirmation events are persisted in event hubs...
+                // resend the persistence confirmation events (since ConfirmDurable won't be called)
+                SendPersistenceConfirmation(kvp.Key);
+            }
         }
 
         public override void UpdateLoadInfo(PartitionLoadInfo info)
@@ -71,19 +73,11 @@ namespace DurableTask.EventSourced
 
         private void SendBatchAndSetupConfirmation(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
         {
-            // Keep the event with the batch so that we can confirm it in the snapshot
-            // TODO: There should be a better way to do this.
-            batch.Event = evt;
             // Put the messages in the outbox to be able to send a confirmation afterwards.
-            // TODO: We might actually not need to store the batch here
             var commitPosition = evt.NextCommitLogPosition;
             this.Outbox[commitPosition] = batch;
             batch.Position = commitPosition;
             batch.Partition = this.Partition;
-
-            // If we are replaying we don't need to resend the messages 
-            // since they will be replayed in the other partitions from their commit logs
-            // Q: Is that assumption correct?
 
             if (!effects.IsReplaying)
             {
@@ -106,12 +100,9 @@ namespace DurableTask.EventSourced
         //    }
         //}
 
-        public void ConfirmDurable(Event evt)
+        private void SendPersistenceConfirmation(long commitPosition)
         {
-            var commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
             var destinationPartitionIds = WaitingForConfirmation[commitPosition];
-            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending messages");
-
             foreach (var destinationPartitionId in destinationPartitionIds)
             {
                 var persistenceConfirmationEvent = new PersistenceConfirmationEvent
@@ -125,6 +116,12 @@ namespace DurableTask.EventSourced
                 this.Partition.Send(persistenceConfirmationEvent);
             }
             WaitingForConfirmation.Remove(commitPosition);
+        }
+
+        public void ConfirmDurable(Event evt)
+        {
+            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending confirmation messages");
+            SendPersistenceConfirmation(((PartitionUpdateEvent)evt).NextCommitLogPosition);
         }
 
         //public void OldConfirmDurable(Event evt)
@@ -149,7 +146,7 @@ namespace DurableTask.EventSourced
                 Partition.Send(outmessage);
             }
             // Get the identifier of the update event that caused this batch to be sent
-            var nextCommitLogAddress = batch.Event.NextCommitLogPosition;
+            var nextCommitLogAddress = batch.Position;
             WaitingForConfirmation.Add(nextCommitLogAddress, destinationPartitionIds);
 
         }
