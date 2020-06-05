@@ -65,6 +65,10 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
+        public long latestCommitLogPosition { get; set; }
+
+        public byte[] latestRealLogCommitMetadata { get; set; }
+
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
         public FasterLogSettings EventLogSettings => new FasterLogSettings
@@ -464,15 +468,29 @@ namespace DurableTask.EventSourced.Faster
 
         #region ILogCommitManager
 
-        void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
+        public byte[] ModifyCommitMetadataUntilAddress()
         {
-            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
-            //FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
-            //using (var r = new BinaryReader(new MemoryStream(commitMetadata)))
-            //{
-            //    info.Initialize(r);
-            //}
+            FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
+            using (var r = new BinaryReader(new MemoryStream(this.latestRealLogCommitMetadata)))
+            {
+                info.Initialize(r);
+            }
 
+            // Instead of commiting until the tail address, we only save up to the point that we care. 
+            // This way even though FASTER does perform the complete commit (batching and doing less storage accesses)
+            // if we recover, we will only recover from the a consistent address
+            var oldFlushedUntilAddress = info.FlushedUntilAddress;
+            info.FlushedUntilAddress = Math.Min(this.latestCommitLogPosition, info.FlushedUntilAddress);
+
+            // TODO: Do we have to update anything else too? (e.g. iterators)
+
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.latestCommitLogPosition}");
+
+            return info.ToByteArray();
+        }
+
+        public void TrySaveCommitMetadata(byte [] commitMetadata)
+        {
             while (true)
             {
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
@@ -504,6 +522,14 @@ namespace DurableTask.EventSourced.Faster
                     throw;
                 }
             }
+        }
+
+        void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
+        {
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
+            this.latestRealLogCommitMetadata = commitMetadata;
+            var consistentCommitMetadata = ModifyCommitMetadataUntilAddress();
+            TrySaveCommitMetadata(consistentCommitMetadata);
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()

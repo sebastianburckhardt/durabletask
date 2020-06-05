@@ -95,6 +95,7 @@ namespace DurableTask.EventSourced.Faster
         public async ValueTask CommitAndWaitUntil(long untilAddress)
         {
             // Issue the commit
+            // TODO: Will this still commit (i.e. do storage accesses) if the log is already committed until the latest address?
             this.log.Commit();
             await this.WaitUntilCommitted(untilAddress).ConfigureAwait(false);
         }

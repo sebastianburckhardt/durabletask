@@ -85,13 +85,6 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Creating LogWorker");
             this.logWorker = this.storeWorker.LogWorker = new LogWorker(this.blobManager, this.log, this.partition, this.storeWorker, this.TraceHelper, this.terminationToken);
 
-            // Now that we don't have a log we can't know whether we have a checkpoint, so we should just ask FASTER
-            // to recover.
-            //
-            // Q: Is this fine or do we need to initialize FASTER somehow if there is no available checkpoint
-
-            // Old way of doing this when I deleted the log
-            // if (this.blobManager.CheckpointInfo.CommitLogPosition == 0)
             if (this.log.TailAddress == this.log.BeginAddress)
             {
                 // take an (empty) checkpoint immediately to ensure the paths are working

@@ -222,19 +222,25 @@ namespace DurableTask.EventSourced.Faster
         //    }
         //}
 
-        private async Task CheckpointLog(int count)
+        private async Task CheckpointLog(int count, long latestConsistentAddress)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
             long previous = log.CommittedUntilAddress;
 
             // Old way of doing it, waiting to commit the whole thing
-            await this.log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-            //this.PersistenceInProgress = log.CommitAsync(); 
-            //await this.PersistenceInProgress.ConfigureAwait(false);
+            //await this.log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
 
             // TODO: Update a field somewhere to show that this is the point until we have a consistent snapshot
-            // await log.CommitAndWaitUntil(this.log.TailAddress);
+            this.blobManager.latestCommitLogPosition = latestConsistentAddress;
+            await log.CommitAndWaitUntil(latestConsistentAddress);
+            // Since the commit might have not been called (because it could have been done before)
+            // we need to ensure that the metadata reflect it
+            //
+            // TODO: Could this lead to a race condition (if both FASTER and this call the TrySave concurrently)
+            var newCommitMetadata = blobManager.ModifyCommitMetadataUntilAddress();
+            blobManager.TrySaveCommitMetadata(newCommitMetadata);
 
             this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
         }
@@ -256,8 +262,9 @@ namespace DurableTask.EventSourced.Faster
             {
                 // We are enqueuing events before
                 //EnqueueEvents(batch, from, to);
+                var latestConsistentAddress = batch[to - 1].NextCommitLogPosition;
 
-                await this.CheckpointLog(count);
+                await this.CheckpointLog(count, latestConsistentAddress);
 
                 // Now that the log is commited, we can send persistence confirmation events for
                 // the commited events.
