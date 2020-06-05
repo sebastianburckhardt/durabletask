@@ -366,13 +366,11 @@ namespace DurableTask.EventSourced.Faster
 
             if (!isIndexCheckpoint)
             {
-                // wait for the commit log so it is never behind the checkpoint
-                // Old way of waiting: This was fine because logWorker committed every batch that it got. 
+                // wait for the commit log so it is never behind the checkpoint.
+                // Explanation: Since the logWorker always contains at least as much work as the storeWorker,
+                // waiting for each completion means that it will have certainly processed (and persisted)
+                // at least as much as what the checkpoint refers to.
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
-                // TODO: Wait until the log commits at least as much as our current checkpoint.
-                //       However, we might not want to block here, but rather call the blobmanager 
-                //       write checkpointcompleted async from the log worker
-                // TODO: Make a note about this behavior
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);

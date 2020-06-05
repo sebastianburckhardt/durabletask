@@ -153,6 +153,23 @@ namespace DurableTask.EventSourced.Faster
                 await storeWorker.RestartThingsAtEndOfRecovery().ConfigureAwait(false);
 
                 this.TraceHelper.FasterProgress("Recovery complete");
+
+                // Send latest persistence confirmation events to all other partitions
+                for (uint partitionId = 0; partitionId < this.partition.NumberPartitions(); partitionId++)
+                {
+                    if(partitionId != this.partition.PartitionId)
+                    {
+                        var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+                        {
+                            PartitionId = partitionId,
+                            OriginPartition = this.partition.PartitionId,
+                            OriginPosition = this.log.CommittedUntilAddress
+
+                        };
+                        this.partition.Send(persistenceConfirmationEvent);
+                    }
+                }
+                this.TraceHelper.FasterProgress("Sent latest persistence confirmation events to all other partitions");
             }
 
             var ignoredTask = this.IdleLoop();
