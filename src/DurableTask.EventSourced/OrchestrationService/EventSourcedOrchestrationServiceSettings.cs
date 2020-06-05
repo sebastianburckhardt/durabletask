@@ -15,10 +15,13 @@ namespace DurableTask.EventSourced
 {
     using System;
     using Microsoft.Extensions.Logging;
+    using Newtonsoft.Json;
+    using Newtonsoft.Json.Converters;
 
     /// <summary>
     /// Settings for the <see cref="EventSourcedOrchestrationService"/> class.
     /// </summary>
+    [JsonObject]
     public class EventSourcedOrchestrationServiceSettings
     {
         /// <summary>
@@ -84,18 +87,21 @@ namespace DurableTask.EventSourced
         /// A lower limit on the level of ETW events emitted by the transport layer.
         /// </summary>
         /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        [JsonConverter(typeof(StringEnumConverter))]
         public LogLevel TransportEtwLevel { get; set; } = LogLevel.Information;
 
         /// <summary>
         /// A lower limit on the level of ETW events emitted by the storage layer.
         /// </summary>
         /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        [JsonConverter(typeof(StringEnumConverter))]
         public LogLevel StorageEtwLevel { get; set; } = LogLevel.Information;
 
         /// <summary>
         /// A lower limit on the level of ETW events emitted by partitions and clients.
         /// </summary>
         /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        [JsonConverter(typeof(StringEnumConverter))]
         public LogLevel EtwLevel { get; set; } = LogLevel.Debug;
 
         /// <inheritdoc/>
