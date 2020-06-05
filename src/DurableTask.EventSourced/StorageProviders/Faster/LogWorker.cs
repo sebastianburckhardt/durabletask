@@ -33,9 +33,6 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterTraceHelper traceHelper;
         private bool isShuttingDown;
 
-        // TODO: Delete this
-        private long ProspectiveTailAddress;
-
         // I assume that this list contains pointers to the events
         public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
 
@@ -48,8 +45,6 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
-            this.ProspectiveTailAddress = this.log.TailAddress;
-
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
 
@@ -67,17 +62,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 lock (this.thisLock)
                 {
-                    // Ideally, we would like to enqueue everything here as before, but only commit events when
-                    // their dependencies are persisted. However, there is no "commitUntil" in FASTERLog API,
-                    // so we can instead do enqueue, commit at the same time to ensure that this works.
-                    //
-                    // Instead of enqueuing the bytes, we just "predict" how much will they take
                     Enqueue(bytes);
                     evt.NextCommitLogPosition = this.log.TailAddress;
-
-                    // My calculation is wrong. Probably we are going to do it with selective commits.
-                    //FakeEnqueue(bytes);
-                    //evt.NextCommitLogPosition = this.ProspectiveTailAddress;
 
                     base.Submit(evt);
 
@@ -97,7 +83,6 @@ namespace DurableTask.EventSourced.Faster
         {
             var originPartition = evt.OriginPartition;
             var originPosition = evt.OriginPosition;
-            //evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<bool>();
             var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
             if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
@@ -117,6 +102,7 @@ namespace DurableTask.EventSourced.Faster
         {
             var originPartition = evt.OriginPartition;
             var originPosition = evt.OriginPosition;
+            this.traceHelper.FasterProgress($"Received PersistenceConfirmation message: (partition: {originPartition}, position: {originPosition})");
 
             // It must be the case that there exists an entry for this partition (except if we failed)
             if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
@@ -172,12 +158,6 @@ namespace DurableTask.EventSourced.Faster
                     this.Submit(evt);
                 }                
             }
-        }
-
-        private void FakeEnqueue(byte[] bytes)
-        {
-            // TODO: Ask FASTER about this size
-            this.ProspectiveTailAddress = this.ProspectiveTailAddress + bytes.Length;
         }
 
         private void Enqueue(byte[] bytes)
