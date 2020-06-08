@@ -89,13 +89,11 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        // At the moment this commits the whole log but only waits until it
-        // reaches a specific point. TODO: Make this ONLY commit up to a specific
-        // point.
+        // This flushes the whole log but only commits depending
+        // on our definition of ILogCommitManager in BlobManager.
         public async ValueTask CommitAndWaitUntil(long untilAddress)
         {
             // Issue the commit
-            // TODO: Will this still commit (i.e. do storage accesses) if the log is already committed until the latest address?
             this.log.Commit();
             await this.WaitUntilCommitted(untilAddress).ConfigureAwait(false);
         }

@@ -40,11 +40,6 @@ namespace DurableTask.EventSourced
 
         public override void OnRecoveryCompleted()
         {
-            // TODO: Since PersistenceConfirmation events are not Confirmed with a SendConfirmed in the commit log,
-            //       we need to make sure that whenever we recover we inform all other partitions, about our latest
-            //       commit position, and this should let them clear out their dependencies. When we do that, we should
-            //       remove the SendPersistenceConfirmation below.
-
             // resend all pending
             foreach (var kvp in Outbox)
             {
@@ -57,6 +52,8 @@ namespace DurableTask.EventSourced
                 this.Send(kvp.Value);
 
                 // resend the persistence confirmation events (since ConfirmDurable won't be called)
+                // TODO: Make sure that it is safe to remove this now that we send PersistenceConfirmation events
+                //       at the end of recovery in FasterStorage
                 SendPersistenceConfirmation(kvp.Key);
             }
         }
@@ -86,19 +83,6 @@ namespace DurableTask.EventSourced
             }
         }
 
-        //private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
-        //{
-        //    // put the messages in the outbox where they are kept until actually sent
-        //    var commitPosition = evt.NextCommitLogPosition;
-        //    this.Outbox[commitPosition] = batch;
-        //    batch.Position = commitPosition;
-        //    batch.Partition = this.Partition;
-
-        //    if (!effects.IsReplaying)
-        //    {
-        //        DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
-        //    }
-        //}
 
         private void SendPersistenceConfirmation(long commitPosition)
         {
@@ -123,13 +107,6 @@ namespace DurableTask.EventSourced
             this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending confirmation messages");
             SendPersistenceConfirmation(((PartitionUpdateEvent)evt).NextCommitLogPosition);
         }
-
-        //public void OldConfirmDurable(Event evt)
-        //{
-        //    long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
-        //    this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
-        //    this.Send(this.Outbox[commitPosition]);
-        //}
 
         private void Send(Batch batch)
         {

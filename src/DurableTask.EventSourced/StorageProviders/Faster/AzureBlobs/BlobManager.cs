@@ -39,7 +39,6 @@ namespace DurableTask.EventSourced.Faster
         private readonly CloudStorageAccount cloudStorageAccount;
 
         private CloudBlobContainer blobContainer;
-
         private CloudBlockBlob eventLogCommitBlob;
         private CloudBlobDirectory partitionDirectory;
 

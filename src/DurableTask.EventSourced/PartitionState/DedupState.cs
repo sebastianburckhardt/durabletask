@@ -28,10 +28,6 @@ namespace DurableTask.EventSourced
         [DataMember]
         public Dictionary<uint, long> LastProcessed { get; set; } = new Dictionary<uint, long>();
 
-        // Q: Should this be serialized or not?
-        // TODO: This might not be needed after all
-        public Dictionary<uint, long> LastConfirmed { get; set; } = new Dictionary<uint, long>();
-
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
 

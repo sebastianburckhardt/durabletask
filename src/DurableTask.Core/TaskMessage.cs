@@ -41,28 +41,6 @@ namespace DurableTask.Core
         public OrchestrationInstance OrchestrationInstance { get; set; }
 
 
-        // This represents messages that were received from other partitions 
-        // and should contain the origin partition and the origin position. 
-        // The partion and position can be used to track inter-partition dependencies
-        // when recovering from a crash. 
-        // 
-        // The partition that is recovering can let the other partitions know the commitLogPosition
-        // from which it is recovering. The other partitions then have to recover from the latest 
-        // commit log position where all dependencies (originPosition) are smaller or equal to the commitLogPosition.
-
-        /// <summary>
-        /// 
-        /// </summary>
-        [DataMember]
-        public uint OriginPartition { get; set; }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        [DataMember]
-        public long OriginPosition { get; set; }
-
-
         /// <summary>
         /// Implementation for <see cref="IExtensibleDataObject.ExtensionData"/>.
         /// </summary>

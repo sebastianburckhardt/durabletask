@@ -118,13 +118,8 @@ namespace DurableTask.EventSourced
             }
         }
 
+        
         private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool isReplaying)
-        {
-            // TODO: Ideally we would want to use a Maybe type
-            this.AddMessagesToSession(instanceId, messages, 0, 0, isReplaying);
-        }
-
-        private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, uint originPartition, long originPosition, bool isReplaying)
         {
             if (this.Sessions.TryGetValue(instanceId, out var session))
             {
@@ -132,12 +127,7 @@ namespace DurableTask.EventSourced
                 // We don't need to schedule a work item because we'll notice the new messages 
                 // when the previous work item completes.
                 foreach(var message in messages)
-                {
-                    // Q: Is this ok?
-                    message.OriginPartition = originPartition;
-                    message.OriginPosition = originPosition;
-
-                    // TODO: Update this trace
+                {        
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));                  
                     session.Batch.Add(message);
                 }
@@ -154,8 +144,6 @@ namespace DurableTask.EventSourced
 
                 foreach (var message in messages)
                 {
-                    message.OriginPartition = originPartition;
-                    message.OriginPosition = originPosition;
                    
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
                     session.Batch.Add(message);
@@ -174,7 +162,7 @@ namespace DurableTask.EventSourced
            foreach (var group in evt.TaskMessages
                 .GroupBy(tm => tm.OrchestrationInstance.InstanceId))
             {
-                this.AddMessagesToSession(group.Key, group, evt.OriginPartition, evt.OriginPosition, effects.IsReplaying);
+                this.AddMessagesToSession(group.Key, group, effects.IsReplaying);
             }
         }
 

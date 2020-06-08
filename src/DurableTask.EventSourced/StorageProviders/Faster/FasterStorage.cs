@@ -113,8 +113,8 @@ namespace DurableTask.EventSourced.Faster
 
                 try
                 {
-                    // TODO: With the new causal checkpointing mechanism, we might have to rever to an older store checkpoint. INVESTIGATE
-                    // we are recovering the last checkpoint of the store
+                    // we are recovering the last checkpoint of the store. This is safe since store checkpoints
+                    // happen after all log entries are committed, which can are commited in a causally consistent manner.
                     this.store.Recover();
                     storeWorker.ReadCheckpointPositions(this.blobManager);
 
@@ -212,8 +212,6 @@ namespace DurableTask.EventSourced.Faster
             await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
             await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
 
-            // This only happens in an initial checkpoint so we don't need to inform outbox
-
             if (success)
             {
                 this.TraceHelper.FasterCheckpointPersisted(checkpointGuid, reason, this.storeWorker.CommitLogPosition, this.storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -222,24 +220,16 @@ namespace DurableTask.EventSourced.Faster
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
-            // Q: Is it fine to send all events straight to the store Worker? 
-            //    Or do we first have to update the commitLogPosition for the Update events 
-            //    (as is done in LogWorker.Send)
             this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
             this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
-            //this.storeWorker.SubmitIncomingBatch(evts);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
-            // Q: Similar question as the one above.
-            //this.storeWorker.Submit(evt);
-
             if (evt is PartitionUpdateEvent partitionUpdateEvent)
             {
                 // Before submitting internal update events, we need to 
                 // configure them to not wait for external dependency confirmation
-                // TODO: Find a way to do this somewhere else. This is not the right place
                 partitionUpdateEvent.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
                 partitionUpdateEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
                 this.logWorker.Submit(partitionUpdateEvent);

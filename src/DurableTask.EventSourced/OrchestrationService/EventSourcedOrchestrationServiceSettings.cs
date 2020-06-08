@@ -79,7 +79,6 @@ namespace DurableTask.EventSourced
         /// A limit on how many events to append to the log before initiating another state checkpoint.
         /// </summary>
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
-        // public long MaxNumberEventsBetweenCheckpoints { get; set; } = 1;
 
         /// <summary>
         /// A lower limit on the level of ETW events emitted by the transport layer.
