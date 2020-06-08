@@ -135,7 +135,7 @@ namespace DurableTask.EventSourced.Faster
                 // Commiting the events implies that persistence of their dependencies was confirmed.
                 if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
                 {
-                    // PersistenceConfirmationEvents need not wait
+                    // PersistenceConfirmationEvents have no dependencies
                     // TODO: This might actually be unnecessary since we don't submit them
                     persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
 
@@ -186,9 +186,10 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress($"Stopping LogWorker");
 
             // By turning this on here, we don't allow further events to be processed.
-            // This means that persistence confirmations will NOT be sent to other partitions
-            // from this partition, even though it might persist some events. This has to be solved in the outbox though
-            // since it could happen when we are non-gracefully shutting down too.
+            // This means that persistence confirmations will not be sent to other partitions
+            // from this partition, even though it might persist some events. 
+            // The latest PersistenceConfirmation events will be sent once the 
+            // partition recovers.
             this.isShuttingDown = true;
 
             await this.WaitForCompletionAsync().ConfigureAwait(false);
@@ -196,47 +197,17 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }
 
-        //public async Task SetupUnconfirmedDependenciesListener()
-        //{
-        //    // We want to ensure that a checkpoint is only completed if events that 
-        //    // it depends on have already been persisted in other partitions.
-        //    DedupState dedupState = (DedupState)(await this.storeWorker.store.ReadAsync(TrackedObjectKey.Dedup, this.storeWorker.effectTracker));
-
-
-        //    // Q: Could LastProcessed be faster than the real events that we are waiting for?
-        //    //    If we can't use dedupState.LastProcessed, we might be able to keep this information
-        //    //    by tracking every PartitionUpdateEvent that we process
-        //    Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
-        //    Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
-        //    if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
-        //    {
-        //        dedupState.ConfirmationListener = (lastConfirmed) =>
-        //        {
-        //            if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
-        //                this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-        //        };
-        //    }
-        //    else
-        //    {
-        //        this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-        //    }
-        //}
-
         private async Task CheckpointLog(int count, long latestConsistentAddress)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
             long previous = log.CommittedUntilAddress;
-
-            // Old way of doing it, waiting to commit the whole thing
-            //await this.log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-
-
-            // TODO: Update a field somewhere to show that this is the point until we have a consistent snapshot
+            
             this.blobManager.latestCommitLogPosition = latestConsistentAddress;
             await log.CommitAndWaitUntil(latestConsistentAddress);
-            // Since the commit might have not been called (because it could have been done before)
-            // we need to ensure that the metadata reflect it
+
+            // Since the commit not been called (if it was already flushed by FASTER in a previous call)
+            // we need to ensure that the metadata reflect the latest causally consistent commit.
             //
             // TODO: Could this lead to a race condition (if both FASTER and this call the TrySave concurrently)
             var newCommitMetadata = blobManager.ModifyCommitMetadataUntilAddress();
@@ -245,23 +216,12 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
         }
 
-        private void EnqueueEvents(IList<PartitionUpdateEvent> batch, int from, int to)
-        {
-            for (var j = from; j < to; j++)
-            {
-                var currEvt = batch[j];
-                byte[] bytes = Serializer.SerializeEvent(currEvt, first | last);
-                Enqueue(bytes);
-            }
-        }
 
-        private async Task EnqueueEventsAndCheckpoint(IList<PartitionUpdateEvent> batch, int from, int to)
+        private async Task CommitUntil(IList<PartitionUpdateEvent> batch, int from, int to)
         {
             var count = to - from;
             if (count > 0)
             {
-                // We are enqueuing events before
-                //EnqueueEvents(batch, from, to);
                 var latestConsistentAddress = batch[to - 1].NextCommitLogPosition;
 
                 await this.CheckpointLog(count, latestConsistentAddress);
@@ -302,7 +262,7 @@ namespace DurableTask.EventSourced.Faster
                     var evt = batch[i];
                     if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
                     {
-                        await EnqueueEventsAndCheckpoint(batch, lastEnqueuedCommited, i);
+                        await CommitUntil(batch, lastEnqueuedCommited, i);
 
                         // Progress the last commited index
                         lastEnqueuedCommited = i;
@@ -310,7 +270,7 @@ namespace DurableTask.EventSourced.Faster
                         await evt.EventHasNoUnconfirmeDependencies.Task;
                     }
                 }
-                await EnqueueEventsAndCheckpoint(batch, lastEnqueuedCommited, batch.Count);
+                await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
 
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
@@ -322,46 +282,6 @@ namespace DurableTask.EventSourced.Faster
                 this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
             }
         }
-
-
-        //protected override async Task Process(IList<PartitionUpdateEvent> batch)
-        //{
-        //    try
-        //    {
-        //        //  checkpoint the log
-        //        var stopwatch = new System.Diagnostics.Stopwatch();
-        //        stopwatch.Start();
-        //        long previous = log.CommittedUntilAddress;
-
-        //        await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-
-        //        this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-
-        //        foreach (var evt in batch)
-        //        {
-        //            if (! (this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
-        //            {
-        //                try
-        //                {
-        //                    DurabilityListeners.ConfirmDurable(evt);
-        //                }
-        //                catch (Exception exception) when (!(exception is OutOfMemoryException))
-        //                {
-        //                    // for robustness, swallow exceptions, but report them
-        //                    this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-        //                }
-        //            }
-        //        }
-        //    }
-        //    catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
-        //    {
-        //        // o.k. during shutdown
-        //    }
-        //    catch (Exception e) when (!(e is OutOfMemoryException))
-        //    {
-        //        this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
-        //    }        
-        //}
     
 
         public async Task ReplayCommitLog(long from, StoreWorker worker)
@@ -418,18 +338,6 @@ namespace DurableTask.EventSourced.Faster
 
                         if (partitionEvent != null)
                         {
-                            //// If the event depends on a later commit position that the one that is persisted
-                            //// we have to stop replaying the commit log
-                            //PartitionMessageEvent partitionMessageEvent = partitionEvent as PartitionMessageEvent;
-                            //if (partitionMessageEvent != null)
-                            //{
-                            //    // Q: What is a good maybe type as an argument for this function to hold
-                            //    //    maybe a dictionary from partitionIds to commitLogPositions
-                            //    if (partitionMessageEvent.OriginPosition > beforePositions[partitionMessageEvent.OriginPartition])
-                            //    {
-                            //        // TODO: Stop the replay
-                            //    }
-                            //}
                             partitionEvent.NextCommitLogPosition = iter.NextAddress;
                             await worker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
                         }
