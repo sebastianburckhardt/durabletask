@@ -86,15 +86,6 @@ namespace DurableTask.EventSourced.Faster
             return this.mainSession.ReadyToCompletePendingAsync(this.terminationToken);
         }
 
-        /// <summary>
-        /// This is only called at the start and end, so we don't actually need to wait on unconfirmed events since
-        /// there is no storeWorker running.
-        /// TODO: I think this needs to only run in the start and not in the end
-        /// </summary>
-        /// <param name="commitLogPosition"></param>
-        /// <param name="inputQueuePosition"></param>
-        /// <param name="checkpointGuid"></param>
-        /// <returns></returns>
         public bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
             try
@@ -142,9 +133,6 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        // TODO: Move this higher up
-        // public TaskCompletionSource<object> CheckpointHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
-
 
         public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
@@ -152,9 +140,6 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
                 this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
-
-                // Moved it in the storeWorker
-                //await SetupUnconfirmedDependenciesListener(effects);
 
                 bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 

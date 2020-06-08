@@ -40,7 +40,6 @@ namespace DurableTask.EventSourced.Faster
 
         private CloudBlobContainer blobContainer;
 
-        // TODO: Possibly rename this to Lease blob, and only use it for lease
         private CloudBlockBlob eventLogCommitBlob;
         private CloudBlobDirectory partitionDirectory;
 

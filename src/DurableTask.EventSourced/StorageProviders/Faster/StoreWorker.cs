@@ -95,35 +95,9 @@ namespace DurableTask.EventSourced.Faster
             this.numberEventsSinceLastCheckpoint = 0;
         }    
 
-        public async Task CancelAndShutdown(bool takeFinalCheckpoint)
+        public async Task CancelAndShutdown()
         {
             this.traceHelper.FasterProgress("Stopping StoreWorker");
-
-            //// Take a final consistent checkpoint.
-            //// Q: Could this ever lead to deadlock? Here in order to take the checkpoint,
-            ////    we need to get confirmation from other partitions that dependent events are persisted.
-            ////    If one of them crashes, could we wait arbitrarily long here and not shutdown?
-            //if (takeFinalCheckpoint)
-            //{
-            //    // Q: Do we need to also take an index Checkpoint? I don't think so!
-            //    //var token = this.store.StartIndexCheckpoint();
-            //    //this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
-            //    //await this.pendingIndexCheckpoint; // observe exceptions here
-            //    //this.pendingIndexCheckpoint = null;
-            //    if (this.pendingIndexCheckpoint != null)
-            //    {
-            //        await this.pendingIndexCheckpoint.ConfigureAwait(false);
-            //    }
-            //    await this.SetupUnconfirmedDependenciesListener();
-            //    // We don't want to do a checkpoint if there is one happening already
-            //    if (this.pendingStoreCheckpoint == null)
-            //    {
-            //        var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
-            //        this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
-            //        this.numberEventsSinceLastCheckpoint = 0;
-            //    }
-            //    await this.pendingStoreCheckpoint.ConfigureAwait(false);
-            //}
 
             this.isShuttingDown = true;
 
@@ -228,31 +202,6 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
-        //public async Task SetupUnconfirmedDependenciesListener()
-        //{
-        //    // We want to ensure that a checkpoint is only completed if events that 
-        //    // it depends on have already been persisted in other partitions.
-        //    DedupState dedupState = (DedupState)(await this.store.ReadAsync(TrackedObjectKey.Dedup, this.effectTracker));
-
-
-        //    // Q: Could LastProcessed be faster than the real events that we are waiting for?
-        //    //    If we can't use dedupState.LastProcessed, we might be able to keep this information
-        //    //    by tracking every PartitionUpdateEvent that we process
-        //    Dictionary<uint, long> waitingFor = dedupState.LastProcessed;
-        //    Dictionary<uint, long> confirmed = dedupState.LastConfirmed;
-        //    if (dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, confirmed))
-        //    {
-        //        dedupState.ConfirmationListener = (lastConfirmed) =>
-        //        {
-        //            if (!dedupState.KeepWaitingForPersistenceConfirmation(waitingFor, lastConfirmed))
-        //                this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-        //        };
-        //    }
-        //    else
-        //    {
-        //        this.store.CheckpointHasNoUnconfirmeDependencies.TrySetResult(null);
-        //    }
-        //}
 
         protected override async Task Process(IList<PartitionEvent> batch)
         {
@@ -281,8 +230,6 @@ namespace DurableTask.EventSourced.Faster
                             break;
 
                         case PartitionUpdateEvent updateEvent:
-                            // Q: Is this adequate to use this? Need to test!
-                            //updateEvent.NextCommitLogPosition = this.CommitLogPosition + 1;
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
                             break;
 
@@ -307,12 +254,10 @@ namespace DurableTask.EventSourced.Faster
                 }
                 else if (this.pendingIndexCheckpoint != null)
                 {
-                    // ERROR: The error is visible here too
                     if (this.pendingIndexCheckpoint.IsCompleted == true)
                     {
                         await this.pendingIndexCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingIndexCheckpoint = null;
-                        //await SetupUnconfirmedDependenciesListener();
                         var token = this.store.StartStoreCheckpoint(this.CommitLogPosition, this.InputQueuePosition);
                         this.pendingStoreCheckpoint = this.WaitForCheckpointAsync(false, token);
                         this.numberEventsSinceLastCheckpoint = 0;
@@ -383,31 +328,6 @@ namespace DurableTask.EventSourced.Faster
             return commitLogPosition;
         }
 
-        //public async Task NotifyUpdateEventsDurableListeners(long commitLogPosition)
-        //{
-        //    // TODO: We have to confirm that all processed events are durable.
-        //    // The code below does this (and is taken from LogWorker)
-            
-        //    OutboxState outboxState = (OutboxState)(await this.store.ReadAsync(TrackedObjectKey.Outbox, this.effectTracker));
-
-        //    var start = this.lastCheckpointedPosition;
-        //    var end = commitLogPosition;
-        //    var outbox = outboxState.Outbox;
-        //    for (var i = start; i < end; i++)
-        //    {
-        //        var evt = outbox[i].Event;
-        //        try
-        //        {
-        //            DurabilityListeners.ConfirmDurable(evt);
-        //        }
-        //        catch (Exception exception) when (!(exception is OutOfMemoryException))
-        //        {
-        //            // for robustness, swallow exceptions, but report them
-        //            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-        //        }
-        //    }
-            
-        //}
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {
@@ -418,7 +338,6 @@ namespace DurableTask.EventSourced.Faster
 
             var startPosition = this.CommitLogPosition;
             this.effectTracker.IsReplaying = true;
-            // TODO: Make this a selective replay
             await logWorker.ReplayCommitLog(startPosition, this).ConfigureAwait(false);
             stopwatch.Stop();
             this.effectTracker.IsReplaying = false;
