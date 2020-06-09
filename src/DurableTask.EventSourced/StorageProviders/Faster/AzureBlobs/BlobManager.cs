@@ -489,35 +489,38 @@ namespace DurableTask.EventSourced.Faster
 
         public void TrySaveCommitMetadata(byte [] commitMetadata)
         {
-            while (true)
+            lock (this)
             {
-                AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
-                try
+                while (true)
                 {
-                    this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
-                    this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
-                    return;
-                }
-                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
-                {
-                    // if we get here, the lease renewal task did not complete in time
-                    // wait for it to complete or throw
-                    this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: wait for next renewal");
-                    this.NextLeaseRenewalTask.Wait();
-                    this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: renewal complete");
-                    continue;
-                }
-                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
-                {
-                    // We lost the lease to someone else. Terminate ownership immediately.
-                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
-                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
-                    throw;
-                }
-                catch (Exception e)
-                {
-                    this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
-                    throw;
+                    AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
+                    try
+                    {
+                        this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
+                        this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
+                        return;
+                    }
+                    catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
+                    {
+                        // if we get here, the lease renewal task did not complete in time
+                        // wait for it to complete or throw
+                        this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: wait for next renewal");
+                        this.NextLeaseRenewalTask.Wait();
+                        this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: renewal complete");
+                        continue;
+                    }
+                    catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                    {
+                        // We lost the lease to someone else. Terminate ownership immediately.
+                        this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
+                        throw;
+                    }
                 }
             }
         }
