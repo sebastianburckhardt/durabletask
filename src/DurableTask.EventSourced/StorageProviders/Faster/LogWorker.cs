@@ -228,6 +228,9 @@ namespace DurableTask.EventSourced.Faster
 
                 // Now that the log is commited, we can send persistence confirmation events for
                 // the commited events.
+                //
+                // TODO: (Optimization) Can we group and only send aggregate persistence confirmations?
+                //       This could relieve the pressure on sending/receiving from Eventhubs
                 for (var j = from; j < to; j++)
                 {
                     var currEvt = batch[j];

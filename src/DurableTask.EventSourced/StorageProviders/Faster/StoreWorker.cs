@@ -315,6 +315,11 @@ namespace DurableTask.EventSourced.Faster
                 // Explanation: Since the logWorker always contains at least as much work as the storeWorker,
                 // waiting for each completion means that it will have certainly processed (and persisted)
                 // at least as much as what the checkpoint refers to.
+                //
+                // TODO: This could block for a long time if the Log is lagging behind. 
+                //       Since the storeWorker is the main/critical computation path, we need to do this blocking
+                //       asynchronously, and only complete the checkpoint when the log has catched up.
+                //       Blocking here could lead to very bad response times in times of checkpoints
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // finally we write the checkpoint info file
