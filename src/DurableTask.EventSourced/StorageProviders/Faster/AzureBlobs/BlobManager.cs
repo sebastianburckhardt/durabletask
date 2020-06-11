@@ -63,6 +63,10 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
+        public long latestCommitLogPosition { get; set; }
+
+        public byte[] latestRealLogCommitMetadata { get; set; }
+
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
         public FasterLogSettings EventLogSettings => new FasterLogSettings
@@ -70,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256k since we are just writing and often small portions
+            PageSizeBits = 18, // 256KB since we are just writing and often small portions
             SegmentSizeBits = 28, // 256 MB
             MemorySizeBits = 22, // 2MB because 16 pages are the minimum
         };
@@ -133,7 +137,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // For testing and debugging with local files
-        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"C:\Faster";
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.ContainerName}";
 
@@ -462,41 +466,71 @@ namespace DurableTask.EventSourced.Faster
 
         #region ILogCommitManager
 
+        public byte[] ModifyCommitMetadataUntilAddress()
+        {
+            FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
+            using (var r = new BinaryReader(new MemoryStream(this.latestRealLogCommitMetadata)))
+            {
+                info.Initialize(r);
+            }
+
+            // Instead of commiting until the tail address, we only save up to the point that we care. 
+            // This way even though FASTER does perform the complete commit (batching and doing less storage accesses)
+            // if we recover, we will only recover from the a consistent address
+            var oldFlushedUntilAddress = info.FlushedUntilAddress;
+            info.FlushedUntilAddress = Math.Min(this.latestCommitLogPosition, info.FlushedUntilAddress);
+
+            // TODO: Do we have to update anything else too? (e.g. iterators)
+
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.latestCommitLogPosition}");
+
+            return info.ToByteArray();
+        }
+
+        public void TrySaveCommitMetadata(byte [] commitMetadata)
+        {
+            lock (this)
+            {
+                while (true)
+                {
+                    AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
+                    try
+                    {
+                        this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
+                        this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
+                        return;
+                    }
+                    catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
+                    {
+                        // if we get here, the lease renewal task did not complete in time
+                        // wait for it to complete or throw
+                        this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: wait for next renewal");
+                        this.NextLeaseRenewalTask.Wait();
+                        this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: renewal complete");
+                        continue;
+                    }
+                    catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                    {
+                        // We lost the lease to someone else. Terminate ownership immediately.
+                        this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
+                        throw;
+                    }
+                }
+            }
+        }
+
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
-
-            while (true)
-            {
-                AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
-                try
-                {
-                    this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
-                    this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
-                    return;
-                }
-                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
-                {
-                    // if we get here, the lease renewal task did not complete in time
-                    // wait for it to complete or throw
-                    this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: wait for next renewal");
-                    this.NextLeaseRenewalTask.Wait();
-                    this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: renewal complete");
-                    continue;
-                }
-                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
-                {
-                    // We lost the lease to someone else. Terminate ownership immediately.
-                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
-                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
-                    throw;
-                }
-                catch (Exception e)
-                {
-                    this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
-                    throw;
-                }
-            }
+            this.latestRealLogCommitMetadata = commitMetadata;
+            var consistentCommitMetadata = ModifyCommitMetadataUntilAddress();
+            TrySaveCommitMetadata(consistentCommitMetadata);
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()

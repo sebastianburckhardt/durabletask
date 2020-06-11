@@ -17,6 +17,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
@@ -34,6 +35,10 @@ namespace DurableTask.EventSourced
         public virtual IEnumerable<TaskMessage> TracedTaskMessages => PartitionUpdateEvent.noTaskMessages;
 
         private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();
+
+        // TODO: There must be a better way to do this. Also we might not need the bool
+        [IgnoreDataMember]
+        public TaskCompletionSource<object> EventHasNoUnconfirmeDependencies = null;
 
         public abstract void DetermineEffects(EffectTracker effects);
     }

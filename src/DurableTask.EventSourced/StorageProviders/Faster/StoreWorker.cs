@@ -204,6 +204,7 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
+
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -312,18 +313,23 @@ namespace DurableTask.EventSourced.Faster
 
             if (!isIndexCheckpoint)
             {
-                // wait for the commit log so it is never behind the checkpoint
+                // wait for the commit log so it is never behind the checkpoint.
+                // Explanation: Since the logWorker always contains at least as much work as the storeWorker,
+                // waiting for each completion means that it will have certainly processed (and persisted)
+                // at least as much as what the checkpoint refers to.
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
+
             }
- 
+
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
 
             this.Notify();
             return commitLogPosition;
         }
+
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {

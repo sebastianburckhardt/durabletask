@@ -118,6 +118,7 @@ namespace DurableTask.EventSourced
             }
         }
 
+        
         private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool isReplaying)
         {
             if (this.Sessions.TryGetValue(instanceId, out var session))
@@ -126,7 +127,7 @@ namespace DurableTask.EventSourced
                 // We don't need to schedule a work item because we'll notice the new messages 
                 // when the previous work item completes.
                 foreach(var message in messages)
-                {
+                {        
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));                  
                     session.Batch.Add(message);
                 }
@@ -143,6 +144,7 @@ namespace DurableTask.EventSourced
 
                 foreach (var message in messages)
                 {
+                   
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
                     session.Batch.Add(message);
                 }

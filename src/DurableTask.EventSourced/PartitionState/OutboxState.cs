@@ -32,6 +32,10 @@ namespace DurableTask.EventSourced
         [DataMember]
         public SortedDictionary<long, Batch> Outbox { get; private set; } = new SortedDictionary<long, Batch>();
 
+        // Contains the partition identifiers that we need to inform when events have been persisted
+        [DataMember]
+        public SortedDictionary<long, HashSet<uint>> WaitingForConfirmation { get; private set; } = new SortedDictionary<long, HashSet<uint>>();
+
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
         public override void OnRecoveryCompleted()
@@ -46,6 +50,11 @@ namespace DurableTask.EventSourced
                 // resend (anything we have recovered is of course persisted)
                 Partition.EventDetailTracer?.TraceEventProcessingDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
                 this.Send(kvp.Value);
+
+                // resend the persistence confirmation events (since ConfirmDurable won't be called)
+                // TODO: Make sure that it is safe to remove this now that we send PersistenceConfirmation events
+                //       at the end of recovery in FasterStorage
+                SendPersistenceConfirmation(kvp.Key);
             }
         }
 
@@ -59,9 +68,9 @@ namespace DurableTask.EventSourced
             return $"Outbox ({Outbox.Count} pending)";
         }
 
-        private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
+        private void SendBatchAndSetupConfirmation(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
         {
-            // put the messages in the outbox where they are kept until actually sent
+            // Put the messages in the outbox to be able to send a confirmation afterwards.
             var commitPosition = evt.NextCommitLogPosition;
             this.Outbox[commitPosition] = batch;
             batch.Position = commitPosition;
@@ -69,27 +78,54 @@ namespace DurableTask.EventSourced
 
             if (!effects.IsReplaying)
             {
-                DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
+                this.Send(this.Outbox[commitPosition]);
+                DurabilityListeners.Register(evt, this); // we need to send a persistence confirmation after this event is durable
             }
+        }
+
+
+        private void SendPersistenceConfirmation(long commitPosition)
+        {
+            var destinationPartitionIds = WaitingForConfirmation[commitPosition];
+            foreach (var destinationPartitionId in destinationPartitionIds)
+            {
+                var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+                {
+                    PartitionId = destinationPartitionId,
+                    OriginPartition = this.Partition.PartitionId,
+                    OriginPosition = commitPosition
+
+                };
+
+                this.Partition.Send(persistenceConfirmationEvent);
+            }
+            WaitingForConfirmation.Remove(commitPosition);
         }
 
         public void ConfirmDurable(Event evt)
         {
-            long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
-            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
-            this.Send(this.Outbox[commitPosition]);
+            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending confirmation messages");
+            SendPersistenceConfirmation(((PartitionUpdateEvent)evt).NextCommitLogPosition);
         }
 
         private void Send(Batch batch)
         {
+            // Gather all destination partitions in a list
+            var destinationPartitionIds = new HashSet<uint>();
+
             // now that we know the sending event is persisted, we can send the messages
             foreach (var outmessage in batch)
             {
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
+                destinationPartitionIds.Add(outmessage.PartitionId);
                 Partition.Send(outmessage);
             }
+            // Get the identifier of the update event that caused this batch to be sent
+            var nextCommitLogAddress = batch.Position;
+            WaitingForConfirmation.Add(nextCommitLogAddress, destinationPartitionIds);
+
         }
 
         [DataContract]
@@ -103,6 +139,10 @@ namespace DurableTask.EventSourced
 
             [IgnoreDataMember]
             private int numAcks = 0;
+
+            // Q: Maybe we should be able to serialize this? Is this necessary? Probably not
+            [IgnoreDataMember]
+            public PartitionUpdateEvent Event { get; set; }
 
             public void ConfirmDurable(Event evt)
             {
@@ -137,7 +177,7 @@ namespace DurableTask.EventSourced
                 ActivityId = evt.ActivityId,
                 ActivitiesQueueSize = evt.ReportedLoad,
             });
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
 
         public void Process(BatchProcessed evt, EffectTracker effects)
@@ -166,7 +206,7 @@ namespace DurableTask.EventSourced
             }
             var batch = new Batch();
             batch.AddRange(sorted.Values);
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
 
         public void Process(OffloadDecision evt, EffectTracker effects)
@@ -178,7 +218,7 @@ namespace DurableTask.EventSourced
                 OffloadedActivities = evt.OffloadedActivities,
                 Timestamp = evt.Timestamp,
             });
-            this.SendBatchOnceEventIsPersisted(evt, effects, batch);
+            this.SendBatchAndSetupConfirmation(evt, effects, batch);
         }
     }
 }

@@ -108,11 +108,13 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
+
                 this.TraceHelper.FasterProgress("Loading checkpoint");
 
                 try
                 {
-                    // we are recovering the last checkpoint of the store
+                    // we are recovering the last checkpoint of the store. This is safe since store checkpoints
+                    // happen after all log entries are committed, which can are commited in a causally consistent manner.
                     this.store.Recover();
                     storeWorker.ReadCheckpointPositions(this.blobManager);
 
@@ -144,6 +146,23 @@ namespace DurableTask.EventSourced.Faster
                 await storeWorker.RestartThingsAtEndOfRecovery().ConfigureAwait(false);
 
                 this.TraceHelper.FasterProgress("Recovery complete");
+
+                // Send latest persistence confirmation events to all other partitions
+                for (uint partitionId = 0; partitionId < this.partition.NumberPartitions(); partitionId++)
+                {
+                    if(partitionId != this.partition.PartitionId)
+                    {
+                        var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+                        {
+                            PartitionId = partitionId,
+                            OriginPartition = this.partition.PartitionId,
+                            OriginPosition = this.log.CommittedUntilAddress
+
+                        };
+                        this.partition.Send(persistenceConfirmationEvent);
+                    }
+                }
+                this.TraceHelper.FasterProgress("Sent latest persistence confirmation events to all other partitions");
             }
 
             var ignoredTask = this.IdleLoop();
@@ -156,6 +175,7 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Stopping workers");
             
             // in parallel, finish processing log requests and stop processing store requests
+            // It is fine doing them in parallel, since the log processes the persistence confirmation events before submitting them.
             Task t1 = this.logWorker.PersistAndShutdownAsync();
             Task t2 = this.storeWorker.CancelAndShutdown();
 
@@ -208,6 +228,10 @@ namespace DurableTask.EventSourced.Faster
         {
             if (evt is PartitionUpdateEvent partitionUpdateEvent)
             {
+                // Before submitting internal update events, we need to 
+                // configure them to not wait for external dependency confirmation
+                partitionUpdateEvent.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+                partitionUpdateEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
                 this.logWorker.Submit(partitionUpdateEvent);
             }
             else
