@@ -300,6 +300,7 @@ namespace DurableTask.EventSourced.EventHubs
                             batch.Add(partitionEvent);
                             pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                             DurabilityListeners.Register(partitionEvent, this);
+                            partitionEvent.ReceivedTimestamp = current.Partition.CurrentTimeMs;
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {
