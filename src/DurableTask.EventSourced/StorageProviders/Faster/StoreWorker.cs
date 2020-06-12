@@ -75,10 +75,12 @@ namespace DurableTask.EventSourced.Faster
         {
             this.InputQueuePosition = initialInputQueuePosition;
             this.CommitLogPosition = initialCommitLogPosition;
+           
+            this.store.InitMainSession();
 
             foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                var target = await store.CreateAsync(key).ConfigureAwait(false);
+                var target = await this.store.CreateAsync(key).ConfigureAwait(false);
                 target.OnFirstInitialization();
             }
 
@@ -202,7 +204,6 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
-
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -324,7 +325,6 @@ namespace DurableTask.EventSourced.Faster
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
-
             }
 
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -332,7 +332,6 @@ namespace DurableTask.EventSourced.Faster
             this.Notify();
             return commitLogPosition;
         }
-
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {

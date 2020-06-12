@@ -45,6 +45,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
+
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
 
@@ -63,6 +64,7 @@ namespace DurableTask.EventSourced.Faster
                 lock (this.thisLock)
                 {
                     Enqueue(bytes);
+
                     evt.NextCommitLogPosition = this.log.TailAddress;
 
                     base.Submit(evt);

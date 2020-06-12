@@ -108,7 +108,6 @@ namespace DurableTask.EventSourced.Faster
             }
             else
             {
-
                 this.TraceHelper.FasterProgress("Loading checkpoint");
 
                 try
