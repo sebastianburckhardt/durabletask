@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256KB since we are just writing and often small portions
+            PageSizeBits = 18, // 256k since we are just writing and often small portions
             SegmentSizeBits = 28, // 256 MB
             MemorySizeBits = 22, // 2MB because 16 pages are the minimum
         };
@@ -137,7 +137,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // For testing and debugging with local files
-        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"C:\Faster";
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.ContainerName}";
 
@@ -466,25 +466,12 @@ namespace DurableTask.EventSourced.Faster
 
         #region ILogCommitManager
 
-        public byte[] ModifyCommitMetadataUntilAddress()
+        void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
-            FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
-            using (var r = new BinaryReader(new MemoryStream(this.latestRealLogCommitMetadata)))
-            {
-                info.Initialize(r);
-            }
-
-            // Instead of commiting until the tail address, we only save up to the point that we care. 
-            // This way even though FASTER does perform the complete commit (batching and doing less storage accesses)
-            // if we recover, we will only recover from the a consistent address
-            var oldFlushedUntilAddress = info.FlushedUntilAddress;
-            info.FlushedUntilAddress = Math.Min(this.latestCommitLogPosition, info.FlushedUntilAddress);
-
-            // TODO: Do we have to update anything else too? (e.g. iterators)
-
-            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.latestCommitLogPosition}");
-
-            return info.ToByteArray();
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
+            this.latestRealLogCommitMetadata = commitMetadata;
+            var consistentCommitMetadata = ModifyCommitMetadataUntilAddress();
+            TrySaveCommitMetadata(consistentCommitMetadata);
         }
 
         public void TrySaveCommitMetadata(byte [] commitMetadata)
@@ -525,12 +512,25 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
+        public byte[] ModifyCommitMetadataUntilAddress()
         {
-            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
-            this.latestRealLogCommitMetadata = commitMetadata;
-            var consistentCommitMetadata = ModifyCommitMetadataUntilAddress();
-            TrySaveCommitMetadata(consistentCommitMetadata);
+            FasterLogRecoveryInfo info = new FasterLogRecoveryInfo();
+            using (var r = new BinaryReader(new MemoryStream(this.latestRealLogCommitMetadata)))
+            {
+                info.Initialize(r);
+            }
+
+            // Instead of commiting until the tail address, we only save up to the point that we care. 
+            // This way even though FASTER does perform the complete commit (batching and doing less storage accesses)
+            // if we recover, we will only recover from the a consistent address
+            var oldFlushedUntilAddress = info.FlushedUntilAddress;
+            info.FlushedUntilAddress = Math.Min(this.latestCommitLogPosition, info.FlushedUntilAddress);
+
+            // TODO: Do we have to update anything else too? (e.g. iterators)
+
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.latestCommitLogPosition}");
+
+            return info.ToByteArray();
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()

@@ -204,7 +204,6 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
-
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -321,7 +320,6 @@ namespace DurableTask.EventSourced.Faster
 
                 // finally we write the checkpoint info file
                 await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
-
             }
 
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
@@ -329,7 +327,6 @@ namespace DurableTask.EventSourced.Faster
             this.Notify();
             return commitLogPosition;
         }
-
 
         public async Task ReplayCommitLog(LogWorker logWorker)
         {

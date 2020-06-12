@@ -98,7 +98,6 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
                 this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
-
                 return this.fht.TakeFullCheckpoint(out checkpointGuid);
             }
             catch (Exception exception)
@@ -139,14 +138,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-
         public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
             try
             {
                 this.blobManager.CheckpointInfo.CommitLogPosition = commitLogPosition;
                 this.blobManager.CheckpointInfo.InputQueuePosition = inputQueuePosition;
-
                 bool success = this.fht.TakeHybridLogCheckpoint(out var token);
 
                 if (!success)

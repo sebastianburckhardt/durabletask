@@ -40,7 +40,6 @@ namespace DurableTask.Core
         [DataMember]
         public OrchestrationInstance OrchestrationInstance { get; set; }
 
-
         /// <summary>
         /// Implementation for <see cref="IExtensibleDataObject.ExtensionData"/>.
         /// </summary>
