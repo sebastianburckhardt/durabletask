@@ -237,6 +237,7 @@ namespace DurableTask.EventSourced.Faster
                     try
                     {
                         DurabilityListeners.ConfirmDurable(currEvt);
+                        // Possible optimization: Move persistence confirmation logic to the lower level and out of the application layer
                     }
                     catch (Exception exception) when (!(exception is OutOfMemoryException))
                     {
@@ -263,6 +264,7 @@ namespace DurableTask.EventSourced.Faster
                 for (var i=0; i < batch.Count; i++)
                 {
                     var evt = batch[i];
+                    // TODO: Optimize by not allocating an object
                     if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
                     {
                         await CommitUntil(batch, lastEnqueuedCommited, i);

@@ -44,6 +44,8 @@ namespace DurableTask.EventSourced
         private ConcurrentDictionary<long, ResponseWaiter> ResponseWaiters;
         private Dictionary<string, MemoryStream> Fragments;
         
+        // TODO: Have a field with unconfirmed events
+            
         public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
 
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
