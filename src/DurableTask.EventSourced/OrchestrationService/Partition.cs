@@ -233,16 +233,24 @@ namespace DurableTask.EventSourced
                 }
             }
 
+            updateEvent.ReceivedTimestamp = this.CurrentTimeMs;
+
             this.State.SubmitInternalEvent(updateEvent);
         }
 
         public void SubmitInternalEvent(PartitionReadEvent readEvent)
         {
+            readEvent.ReceivedTimestamp = this.CurrentTimeMs;
             this.State.SubmitInternalEvent(readEvent);
         }
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)
         {
+            foreach(PartitionEvent partitionEvent in partitionEvents)
+            {
+                partitionEvent.ReceivedTimestamp = this.CurrentTimeMs;
+            }
+
             this.State.SubmitExternalEvents(partitionEvents);
         }
 
