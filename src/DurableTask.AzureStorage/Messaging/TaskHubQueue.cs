@@ -195,7 +195,9 @@ namespace DurableTask.AzureStorage.Messaging
             // Exponentially backoff a given queue message until a maximum visibility delay of 10 minutes.
             // Once it hits the maximum, log the message as a poison message.
             const int maxSecondsToWait = 600;
-            int numSecondsToWait = Math.Min((int) Math.Pow(2, queueMessage.DequeueCount), maxSecondsToWait);
+            int numSecondsToWait = queueMessage.DequeueCount <= 30 ? 
+                Math.Min((int)Math.Pow(2, queueMessage.DequeueCount), maxSecondsToWait) :
+                maxSecondsToWait;
             if (numSecondsToWait == maxSecondsToWait)
             {
                 AnalyticsEventSource.Log.PoisonMessageDetected(
@@ -208,7 +210,6 @@ namespace DurableTask.AzureStorage.Messaging
                     queueMessage.DequeueCount,
                     Utils.ExtensionVersion);
             }
-            TimeSpan visibilityDelay = TimeSpan.FromSeconds(numSecondsToWait);
 
             AnalyticsEventSource.Log.AbandoningMessage(
                 this.storageAccountName,
@@ -220,7 +221,7 @@ namespace DurableTask.AzureStorage.Messaging
                 instance.ExecutionId,
                 this.storageQueue.Name,
                 message.SequenceNumber,
-                (int)visibilityDelay.TotalSeconds,
+                numSecondsToWait,
                 Utils.ExtensionVersion);
 
             try
@@ -229,7 +230,7 @@ namespace DurableTask.AzureStorage.Messaging
                 // This allows it to be reprocessed on this node or another node at a later time, hopefully successfully.
                 await this.storageQueue.UpdateMessageAsync(
                     queueMessage,
-                    visibilityDelay,
+                    TimeSpan.FromSeconds(numSecondsToWait),
                     MessageUpdateFields.Visibility,
                     this.QueueRequestOptions,
                     session.StorageOperationContext);
