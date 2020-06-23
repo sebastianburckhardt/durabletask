@@ -60,7 +60,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.settings = settings;
             this.cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
             string namespaceName = TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString);
-            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportEtwLevel, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, namespaceName);
+            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportLogLevelLimit, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, namespaceName);
             this.ClientId = Guid.NewGuid();
             this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper);
             var blobContainerName = $"{namespaceName}-processors";
@@ -159,6 +159,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
+           
             this.eventProcessorHost = new EventProcessorHost(
                  EventHubsConnections.PartitionsPath,
                  EventHubsConnections.PartitionsConsumerGroup,

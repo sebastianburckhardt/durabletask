@@ -111,10 +111,10 @@ namespace DurableTask.EventSourced.Faster
         /// <param name="storageAccount">The cloud storage account, or null if using local file paths</param>
         /// <param name="taskHubName">The name of the taskhub</param>
         /// <param name="logger">A logger for logging</param>
-        /// <param name="etwLogLevel">A limit on log event level emitted to ETW</param>
+        /// <param name="logLevelLimit">A limit on log event level emitted</param>
         /// <param name="partitionId">The partition id</param>
         /// <param name="errorHandler">A handler for errors encountered in this partition</param>
-        public BlobManager(CloudStorageAccount storageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel etwLogLevel, uint partitionId, IPartitionErrorHandler errorHandler)
+        public BlobManager(CloudStorageAccount storageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel logLevelLimit, uint partitionId, IPartitionErrorHandler errorHandler)
         {
             this.cloudStorageAccount = storageAccount;
             this.UseLocalFilesForTestingAndDebugging = (storageAccount == null);
@@ -127,7 +127,7 @@ namespace DurableTask.EventSourced.Faster
                 this.blobContainer = serviceClient.GetContainerReference(this.ContainerName);
             }
 
-            this.TraceHelper = new FasterTraceHelper(logger, etwLogLevel, this.partitionId, this.UseLocalFilesForTestingAndDebugging ? "none" : this.cloudStorageAccount.Credentials.AccountName, taskHubName);
+            this.TraceHelper = new FasterTraceHelper(logger, logLevelLimit, this.partitionId, this.UseLocalFilesForTestingAndDebugging ? "none" : this.cloudStorageAccount.Credentials.AccountName, taskHubName);
             this.PartitionErrorHandler = errorHandler;
             this.shutDownOrTermination = CancellationTokenSource.CreateLinkedTokenSource(errorHandler.Token);
         }

@@ -84,25 +84,25 @@ namespace DurableTask.EventSourced
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
         /// <summary>
-        /// A lower limit on the level of ETW events emitted by the transport layer.
+        /// A lower limit on the severity level of trace events emitted by the transport layer.
         /// </summary>
-        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
-        public LogLevel TransportEtwLevel { get; set; } = LogLevel.Information;
+        public LogLevel TransportLogLevelLimit { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A lower limit on the level of ETW events emitted by the storage layer.
+        /// A lower limit on the severity level of trace events emitted by the storage layer.
         /// </summary>
-        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
-        public LogLevel StorageEtwLevel { get; set; } = LogLevel.Information;
+        public LogLevel StorageLogLevelLimit { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A lower limit on the level of ETW events emitted by partitions and clients.
+        /// A lower limit on the severity level of trace events emitted by partitions and clients.
         /// </summary>
-        /// <remarks>This level applies only to ETW; the ILogger level can be controlled independently.</remarks>
+        /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
-        public LogLevel EtwLevel { get; set; } = LogLevel.Debug;
+        public LogLevel LogLevelLimit { get; set; } = LogLevel.Debug;
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
@@ -122,9 +122,9 @@ namespace DurableTask.EventSourced
                 this.TakeStateCheckpointWhenStoppingPartition,
                 this.MaxNumberBytesBetweenCheckpoints,
                 this.MaxNumberEventsBetweenCheckpoints,
-                this.TransportEtwLevel,
-                this.StorageEtwLevel,
-                this.EtwLevel)
+                this.TransportLogLevelLimit,
+                this.StorageLogLevelLimit,
+                this.LogLevelLimit)
                 ==
                 (other.EventHubsConnectionString,
                 other.StorageConnectionString,
@@ -137,9 +137,9 @@ namespace DurableTask.EventSourced
                 other.TakeStateCheckpointWhenStoppingPartition,
                 other.MaxNumberBytesBetweenCheckpoints,
                 other.MaxNumberEventsBetweenCheckpoints,
-                other.TransportEtwLevel,
-                other.StorageEtwLevel,
-                other.EtwLevel);
+                other.TransportLogLevelLimit,
+                other.StorageLogLevelLimit,
+                other.LogLevelLimit);
         }
 
         /// <inheritdoc/>
@@ -156,9 +156,9 @@ namespace DurableTask.EventSourced
                 this.TakeStateCheckpointWhenStoppingPartition,
                 this.MaxNumberBytesBetweenCheckpoints,
                 this.MaxNumberEventsBetweenCheckpoints,
-                this.TransportEtwLevel,
-                this.StorageEtwLevel,
-                this.EtwLevel)
+                this.TransportLogLevelLimit,
+                this.StorageLogLevelLimit,
+                this.LogLevelLimit)
                 .GetHashCode();
         }
 
