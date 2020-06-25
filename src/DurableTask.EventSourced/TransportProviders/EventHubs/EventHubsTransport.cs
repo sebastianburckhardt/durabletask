@@ -25,6 +25,7 @@ using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using DurableTask.EventSourced.TransportProviders.EventHubs;
 
 namespace DurableTask.EventSourced.EventHubs
 {
@@ -49,7 +50,8 @@ namespace DurableTask.EventSourced.EventHubs
 
         private CloudBlobContainer cloudBlobContainer;
         private CloudBlockBlob taskhubParameters;
-
+        private CustomConstantEventProcessorHost customEventProcessorHost;
+        private Task customEventProcessorHostTask;
         private const int MaxReceiveBatchSize = 10000; // actual batches will always be much smaller
 
         public Guid ClientId { get; private set; }
@@ -159,20 +161,44 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
-            this.eventProcessorHost = new EventProcessorHost(
-                 EventHubsConnections.PartitionsPath,
-                 EventHubsConnections.PartitionsConsumerGroup,
-                 settings.EventHubsConnectionString,
-                 settings.StorageConnectionString,
-                 cloudBlobContainer.Name);
-
-            var processorOptions = new EventProcessorOptions()
+            // Use standard eventProcessor offered by EventHubs or a custom one
+            if (this.settings.EventProcessorManagement == "EventHubs")
             {
-                InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(this.parameters.StartPositions[int.Parse(s)] - 1),
-                MaxBatchSize = MaxReceiveBatchSize,
-            };
+                this.eventProcessorHost = new EventProcessorHost(
+                        EventHubsConnections.PartitionsPath,
+                        EventHubsConnections.PartitionsConsumerGroup,
+                        settings.EventHubsConnectionString,
+                        settings.StorageConnectionString,
+                        cloudBlobContainer.Name);
 
-            await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
+                var processorOptions = new EventProcessorOptions()
+                {
+                    InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(this.parameters.StartPositions[int.Parse(s)] - 1),
+                    MaxBatchSize = MaxReceiveBatchSize,
+                };
+
+                await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
+            }
+            else if (this.settings.EventProcessorManagement == "Custom")
+            {
+                this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
+                this.customEventProcessorHost = new CustomConstantEventProcessorHost(
+                        EventHubsConnections.PartitionsPath,
+                        EventHubsConnections.PartitionsConsumerGroup,
+                        settings.EventHubsConnectionString,
+                        settings.StorageConnectionString,
+                        cloudBlobContainer.Name,
+                        this.host, 
+                        this, 
+                        this.connections,
+                        this.parameters, 
+                        this.traceHelper);
+                this.customEventProcessorHostTask = Task.Run(this.customEventProcessorHost.StartEventProcessing);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
+            }
         }
 
         async Task TransportAbstraction.ITaskHub.StopAsync()
@@ -183,7 +209,12 @@ namespace DurableTask.EventSourced.EventHubs
             this.traceHelper.LogDebug("Stopping client");
             await client.StopAsync().ConfigureAwait(false);
             this.traceHelper.LogDebug("Unregistering event processor");
-            await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
+            if (this.settings.EventProcessorManagement == "EventHubs")
+                await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
+            else if (this.settings.EventProcessorManagement == "Custom")
+                throw new NotImplementedException("Custom eventhubs not yet implemented");
+            else
+                throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
             this.traceHelper.LogDebug("Closing connections");
             await this.connections.Close().ConfigureAwait(false);
             this.traceHelper.LogInformation("EventHubsBackend shutdown completed");

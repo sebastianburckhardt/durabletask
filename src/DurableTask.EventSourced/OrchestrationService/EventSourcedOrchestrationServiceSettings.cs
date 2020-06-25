@@ -30,6 +30,11 @@ namespace DurableTask.EventSourced
         public string EventHubsConnectionString { get; set; }
 
         /// <summary>
+        /// Gets or sets the EventProcessor management
+        /// </summary>
+        public string EventProcessorManagement { get; set; } = "EventHubs";
+
+        /// <summary>
         /// Gets or sets the connection string for the Azure storage account.
         /// </summary>
         public string StorageConnectionString { get; set; }
@@ -189,7 +194,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            if (transport != TransportConnectionString.TransportChoices.EventHubs)
+            if ((transport != TransportConnectionString.TransportChoices.EventHubs) && ((transport != TransportConnectionString.TransportChoices.EventHubsCustom)))
             {
                 if (numPartitions < 1 || numPartitions > 32)
                 {
