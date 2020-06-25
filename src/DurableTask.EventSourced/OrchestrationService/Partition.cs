@@ -84,7 +84,7 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
             this.LoadPublisher = loadPublisher;
             this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.LogLevelLimit, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
-            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.LogLevelLimit, this);
+            this.EventTraceHelper = new EventTraceHelper(host.LoggerFactory, settings.EventLogLevelLimit, this);
             this.stopwatch.Start();
         }
 

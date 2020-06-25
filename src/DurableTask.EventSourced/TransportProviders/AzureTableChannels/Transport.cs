@@ -142,7 +142,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
         {
             this.partition.ErrorHandler.HandleError(nameof(HandleFailedSend), $"Encountered exception while trying to send {evt}", exception, false, false);
 
-            if (evt.SafeToDuplicateInTransport())
+            if (evt.SafeToRetryFailedSend())
             {
                 requeue = true;
             }

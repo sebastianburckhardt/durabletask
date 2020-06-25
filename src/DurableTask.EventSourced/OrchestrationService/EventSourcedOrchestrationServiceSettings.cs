@@ -98,7 +98,14 @@ namespace DurableTask.EventSourced
         public LogLevel StorageLogLevelLimit { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A lower limit on the severity level of trace events emitted by partitions and clients.
+        /// A lower limit on the severity level of event processor trace events emitted.
+        /// </summary>
+        /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public LogLevel EventLogLevelLimit { get; set; } = LogLevel.Information;
+
+        /// <summary>
+        /// A lower limit on the severity level of all other trace events emitted.
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]

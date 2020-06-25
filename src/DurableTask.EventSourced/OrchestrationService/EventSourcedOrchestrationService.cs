@@ -105,10 +105,11 @@ namespace DurableTask.EventSourced
             this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
 
             this.Logger.LogInformation(
-                "trace level limits: general={general} , transport={transport}, storage={storage}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
+                "trace level limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
                 settings.LogLevelLimit,
                 settings.TransportLogLevelLimit,
                 settings.StorageLogLevelLimit,
+                settings.EventLogLevelLimit,
                 EtwSource.Log.IsEnabled(),
                 DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled);
         }

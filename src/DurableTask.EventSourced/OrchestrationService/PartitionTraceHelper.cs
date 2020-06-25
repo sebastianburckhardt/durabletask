@@ -39,8 +39,8 @@ namespace DurableTask.EventSourced
         {
             if (this.logLevelLimit <= LogLevel.Information)
             {
-                logger.LogInformation("Part{partition:D2} Publishing LoadInfo WorkItems={workItems} Activities={activities} Timers={timers} Outbox={outbox} Wakeup={wakeup} ActivityLatencyMs={activityLatencyMs} WorkItemLatencyMs={workItemLatencyMs} WorkerId={workerId} LatencyTrend={latencyTrend} InputQueuePosition={inputQueuePosition} CommitLogPosition={commitLogPosition}",
-                    partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.Wakeup, info.ActivityLatencyMs, info.WorkItemLatencyMs, info.WorkerId, info.LatencyTrend, info.InputQueuePosition, info.CommitLogPosition);
+                logger.LogInformation("Part{partition:D2} Publishing LoadInfo WorkItems={workItems} Activities={activities} Timers={timers} Outbox={outbox} Wakeup={wakeup} ActivityLatencyMs={activityLatencyMs} WorkItemLatencyMs={workItemLatencyMs} WorkerId={workerId} LatencyTrend={latencyTrend} MissRate={missRate} InputQueuePosition={inputQueuePosition} CommitLogPosition={commitLogPosition}",
+                    partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.Wakeup, info.ActivityLatencyMs, info.WorkItemLatencyMs, info.WorkerId, info.LatencyTrend, info.MissRate, info.InputQueuePosition, info.CommitLogPosition);
 
                 if (EtwSource.Log.IsEnabled())
                 {

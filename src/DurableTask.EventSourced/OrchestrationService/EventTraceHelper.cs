@@ -34,9 +34,9 @@ namespace DurableTask.EventSourced
         private readonly int partitionId;
         private readonly EtwSource etw;
 
-        public EventTraceHelper(ILogger logger, LogLevel logLevelLimit, Partition partition)
+        public EventTraceHelper(ILoggerFactory loggerFactory, LogLevel logLevelLimit, Partition partition)
         {
-            this.logger = logger;
+            this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Events");
             this.logLevelLimit = logLevelLimit;
             this.account = partition.StorageAccountName;
             this.taskHub = partition.Settings.TaskHubName;
@@ -101,9 +101,9 @@ namespace DurableTask.EventSourced
 
         public void TraceTaskMessageDiscarded(TaskMessage message, string reason, string workItemId)
         {
-            if (this.logLevelLimit <= LogLevel.Debug)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logger.IsEnabled(LogLevel.Debug))
+                if (this.logger.IsEnabled(LogLevel.Warning))
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
@@ -135,14 +135,14 @@ namespace DurableTask.EventSourced
 
         public void TraceOrchestrationWorkItemDiscarded(BatchProcessed evt)
         {
-            if (this.logLevelLimit <= LogLevel.Debug)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logger.IsEnabled(LogLevel.Debug))
+                if (this.logger.IsEnabled(LogLevel.Warning))
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
                         this.partitionId, prefix, evt.WorkItemId, evt.InstanceId);
                 }
 
@@ -245,14 +245,14 @@ namespace DurableTask.EventSourced
 
         public void TracePartitionOffloadDecision(int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemotes)
         {
-            if (this.logLevelLimit <= LogLevel.Information)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logLevelLimit <= LogLevel.Information)
+                if (this.logLevelLimit <= LogLevel.Warning)
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogInformation("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
                         this.partitionId, prefix, reportedLocalLoad, pending, backlog, remotes, reportedRemotes);
 
                     etw?.PartitionOffloadDecision(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId, reportedLocalLoad, pending, backlog, remotes, reportedRemotes, TraceUtils.ExtensionVersion);

@@ -107,6 +107,7 @@ namespace DurableTask.EventSourced.Scaling
                         WorkItemLatencyMs = e.WorkItemLatencyMs,
                         WorkerId = e.WorkerId,
                         LatencyTrend = e.LatencyTrend,
+                        MissRate = e.MissRate,
                     });
                 }
             }
@@ -127,6 +128,7 @@ namespace DurableTask.EventSourced.Scaling
             public long WorkItemLatencyMs { get; set; }
             public string WorkerId { get; set; }
             public string LatencyTrend { get; set; }
+            public double MissRate { get; set; }
 
             public PartitionInfoEntity()
             {
@@ -154,6 +156,7 @@ namespace DurableTask.EventSourced.Scaling
                 this.WorkItemLatencyMs = info.WorkItemLatencyMs;
                 this.WorkerId = info.WorkerId;
                 this.LatencyTrend = info.LatencyTrend;
+                this.MissRate = info.MissRate;
 
                 ETag = "*"; // no conditions when inserting, replace existing
             }
