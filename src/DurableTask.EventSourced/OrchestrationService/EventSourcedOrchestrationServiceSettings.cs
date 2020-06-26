@@ -194,7 +194,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            if ((transport != TransportConnectionString.TransportChoices.EventHubs) && ((transport != TransportConnectionString.TransportChoices.EventHubsCustom)))
+            if ((transport != TransportConnectionString.TransportChoices.EventHubs))
             {
                 if (numPartitions < 1 || numPartitions > 32)
                 {
