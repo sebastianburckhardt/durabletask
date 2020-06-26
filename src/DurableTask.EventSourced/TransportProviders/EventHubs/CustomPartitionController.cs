@@ -62,8 +62,11 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             // Stop the receiver loop
             this.shutdownSource.Cancel();
 
-            // Q: Do we really need to wait for the partitionEventLoop? I don't think so, since we will reread from EventHubs anyway.
-            await this.partitionEventLoop;
+            // In a previous version we were waiting for partitionEventLoop to finish before progressing, but that
+            // introduces unnecessary delays. So now we don't wait. However, if we restart, this.shutdownSource will be reinitialized.
+            //
+            // TODO: Make sure that this can not lead to old partitioneventloops not being stopped properly.   
+            //await this.partitionEventLoop;
         }
 
         // TODO: Update all the logging messages
@@ -74,7 +77,10 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             // This could be wrong
             var partitionReceiver = this.eventProcessorHost.connections.CreatePartitionReceiver(partitionId, this.eventProcessorHost.consumerGroupName, this.nextPacketToReceive);
 
-            while (!this.shutdownSource.IsCancellationRequested)
+            // Save a reference to the current shutdownSource so that it exits even if a new shutdownSource is started together with a new loop.
+            var loopShutdownSource = this.shutdownSource;
+
+            while (!loopShutdownSource.IsCancellationRequested)
             {
                 // TODO: Catch errors around this
                 // TODO: Is there a way to cancel the receive async if there is a requested cancellation?
@@ -147,7 +153,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     }
                 }
             }
-            this.eventProcessorHost.logger.LogDebug("EventProcessor for Partition{partitionId} exits", partitionId.ToString());
+            this.eventProcessorHost.logger.LogInformation("EventProcessor ReceiverLoop for Partition{partitionId} exits", partitionId.ToString());
         }
     }
 }
