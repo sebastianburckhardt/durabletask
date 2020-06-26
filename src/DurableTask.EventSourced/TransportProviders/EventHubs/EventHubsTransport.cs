@@ -193,7 +193,13 @@ namespace DurableTask.EventSourced.EventHubs
                         this.connections,
                         this.parameters, 
                         this.traceHelper);
-                this.customEventProcessorHostTask = Task.Run(this.customEventProcessorHost.StartEventProcessing);
+
+                // TODO: Make this automatic
+                // TODO: Make this be a string(or json) here, and the parsing to happen in the custom host
+                var hostEvents = new List<Tuple<long, uint, string>>();
+                hostEvents.Add(new Tuple<long, uint, string>(10000, 0, "restart"));
+
+                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(hostEvents));
             }
             else
             {
