@@ -26,6 +26,8 @@ using Microsoft.Azure.Storage.Blob;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using DurableTask.EventSourced.TransportProviders.EventHubs;
+using System.Xml;
+using Microsoft.OData.UriParser;
 
 namespace DurableTask.EventSourced.EventHubs
 {
@@ -112,7 +114,7 @@ namespace DurableTask.EventSourced.EventHubs
             // save the taskhub parameters in a blob
             var jsonText = JsonConvert.SerializeObject(
                 taskHubParameters,
-                Formatting.Indented,
+                Newtonsoft.Json.Formatting.Indented,
                 new JsonSerializerSettings() { TypeNameHandling = TypeNameHandling.None });
             await this.taskhubParameters.UploadTextAsync(jsonText).ConfigureAwait(false);
         }
@@ -196,10 +198,19 @@ namespace DurableTask.EventSourced.EventHubs
 
                 // TODO: Make this automatic
                 // TODO: Make this be a string(or json) here, and the parsing to happen in the custom host
-                var hostEvents = new List<Tuple<long, uint, string>>();
-                hostEvents.Add(new Tuple<long, uint, string>(10000, 0, "restart"));
+                var timesteps = new List<Tuple<long, List<Tuple<uint, string>>>>();
+                var startingEvents = new List<Tuple<uint, string>>();
+                var partitionNumber = this.parameters.StartPositions.Length;
+                for (var partitionIndex = 0; partitionIndex < partitionNumber; partitionIndex ++)
+                {
+                    startingEvents.Add(new Tuple<uint, string>(Convert.ToUInt32(partitionIndex), "start"));
+                }
+                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(0, startingEvents));
+                var restartingEvent = new List<Tuple<uint, string>>();
+                restartingEvent.Add(new Tuple<uint, string>(0, "restart"));
+                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(10000, restartingEvent));
 
-                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(hostEvents));
+                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(timesteps));
             }
             else
             {

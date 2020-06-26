@@ -61,6 +61,8 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
 
             // Stop the receiver loop
             this.shutdownSource.Cancel();
+
+            // Q: Do we really need to wait for the partitionEventLoop? I don't think so, since we will reread from EventHubs anyway.
             await this.partitionEventLoop;
         }
 
@@ -74,8 +76,9 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
-                // Catch errors around this
-                IEnumerable<EventData> eventData = await partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+                // TODO: Catch errors around this
+                // TODO: Is there a way to cancel the receive async if there is a requested cancellation?
+                IEnumerable<EventData> eventData = await partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
                 this.eventProcessorHost.logger.LogTrace("EventProcessor for Partition{partitionId} tried to receive eventdata from position {position}", partitionId.ToString(), nextPacketToReceive);
                 if (eventData != null)
                 {
