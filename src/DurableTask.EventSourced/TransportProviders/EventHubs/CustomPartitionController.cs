@@ -70,7 +70,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.eventProcessorHost.logger.LogDebug("Receiver Loop for Partition{partitionId} started", partitionId.ToString());
 
             // This could be wrong
-            var partitionReceiver = this.eventProcessorHost.connections.GetPartitionReceiver(partitionId, this.eventProcessorHost.consumerGroupName, this.nextPacketToReceive);
+            var partitionReceiver = this.eventProcessorHost.connections.CreatePartitionReceiver(partitionId, this.eventProcessorHost.consumerGroupName, this.nextPacketToReceive);
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
