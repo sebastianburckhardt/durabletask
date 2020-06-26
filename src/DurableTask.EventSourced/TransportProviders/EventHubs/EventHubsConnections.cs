@@ -124,12 +124,14 @@ namespace DurableTask.EventSourced.EventHubs
         // This is to be used when EventProcessorHost is not used.
         public PartitionReceiver GetPartitionReceiver(uint partitionId, string consumerGroupName, long nextPacketToReceive)
         {
+            // Not really correct, since we want to restart a receiver based on the nextPacketToReceive info
             lock (_partitionReceivers) // TODO optimize using array, and lock on slow path only
             {
                 if (!_partitionReceivers.TryGetValue(partitionId, out var receiver))
                 {
                     var client = GetPartitionEventHubsClient();
-                    var eventPosition = EventPosition.FromSequenceNumber(nextPacketToReceive);
+                    // To create a receiver we need to give it the last! packet number and not the next to receive 
+                    var eventPosition = EventPosition.FromSequenceNumber(nextPacketToReceive - 1);
                     var partitionReceiver = client.CreateReceiver(consumerGroupName, partitionId.ToString(), eventPosition);
                     _partitionReceivers[partitionId] = receiver = partitionReceiver;
                     traceHelper.LogDebug("Created PartitionReceiver {receiver} from {clientId} to read at {position}", partitionReceiver.ClientId, client.ClientId, nextPacketToReceive);

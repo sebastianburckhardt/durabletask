@@ -88,69 +88,14 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.logger.LogDebug("Custom EventProcessorHost successfully started the ReceiverLoops.");
             await Task.WhenAll(partitionEventLoops);
 
-            //// Initialize dummy PartitionContexts and EventProcessorHost
-            //var eventProcessorHost = new EventProcessorHost(
-            //            this.eventHubPath,
-            //            this.consumerGroupName,
-            //            this.eventHubConnectionString,
-            //            this.storageConnectionString,
-            //            this.leaseContainerName);
-
-            //this.numberOfPartitions = this.parameters.StartPositions.Length;
-            //var partitionContexts = new List<PartitionContext>();
-            //for (var partitionIndex = 0; partitionIndex < this.numberOfPartitions; partitionIndex++)
-            //{
-            //    var cancellationToken = new CancellationToken();
-            //    var partitionContext = new PartitionContext(
-            //        eventProcessorHost,
-            //        partitionIndex.ToString(),
-            //        this.eventHubPath,
-            //        this.consumerGroupName,
-            //        cancellationToken);
-            //    partitionContexts.Add(partitionContext);
-            //}
-
-            //this.logger.LogDebug("Custom EventProcessorHost initialized partitionContexts.");
-
-            //// Note: I either need to create partition Context, or I need to use something other than EventHubsProcessor 
-            ////       for starting the partition and receiving the events. It might be fine to just use a dummy PartitionContext 
-            ////       just for the experiments
-
-            //// Initialize processors
-            //var processors = new List<IEventProcessor>();
-            //for (var partitionIndex = 0; partitionIndex < this.numberOfPartitions; partitionIndex++)
-            //{
-            //    var partitionContext = partitionContexts[partitionIndex];
-            //    var processor = new EventHubsProcessor(this.host, this.sender, this.parameters, partitionContext, this.logger);
-            //    processors.Add(processor);
-            //}
-
-            //this.logger.LogDebug("Custom EventProcessorHost initialized EventProcessors.");
-
-            //// Start all processors
-            //var tasks = new List<Task>();
-            //for (var partitionIndex = 0; partitionIndex < this.numberOfPartitions; partitionIndex++)
-            //{
-            //    var partitionContext = partitionContexts[partitionIndex];
-            //    var processor = processors[partitionIndex];
-            //    tasks.Add(processor.OpenAsync(partitionContext));
-            //}
-            //await Task.WhenAll(tasks);
-
-            //this.logger.LogDebug("Custom EventProcessorHost successfully waited for EventProcessors to start.");
-
-            //// TODO: Enter a loop of receiving events from EventHubs and passing them to the processor
-            //var partitionEventLoops = new List<Task>();
-            //for (var partitionIndex = 0; partitionIndex < this.numberOfPartitions; partitionIndex++)
-            //{
-            //    var partitionContext = partitionContexts[partitionIndex];
-            //    var processor = processors[partitionIndex];
-            //    uint partitionId = Convert.ToUInt32(partitionIndex);
-            //    this.logger.LogDebug("Starting Event Processing loop for partition{partitionIndex}", partitionIndex);
-            //    var partitionEventLoop = Task.Run(() => PartitionEventLoop(partitionId, partitionContext, processor));
-            //    partitionEventLoops.Add(partitionEventLoop);
-            //}
-            //this.logger.LogDebug("Custom EventProcessorHost successfully started the ReceiverLoops.");
+            foreach (var loopTask in partitionEventLoops)
+            {
+                if(loopTask.IsFaulted)
+                {
+                    // Make this more informed
+                    throw new Exception();
+                }
+            }
         }
 
         // TODO: Finish this method. Make sure that events are indeed received by the partition
@@ -167,11 +112,12 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
+                // Catch errors around this
                 IEnumerable<EventData> eventData = await partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
-                this.logger.LogDebug("EventProcessor for Partition{partitionId} received eventdata.", partitionId.ToString());
-
+                this.logger.LogTrace("EventProcessor for Partition{partitionId} tried to receive eventdata from position {position}", partitionId.ToString(), nextPacketToReceive);
                 if (eventData != null)
                 {
+                    this.logger.LogDebug("EventProcessor for Partition{partitionId} received eventdata from position {position}", partitionId.ToString(), nextPacketToReceive);
                     try
                     {
                         var batch = new List<PartitionEvent>();
@@ -236,28 +182,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     }
                 }
             }
+            this.logger.LogDebug("EventProcessor for Partition{partitionId} exits", partitionId.ToString());
         }
-
-        //// TODO: Finish this method. Make sure that events are indeed received by the partition
-        //private async Task PartitionEventLoop(uint partitionId, PartitionContext partitionContext, IEventProcessor processor)
-        //{
-        //    this.logger.LogDebug("Receiver Loop for Partition{partitionId} started", partitionId.ToString());
-
-        //    // This could be wrong
-        //    var partitionReceiver = this.connections.GetPartitionReceiver(partitionId, this.consumerGroupName);
-        //    var receivedEvents = new List<PartitionEvent>();
-
-        //    while (!this.shutdownSource.IsCancellationRequested)
-        //    {
-        //        IEnumerable<EventData> eventData = await partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
-        //        this.logger.LogDebug("EventProcessor for Partition{partitionId} received eventdata.", partitionId.ToString());                
-
-        //        if (eventData != null)
-        //        {
-        //            // Obsolete way of doing it with EventProcessor
-        //            await processor.ProcessEventsAsync(partitionContext, eventData);
-        //        }
-        //    }
-        //}
     }
 }
