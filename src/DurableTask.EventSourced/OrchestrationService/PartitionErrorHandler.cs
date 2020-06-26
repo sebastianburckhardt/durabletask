@@ -14,19 +14,19 @@ namespace DurableTask.EventSourced
         private readonly CancellationTokenSource cts = new CancellationTokenSource();
         private readonly int partitionId;
         private readonly ILogger logger;
-        private readonly LogLevel etwLogLevel;
+        private readonly LogLevel logLevelLimit;
         private readonly string account;
         private readonly string taskHub;
 
         public CancellationToken Token => cts.Token;
         public bool IsTerminated => cts.Token.IsCancellationRequested;
 
-        public PartitionErrorHandler(int partitionId, ILogger logger, LogLevel etwLogLevel, string storageAccountName, string taskHubName)
+        public PartitionErrorHandler(int partitionId, ILogger logger, LogLevel logLevelLimit, string storageAccountName, string taskHubName)
         {
             this.cts = new CancellationTokenSource();
             this.partitionId = partitionId;
             this.logger = logger;
-            this.etwLogLevel = etwLogLevel;
+            this.logLevelLimit = logLevelLimit;
             this.account = storageAccountName;
             this.taskHub = taskHubName;
         }
@@ -45,21 +45,15 @@ namespace DurableTask.EventSourced
         private void TraceError(bool isWarning, string context, string message, Exception exception, bool terminatePartition)
         {
             var logLevel = isWarning ? LogLevel.Warning : LogLevel.Error;
-            if (this.logger?.IsEnabled(logLevel) == true)
+            if (this.logLevelLimit <= logLevel)
             {
                 this.logger?.Log(logLevel, "Part{partition:D2} !!! {message} in {context}: {exception} terminatePartition={terminatePartition}", this.partitionId, message, context, exception, terminatePartition);
-            }
 
-            if (isWarning)
-            {
-                if (this.etwLogLevel <= LogLevel.Warning)
+                if (isWarning)
                 {
                     EtwSource.Log.PartitionWarning(this.account, this.taskHub, this.partitionId, context, terminatePartition, message, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
                 }
-            }
-            else
-            {
-                if (this.etwLogLevel <= LogLevel.Error)
+                else
                 {
                     EtwSource.Log.PartitionError(this.account, this.taskHub, this.partitionId, context, terminatePartition, message, exception?.ToString() ?? string.Empty, TraceUtils.ExtensionVersion);
                 }

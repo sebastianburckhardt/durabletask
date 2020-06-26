@@ -164,7 +164,7 @@ namespace DurableTask.EventSourced.EventHubs
                         DurabilityListeners.ConfirmDurable(evt);
                         confirmed++;
                     }
-                    else if (i > maybeSent || evt.SafeToDuplicateInTransport())
+                    else if (i > maybeSent || evt.SafeToRetryFailedSend())
                     {
                         // the event was definitely not sent, OR it was maybe sent but can be duplicated safely
                         (requeue ?? (requeue = new List<Event>())).Add(evt);
@@ -187,7 +187,10 @@ namespace DurableTask.EventSourced.EventHubs
                     this.Requeue(requeue);
                 }
 
-                this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                if (requeued > 0 || dropped > 0)
+                    this.traceHelper.LogWarning("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
+                else
+                    this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} has confirmed {confirmed}, requeued {requeued}, dropped {dropped} outbound events", this.eventHubName, this.eventHubPartition, confirmed, requeued, dropped, this.sender.EventHubClient.EventHubName, this.sender.PartitionId);
             }
             catch (Exception exception) when (!Utils.IsFatal(exception))
             {

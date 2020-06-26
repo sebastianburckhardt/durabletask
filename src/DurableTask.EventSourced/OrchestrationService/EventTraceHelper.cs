@@ -28,229 +28,264 @@ namespace DurableTask.EventSourced
     internal class EventTraceHelper
     {
         private readonly ILogger logger;
-        private readonly LogLevel etwLogLevel;
+        private readonly LogLevel logLevelLimit;
         private readonly string account;
         private readonly string taskHub;
         private readonly int partitionId;
+        private readonly EtwSource etw;
 
-        public EventTraceHelper(ILogger logger, LogLevel etwLogLevel, Partition partition)
+        public EventTraceHelper(ILoggerFactory loggerFactory, LogLevel logLevelLimit, Partition partition)
         {
-            this.logger = logger;
-            this.etwLogLevel = etwLogLevel;
+            this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Events");
+            this.logLevelLimit = logLevelLimit;
             this.account = partition.StorageAccountName;
             this.taskHub = partition.Settings.TaskHubName;
             this.partitionId = (int)partition.PartitionId;
+            this.etw = EtwSource.Log.IsEnabled() ? EtwSource.Log : null;
         }
 
-        private EtwSource etwLogTrace => (this.etwLogLevel <= LogLevel.Trace) ? EtwSource.Log : null;
-        private EtwSource etwLogDebug => (this.etwLogLevel <= LogLevel.Debug) ? EtwSource.Log : null;
-        private EtwSource etwLogInformation => (this.etwLogLevel <= LogLevel.Information) ? EtwSource.Log : null;
-        private EtwSource etwLogWarning => (this.etwLogLevel <= LogLevel.Warning) ? EtwSource.Log : null;
-        private EtwSource etwLogError => (this.etwLogLevel <= LogLevel.Error) ? EtwSource.Log : null;
-
-        public bool IsTracingAtMostDetailedLevel => this.logger.IsEnabled(LogLevel.Trace) || (this.etwLogLevel == LogLevel.Trace && EtwSource.Log.IsVerboseEnabled);
+        public bool IsTracingAtMostDetailedLevel => this.logLevelLimit == LogLevel.Trace;
 
         public void TraceEventProcessed(long commitLogPosition, PartitionEvent evt, double startedTimestamp, double finishedTimestamp, bool replaying)
         {
-            long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
-            double queueLatencyMs = evt.IssuedTimestamp - evt.ReceivedTimestamp;
-            double fetchLatencyMs = startedTimestamp - evt.IssuedTimestamp;
-            double latencyMs = finishedTimestamp - startedTimestamp;
-
-            if (this.logger.IsEnabled(LogLevel.Information))
+            if (this.logLevelLimit <= LogLevel.Information)
             {
-                var details = string.Format($"{(replaying ? "Replayed" : "Processed")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event");
-                this.logger.LogDebug("Part{partition:D2}.{commitLogPosition:D10} {details} {event} eventId={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition}) latency=({queueLatencyMs:F0}, {fetchLatencyMs:F0}, {latencyMs:F0})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs);
-            }
+                long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
+                double queueLatencyMs = evt.IssuedTimestamp - evt.ReceivedTimestamp;
+                double fetchLatencyMs = startedTimestamp - evt.IssuedTimestamp;
+                double latencyMs = finishedTimestamp - startedTimestamp;
 
-            etwLogInformation?.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
+                if (this.logger.IsEnabled(LogLevel.Information))
+                {
+                    var details = string.Format($"{(replaying ? "Replayed" : "Processed")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event");
+                    this.logger.LogInformation("Part{partition:D2}.{commitLogPosition:D10} {details} {event} eventId={eventId} pos=({nextCommitLogPosition},{nextInputQueuePosition}) latency=({queueLatencyMs:F0}, {fetchLatencyMs:F0}, {latencyMs:F0})", this.partitionId, commitLogPosition, details, evt, evt.EventIdString, nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs);
+                }
+
+                etw?.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
+            }
         }
 
         public void TraceTaskMessageReceived(TaskMessage message, string sessionPosition)
         {
-            (long commitLogPosition, string eventId) = EventTraceContext.Current;
-
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} received TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId} sessionPosition={SessionPosition}",
-                    this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, eventId, sessionPosition);
-            }
+                (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-            etwLogDebug?.TaskMessageReceived(this.account, this.taskHub, this.partitionId, commitLogPosition, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", eventId, sessionPosition, TraceUtils.ExtensionVersion);
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} received TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId} sessionPosition={SessionPosition}",
+                        this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, eventId, sessionPosition);
+                }
+
+                etw?.TaskMessageReceived(this.account, this.taskHub, this.partitionId, commitLogPosition, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", eventId, sessionPosition, TraceUtils.ExtensionVersion);
+            }
         }
 
         public void TraceTaskMessageSent(TaskMessage message, string sentEventId)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} sent TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId}",
-                    this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, sentEventId);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} sent TaskMessage eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} messageId={messageId}",
+                        this.partitionId, prefix, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, sentEventId);
+                }
+
+                etw?.TaskMessageSent(this.account, this.taskHub, this.partitionId, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", sentEventId, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.TaskMessageSent(this.account, this.taskHub, this.partitionId, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", sentEventId, TraceUtils.ExtensionVersion);
         }
 
         public void TraceTaskMessageDiscarded(TaskMessage message, string reason, string workItemId)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
-                    this.partitionId, prefix, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, workItemId);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
+                        this.partitionId, prefix, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, workItemId);
+                }
+
+                etw?.TaskMessageDiscarded(this.account, this.taskHub, this.partitionId, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", workItemId, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.TaskMessageDiscarded(this.account, this.taskHub, this.partitionId, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId ?? "", workItemId, TraceUtils.ExtensionVersion);
         }
 
         public void TraceOrchestrationWorkItemQueued(OrchestrationWorkItem workItem)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Queued {executionType} OrchestrationWorkItem {workItemId} instanceId={instanceId} ",
-                    this.partitionId, prefix, workItem.Type, workItem.MessageBatch.WorkItemId, workItem.InstanceId);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Queued {executionType} OrchestrationWorkItem {workItemId} instanceId={instanceId} ",
+                        this.partitionId, prefix, workItem.Type, workItem.MessageBatch.WorkItemId, workItem.InstanceId);
+                }
+
+                etw?.OrchestrationWorkItemQueued(this.account, this.taskHub, this.partitionId, workItem.Type.ToString(), workItem.InstanceId, workItem.MessageBatch.WorkItemId, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.OrchestrationWorkItemQueued(this.account, this.taskHub, this.partitionId, workItem.Type.ToString(), workItem.InstanceId, workItem.MessageBatch.WorkItemId, TraceUtils.ExtensionVersion);
         }
 
         public void TraceOrchestrationWorkItemDiscarded(BatchProcessed evt)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
-                    this.partitionId, prefix, evt.WorkItemId, evt.InstanceId);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
+                        this.partitionId, prefix, evt.WorkItemId, evt.InstanceId);
+                }
+
+                etw?.OrchestrationWorkItemDiscarded(this.account, this.taskHub, this.partitionId, evt.InstanceId, evt.WorkItemId, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.OrchestrationWorkItemDiscarded(this.account, this.taskHub, this.partitionId, evt.InstanceId, evt.WorkItemId, TraceUtils.ExtensionVersion);
         }
 
         public void TraceInstanceUpdate(string workItemId, string instanceId, string executionId, int totalEventCount, List<HistoryEvent> newEvents, int episode)
         {
-            string eventNames = string.Empty;
-            string eventType = string.Empty;
-            int numNewEvents = 0;
-
-            if (newEvents != null)
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                HistoryEvent orchestratorEvent = null;
-                var eventNamesBuilder = new StringBuilder();
-                numNewEvents = newEvents.Count;
+                string eventNames = string.Empty;
+                string eventType = string.Empty;
+                int numNewEvents = 0;
 
-                if (numNewEvents > 20)
+                if (newEvents != null)
                 {
-                    eventNamesBuilder.Append("...,");
-                }
+                    HistoryEvent orchestratorEvent = null;
+                    var eventNamesBuilder = new StringBuilder();
+                    numNewEvents = newEvents.Count;
 
-                for (int i = 0; i < numNewEvents; i++)
-                {
-                    var historyEvent = newEvents[i];
-                    switch (historyEvent.EventType)
+                    if (numNewEvents > 20)
                     {
-                        case EventType.ExecutionStarted:
-                        case EventType.ExecutionCompleted:
-                        case EventType.ExecutionTerminated:
-                        case EventType.ContinueAsNew:
-                            orchestratorEvent = historyEvent;
-                            break;
-                        default:
-                            break;
+                        eventNamesBuilder.Append("...,");
                     }
-                    if (i >= newEvents.Count - 20)
+
+                    for (int i = 0; i < numNewEvents; i++)
                     {
-                        eventNamesBuilder.Append(historyEvent.EventType.ToString());
-                        eventNamesBuilder.Append(",");
+                        var historyEvent = newEvents[i];
+                        switch (historyEvent.EventType)
+                        {
+                            case EventType.ExecutionStarted:
+                            case EventType.ExecutionCompleted:
+                            case EventType.ExecutionTerminated:
+                            case EventType.ContinueAsNew:
+                                orchestratorEvent = historyEvent;
+                                break;
+                            default:
+                                break;
+                        }
+                        if (i >= newEvents.Count - 20)
+                        {
+                            eventNamesBuilder.Append(historyEvent.EventType.ToString());
+                            eventNamesBuilder.Append(",");
+                        }
+                    }
+                    eventNames = eventNamesBuilder.ToString(0, eventNamesBuilder.Length - 1); // remove trailing comma
+                    if (orchestratorEvent != null)
+                    {
+                        eventType = orchestratorEvent.EventType.ToString();
                     }
                 }
-                eventNames = eventNamesBuilder.ToString(0, eventNamesBuilder.Length - 1); // remove trailing comma
-                if (orchestratorEvent != null)
+
+                if (this.logger.IsEnabled(LogLevel.Debug))
                 {
-                    eventType = orchestratorEvent.EventType.ToString();
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
+
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Updated instance instanceId={instanceId} executionId={executionId} workItemId={workItemId} numNewEvents={numNewEvents} totalEventCount={totalEventCount} eventNames={eventNames} eventType={eventType} episode={episode}",
+                        this.partitionId, prefix, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode);
                 }
+
+                etw?.InstanceUpdated(this.account, this.taskHub, this.partitionId, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
             }
-
-            if (this.logger.IsEnabled(LogLevel.Debug))
-            {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
-
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Updated instance instanceId={instanceId} executionId={executionId} workItemId={workItemId} numNewEvents={numNewEvents} totalEventCount={totalEventCount} eventNames={eventNames} eventType={eventType} episode={episode}",
-                    this.partitionId, prefix, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode);
-            }
-
-            etwLogDebug?.InstanceUpdated(this.account, this.taskHub, this.partitionId, instanceId, executionId, workItemId, numNewEvents, totalEventCount, eventNames, eventType, episode, TraceUtils.ExtensionVersion);
         }
 
         public void TraceFetchedInstanceStatus(PartitionReadEvent evt, string instanceId, string executionId, double latencyMs)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance status instanceId={instanceId} executionId={executionId} eventId={eventId} latencyMs={latencyMs:F0}",
-                    this.partitionId, prefix, instanceId, executionId, evt.EventIdString, latencyMs);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance status instanceId={instanceId} executionId={executionId} eventId={eventId} latencyMs={latencyMs:F0}",
+                        this.partitionId, prefix, instanceId, executionId, evt.EventIdString, latencyMs);
+                }
+
+                etw?.InstanceStatusFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.InstanceStatusFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
         }
 
         public void TraceFetchedInstanceHistory(PartitionReadEvent evt, string instanceId, string executionId, int eventCount, int episode, double latencyMs)
         {
-            if (this.logger.IsEnabled(LogLevel.Debug))
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
-                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance history instanceId={instanceId} executionId={executionId} eventCount={eventCount} episode={episode} eventId={eventId} latencyMs={latencyMs:F0}",
-                    this.partitionId, prefix, instanceId, executionId, eventCount, episode, evt.EventIdString, latencyMs);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance history instanceId={instanceId} executionId={executionId} eventCount={eventCount} episode={episode} eventId={eventId} latencyMs={latencyMs:F0}",
+                        this.partitionId, prefix, instanceId, executionId, eventCount, episode, evt.EventIdString, latencyMs);
+                }
+
+                etw?.InstanceHistoryFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId ?? string.Empty, eventCount, episode, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
             }
-
-            etwLogDebug?.InstanceHistoryFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId ?? string.Empty, eventCount, episode, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
         }
 
         public void TracePartitionOffloadDecision(int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemotes)
         {
-            (long commitLogPosition, string eventId) = EventTraceContext.Current;
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                if (this.logLevelLimit <= LogLevel.Warning)
+                {
+                    (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
-            string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-            this.logger.LogInformation("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
-                this.partitionId, prefix, reportedLocalLoad, pending, backlog, remotes, reportedRemotes);
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
+                        this.partitionId, prefix, reportedLocalLoad, pending, backlog, remotes, reportedRemotes);
 
-            etwLogDebug?.PartitionOffloadDecision(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId, reportedLocalLoad, pending, backlog, remotes, reportedRemotes, TraceUtils.ExtensionVersion);
+                    etw?.PartitionOffloadDecision(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId, reportedLocalLoad, pending, backlog, remotes, reportedRemotes, TraceUtils.ExtensionVersion);
+                }
+            }
         }
 
         public void TraceEventProcessingStarted(long commitLogPosition, PartitionEvent evt, bool replaying)
         {
-            long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
-            var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event {evt} id={evt.EventIdString}");
-            if (this.logger.IsEnabled(LogLevel.Trace))
+            if (this.logLevelLimit <= LogLevel.Trace)
             {
-                this.logger.LogTrace("Part{partition:D2}.{commitLogPosition:D10} {details}", this.partitionId, commitLogPosition, details);
+                long nextCommitLogPosition = ((evt as PartitionUpdateEvent)?.NextCommitLogPosition) ?? 0L;
+                var details = string.Format($"{(replaying ? "Replaying" : "Processing")} {(evt.NextInputQueuePosition > 0 ? "external" : "internal")} {(nextCommitLogPosition > 0 ? "update" : "read")} event {evt} id={evt.EventIdString}");
+                if (this.logger.IsEnabled(LogLevel.Trace))
+                {
+                    this.logger.LogTrace("Part{partition:D2}.{commitLogPosition:D10} {details}", this.partitionId, commitLogPosition, details);
+                }
+                etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString ?? "", details, TraceUtils.ExtensionVersion);
             }
-            etwLogTrace?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString ?? "", details, TraceUtils.ExtensionVersion);
         }
 
         public void TraceEventProcessingDetail(string details)
         {
-            (long commitLogPosition, string eventId) = EventTraceContext.Current;
-            if (this.logger.IsEnabled(LogLevel.Trace))
+            if (this.logLevelLimit <= LogLevel.Trace)
             {
-                string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                this.logger.LogTrace("Part{partition:D2}{prefix} {details}", this.partitionId, prefix, details);
+                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Trace))
+                {
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogTrace("Part{partition:D2}{prefix} {details}", this.partitionId, prefix, details);
+                }
+                etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", details, TraceUtils.ExtensionVersion);
             }
-            etwLogTrace?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", details, TraceUtils.ExtensionVersion);
         }
     }
 }

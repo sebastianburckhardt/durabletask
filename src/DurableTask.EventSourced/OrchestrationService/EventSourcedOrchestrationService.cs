@@ -39,7 +39,10 @@ namespace DurableTask.EventSourced
         private readonly TransportConnectionString.StorageChoices configuredStorage;
         private readonly TransportConnectionString.TransportChoices configuredTransport;
 
-        private const string LoggerName = "E1";
+        /// <summary>
+        /// The logger category prefix used for all ILoggers in this backend.
+        /// </summary>
+        public const string LoggerCategoryName = "DurableTaskBackend";
 
         private CancellationTokenSource serviceShutdownSource;
 
@@ -74,7 +77,7 @@ namespace DurableTask.EventSourced
         {
             this.Settings = settings;
             TransportConnectionString.Parse(this.Settings.EventHubsConnectionString, out this.configuredStorage, out this.configuredTransport, out _);
-            this.Logger = loggerFactory.CreateLogger(LoggerName);
+            this.Logger = loggerFactory.CreateLogger(LoggerCategoryName);
             this.LoggerFactory = loggerFactory;
             this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
@@ -102,11 +105,13 @@ namespace DurableTask.EventSourced
             this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
 
             this.Logger.LogInformation(
-                "ETW trace levels: core.IsTraceEnabled={core}, E1={e1} , transport={transport}, storage={storage}",
-                DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled,
-                settings.EtwLevel,
-                settings.TransportEtwLevel,
-                settings.StorageEtwLevel);
+                "trace level limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
+                settings.LogLevelLimit,
+                settings.TransportLogLevelLimit,
+                settings.StorageLogLevelLimit,
+                settings.EventLogLevelLimit,
+                EtwSource.Log.IsEnabled(),
+                DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled);
         }
 
         private async Task WorkitemExpirationCheck(CancellationToken token)
@@ -287,7 +292,7 @@ namespace DurableTask.EventSourced
 
         IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
         {
-            return new PartitionErrorHandler((int) partitionId, this.Logger, this.Settings.EtwLevel, this.StorageAccountName, this.Settings.TaskHubName);
+            return new PartitionErrorHandler((int) partitionId, this.Logger, this.Settings.LogLevelLimit, this.StorageAccountName, this.Settings.TaskHubName);
         }
 
         /******************************/

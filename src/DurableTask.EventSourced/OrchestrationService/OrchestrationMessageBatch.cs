@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced
             if (this.ForceNewExecution || historyState == null)
             {
                 // we either have no previous instance, or want to replace the previous instance
-                workItem = new OrchestrationWorkItem(partition, this);
+                workItem = new OrchestrationWorkItem(partition, this, previousHistory: null);
                 workItem.Type = OrchestrationWorkItem.ExecutionType.Fresh;
             }
             else if (historyState.CachedOrchestrationWorkItem != null)
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             else
             {
                 // we have to rehydrate the instance from its history
-                workItem = new OrchestrationWorkItem(partition, this, historyState.History);
+                workItem = new OrchestrationWorkItem(partition, this, previousHistory: historyState.History);
                 workItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromHistory;
             }
 
@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced
                 // this instance cannot be executed, so we are discarding the messages
                 foreach (var taskMessage in workItem.MessageBatch.MessagesToProcess)
                 {
-                    partition.EventDetailTracer.TraceTaskMessageDiscarded(taskMessage, reason, workItem.MessageBatch.WorkItemId);
+                    partition.EventTraceHelper.TraceTaskMessageDiscarded(taskMessage, reason, workItem.MessageBatch.WorkItemId);
                 }
 
                 // we issue a batch processed event which will remove the messages without updating the instance state

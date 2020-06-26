@@ -163,6 +163,16 @@ namespace DurableTask.EventSourced.Faster
 
         public EffectTracker NoInput = null;
 
+        private long missCount;
+        private long hitCount;
+
+        public double ReadAndResetCacheStats()
+        {
+            double ratio = (missCount > 0) ? ((double)missCount / (missCount + hitCount)) : 0.0;
+            hitCount = missCount = 0;
+            return ratio;
+        }
+
         // kick off a read of a tracked object, completing asynchronously if necessary
         public void Read(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
@@ -178,11 +188,13 @@ namespace DurableTask.EventSourced.Faster
                 {
                     case Status.NOTFOUND:
                     case Status.OK:
+                        this.hitCount++;
                         effectTracker.ProcessReadResult(readEvent, target);
                         break;
 
                     case Status.PENDING:
                         // read continuation will be called when complete
+                        this.missCount++;
                         break;
 
                     case Status.ERROR:

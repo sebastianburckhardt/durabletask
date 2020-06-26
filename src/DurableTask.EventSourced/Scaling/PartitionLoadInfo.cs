@@ -76,6 +76,11 @@ namespace DurableTask.EventSourced.Scaling
         public string LatencyTrend { get; set; }
 
         /// <summary>
+        /// Percentage of message batches that miss in the cache.
+        /// </summary>
+        public double MissRate { get; set; }
+
+        /// <summary>
         /// The character representing idle load.
         /// </summary>
         public const char Idle = 'I';

@@ -250,7 +250,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception exception)
         {
-            this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} encountered an exception: {exception}", this.eventHubName, this.eventHubPartition, exception);
+            this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} received internal error indication from EventProcessorHost: {exception}", this.eventHubName, this.eventHubPartition, exception);
             return Task.CompletedTask;
         }
 
