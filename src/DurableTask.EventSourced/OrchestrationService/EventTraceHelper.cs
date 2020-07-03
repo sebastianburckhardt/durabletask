@@ -16,6 +16,7 @@ using Dynamitey;
 using Dynamitey.DynamicObjects;
 using FASTER.core;
 using Microsoft.Extensions.Logging;
+using Mono.Unix.Native;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -62,6 +63,32 @@ namespace DurableTask.EventSourced
                 }
 
                 etw?.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
+            }
+            
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                // This is here for measuring response times
+                // Q: isn't the IsEnabled unneccessary?
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    switch (evt)
+                    {
+                        case CreationRequestReceived creationRequestEvent:
+                            // Q: Is the receivedTimestamp the correct point to measure response time?
+                            var startTimestamp = creationRequestEvent.ReceivedTimestamp;
+                            var instanceId = creationRequestEvent.InstanceId;
+                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} CreationRequestReceived for {instanceId} at {startTimestamp}", this.partitionId, commitLogPosition, instanceId, startTimestamp);
+                            break;
+
+                        case StateRequestReceived readEvent:
+                            // Q: Is this how all our benchmarks end? It seems so.
+                            var endTimestamp = finishedTimestamp;
+                            var readTarget = readEvent.ReadTarget;
+                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} StateRequestReceived for {readTarget} was processed at {endTimestamp}", this.partitionId, commitLogPosition, readTarget, endTimestamp);
+                            break;
+                    }
+                }
+
             }
         }
 
