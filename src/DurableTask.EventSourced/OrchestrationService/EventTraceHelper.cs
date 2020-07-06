@@ -317,5 +317,21 @@ namespace DurableTask.EventSourced
                 etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", details, TraceUtils.ExtensionVersion);
             }
         }
+
+        public void TraceEventSentDetail(PartitionUpdateEvent evt)
+        {
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                double sentTimestamp = evt.SentTimestamp;
+                double noSpeculationDelay = sentTimestamp - ((PartitionUpdateEvent)evt).ReadyToSendTimestamp;
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Event sent with delay: {noSpeculationDelay} ms", this.partitionId, prefix, noSpeculationDelay);
+                }
+                etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", $"Event sent with delay: {noSpeculationDelay} ms", TraceUtils.ExtensionVersion);
+            }
+        }
     }
 }
