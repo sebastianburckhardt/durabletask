@@ -264,7 +264,20 @@ namespace DurableTask.EventSourced
         /// </summary>
         /// <param name="instanceId">The instance id.</param>
         /// <returns>The partition id.</returns>
-        public uint GetPartitionId(string instanceId) => Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
+        public uint GetPartitionId(string instanceId)
+        {
+            if (instanceId.Contains("-manual-partition-"))
+            {
+                var i = instanceId.LastIndexOf("-");
+                var partitionId = uint.Parse(instanceId.Substring(i + 1)) % this.NumberPartitions;
+                this.Logger.LogTrace($"Instance: {instanceId} was manually hashed to partition: {partitionId}");
+                return partitionId;
+            }
+            else
+            {
+                return Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
+            }
+        }
 
         private uint GetNumberPartitions() => this.NumberPartitions;
 
