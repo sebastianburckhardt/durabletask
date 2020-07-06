@@ -40,6 +40,11 @@ namespace DurableTask.EventSourced
         public double ReceivedTimestamp { get; set; }
 
         [IgnoreDataMember]
+        public double ReadyToSendTimestamp { get; set; }
+
+        public double SentTimestamp { get; set; }
+
+        [IgnoreDataMember]
         public double IssuedTimestamp { get; set; }
     }
 }
