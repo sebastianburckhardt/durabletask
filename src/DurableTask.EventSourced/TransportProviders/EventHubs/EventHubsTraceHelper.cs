@@ -24,39 +24,19 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly string account;
         private readonly string taskHub;
         private readonly string eventHubsNamespace;
-        private readonly LogLevel etwLogLevel;
+        private readonly LogLevel logLevelLimit;
 
-        public EventHubsTraceHelper(ILoggerFactory loggerFactory, LogLevel etwLogLevel, string storageAccountName, string taskHubName, string eventHubsNamespace)
+        public EventHubsTraceHelper(ILoggerFactory loggerFactory, LogLevel logLevelLimit, string storageAccountName, string taskHubName, string eventHubsNamespace)
         {
-            this.logger = loggerFactory.CreateLogger("EventHubsTransport");
+            this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.EventHubsTransport");
             this.account = storageAccountName;
             this.taskHub = taskHubName;
             this.eventHubsNamespace = eventHubsNamespace;
-            this.etwLogLevel = etwLogLevel;
+            this.logLevelLimit = logLevelLimit;
         }
 
-        public bool IsEnabled(LogLevel logLevel) => 
-            logger.IsEnabled(logLevel) || (logLevel >= this.etwLogLevel && IsEnabledForEtw(logLevel));
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= this.logLevelLimit;
      
-        private static bool IsEnabledForEtw(LogLevel logLevel)
-        {
-            switch (logLevel)
-            {
-                case LogLevel.Trace: 
-                case LogLevel.Debug: 
-                    return EtwSource.Log.IsEnabled(EventLevel.Verbose, EventKeywords.None);
-                case LogLevel.Information:
-                    return EtwSource.Log.IsEnabled(EventLevel.Informational, EventKeywords.None);
-                case LogLevel.Warning:
-                    return EtwSource.Log.IsEnabled(EventLevel.Warning, EventKeywords.None);
-                case LogLevel.Error:
-                case LogLevel.Critical:
-                    return EtwSource.Log.IsEnabled(EventLevel.Error, EventKeywords.None);
-                default:
-                    return false;
-            }
-        }
-
         public IDisposable BeginScope<TState>(TState state) => NoopDisposable.Instance;
 
         private class NoopDisposable : IDisposable
@@ -68,39 +48,43 @@ namespace DurableTask.EventSourced.EventHubs
 
         public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
         {
-            // always pass through to the ILogger
-            this.logger.Log(logLevel, eventId, state, exception, formatter);
-
-            // additionally, if configured, pass on to ETW
-            if (this.etwLogLevel <= logLevel)
+            // quit if not enabled
+            if (this.logLevelLimit <= logLevel)
             {
-                string details = formatter(state, exception);
+                // pass through to the ILogger
+                this.logger.Log(logLevel, eventId, state, exception, formatter);
 
-                switch (logLevel)
+                // additionally, if etw is enabled, pass on to ETW   
+                if (EtwSource.Log.IsEnabled())
                 {
-                    case LogLevel.Trace:
-                        EtwSource.Log.EventHubsTrace(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
-                        break;
+                    string details = formatter(state, exception);
 
-                    case LogLevel.Debug:
-                        EtwSource.Log.EventHubsDebug(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
-                        break;
+                    switch (logLevel)
+                    {
+                        case LogLevel.Trace:
+                            EtwSource.Log.EventHubsTrace(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
+                            break;
 
-                    case LogLevel.Information:
-                        EtwSource.Log.EventHubsInformation(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
-                        break;
+                        case LogLevel.Debug:
+                            EtwSource.Log.EventHubsDebug(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
+                            break;
 
-                    case LogLevel.Warning:
-                        EtwSource.Log.EventHubsWarning(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
-                        break;
+                        case LogLevel.Information:
+                            EtwSource.Log.EventHubsInformation(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
+                            break;
 
-                    case LogLevel.Error:
-                    case LogLevel.Critical:
-                        EtwSource.Log.EventHubsError(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
-                        break;
+                        case LogLevel.Warning:
+                            EtwSource.Log.EventHubsWarning(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
+                            break;
 
-                    default:
-                        break;
+                        case LogLevel.Error:
+                        case LogLevel.Critical:
+                            EtwSource.Log.EventHubsError(this.account, taskHub, this.eventHubsNamespace, details, TraceUtils.ExtensionVersion);
+                            break;
+
+                        default:
+                            break;
+                    }
                 }
             }
         }

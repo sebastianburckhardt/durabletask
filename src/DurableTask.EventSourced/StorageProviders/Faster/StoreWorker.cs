@@ -129,6 +129,7 @@ namespace DurableTask.EventSourced.Faster
                 InputQueuePosition = this.InputQueuePosition,
                 WorkerId = this.partition.Settings.WorkerId,
                 LatencyTrend = this.lastPublishedLatencyTrend,
+                MissRate = this.store.ReadAndResetCacheStats(),
             };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {

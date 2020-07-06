@@ -80,10 +80,11 @@ namespace DurableTask.EventSourced
             yield return typeof(PersistenceConfirmationEvent);
         }
 
-        public bool SafeToDuplicateInTransport()
+        public bool SafeToRetryFailedSend()
         {
             if (this is ClientUpdateRequestEvent)
             {
+                // these are not safe to duplicate as they could restart an orchestration or deliver a message twice
                 return false;
             }
             else

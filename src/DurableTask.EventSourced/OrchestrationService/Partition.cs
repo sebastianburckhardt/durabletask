@@ -83,8 +83,8 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = activityWorkItemQueue;
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
             this.LoadPublisher = loadPublisher;
-            this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.EtwLevel, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
-            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.EtwLevel, this);
+            this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.LogLevelLimit, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
+            this.EventTraceHelper = new EventTraceHelper(host.LoggerFactory, settings.EventLogLevelLimit, this);
             this.stopwatch.Start();
         }
 
@@ -233,16 +233,24 @@ namespace DurableTask.EventSourced
                 }
             }
 
+            updateEvent.ReceivedTimestamp = this.CurrentTimeMs;
+
             this.State.SubmitInternalEvent(updateEvent);
         }
 
         public void SubmitInternalEvent(PartitionReadEvent readEvent)
         {
+            readEvent.ReceivedTimestamp = this.CurrentTimeMs;
             this.State.SubmitInternalEvent(readEvent);
         }
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)
         {
+            foreach(PartitionEvent partitionEvent in partitionEvents)
+            {
+                partitionEvent.ReceivedTimestamp = this.CurrentTimeMs;
+            }
+
             this.State.SubmitExternalEvents(partitionEvents);
         }
 

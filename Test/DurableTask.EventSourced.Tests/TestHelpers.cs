@@ -26,9 +26,9 @@ namespace DurableTask.EventSourced.Tests
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
                 TaskHubName = GetTestTaskHubName(),
-                TransportEtwLevel = LogLevel.Trace,
-                StorageEtwLevel = LogLevel.Trace,
-                EtwLevel = LogLevel.Trace,
+                TransportLogLevelLimit = LogLevel.Trace,
+                StorageLogLevelLimit = LogLevel.Trace,
+                LogLevelLimit = LogLevel.Trace,
                 TakeStateCheckpointWhenStoppingPartition = true,  // set to false for testing recovery from log
                 //MaxNumberBytesBetweenCheckpoints = 10000000, // set this low for testing frequent checkpointing
                 //MaxNumberEventsBetweenCheckpoints = 10, // set this low for testing frequent checkpointing

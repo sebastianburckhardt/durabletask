@@ -34,6 +34,7 @@ namespace DurableTask.EventSourced.EventHubs
         public EventHubClient _partitionEventHubsClient;
         public Dictionary<uint, EventHubClient> _clientEventHubsClients = new Dictionary<uint, EventHubClient>();
         public Dictionary<uint, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new Dictionary<uint, EventHubsSender<PartitionUpdateEvent>>();
+        public Dictionary<uint, PartitionReceiver> _partitionReceivers = new Dictionary<uint, PartitionReceiver>();
         public Dictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new Dictionary<Guid, EventHubsSender<ClientEvent>>();
 
         public PartitionReceiver ClientReceiver { get; private set; }
@@ -118,6 +119,17 @@ namespace DurableTask.EventSourced.EventHubs
                 }
                 return client;
             }
+        }
+
+        // This is to be used when EventProcessorHost is not used.
+        public PartitionReceiver CreatePartitionReceiver(uint partitionId, string consumerGroupName, long nextPacketToReceive)
+        {
+            var client = GetPartitionEventHubsClient();
+            // To create a receiver we need to give it the last! packet number and not the next to receive 
+            var eventPosition = EventPosition.FromSequenceNumber(nextPacketToReceive - 1);
+            var partitionReceiver = client.CreateReceiver(consumerGroupName, partitionId.ToString(), eventPosition);
+            traceHelper.LogDebug("Created PartitionReceiver {receiver} from {clientId} to read at {position}", partitionReceiver.ClientId, client.ClientId, nextPacketToReceive);
+            return partitionReceiver;
         }
 
         public PartitionReceiver GetClientReceiver(Guid clientId)

@@ -74,20 +74,20 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256k since we are just writing and often small portions
+            PageSizeBits = 18, // 256k
             SegmentSizeBits = 28, // 256 MB
-            MemorySizeBits = 22, // 2MB because 16 pages are the minimum
+            MemorySizeBits = 22, // 4MB
         };
 
         public LogSettings StoreLogSettings => new LogSettings
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
-            PageSizeBits = 22, // 4MB since page blobs can't write more than that in a single op
+            PageSizeBits = 20, // 1MB
             MutableFraction = 0.9,
             SegmentSizeBits = 28, // 256 MB
             CopyReadsToTail = true,
-            MemorySizeBits = 27, // 128 MB
+            MemorySizeBits = 24, // 16MB
         };
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
@@ -115,10 +115,10 @@ namespace DurableTask.EventSourced.Faster
         /// <param name="storageAccount">The cloud storage account, or null if using local file paths</param>
         /// <param name="taskHubName">The name of the taskhub</param>
         /// <param name="logger">A logger for logging</param>
-        /// <param name="etwLogLevel">A limit on log event level emitted to ETW</param>
+        /// <param name="logLevelLimit">A limit on log event level emitted</param>
         /// <param name="partitionId">The partition id</param>
         /// <param name="errorHandler">A handler for errors encountered in this partition</param>
-        public BlobManager(CloudStorageAccount storageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel etwLogLevel, uint partitionId, IPartitionErrorHandler errorHandler)
+        public BlobManager(CloudStorageAccount storageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel logLevelLimit, uint partitionId, IPartitionErrorHandler errorHandler)
         {
             this.cloudStorageAccount = storageAccount;
             this.UseLocalFilesForTestingAndDebugging = (storageAccount == null);
@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced.Faster
                 this.blobContainer = serviceClient.GetContainerReference(this.ContainerName);
             }
 
-            this.TraceHelper = new FasterTraceHelper(logger, etwLogLevel, this.partitionId, this.UseLocalFilesForTestingAndDebugging ? "none" : this.cloudStorageAccount.Credentials.AccountName, taskHubName);
+            this.TraceHelper = new FasterTraceHelper(logger, logLevelLimit, this.partitionId, this.UseLocalFilesForTestingAndDebugging ? "none" : this.cloudStorageAccount.Credentials.AccountName, taskHubName);
             this.PartitionErrorHandler = errorHandler;
             this.shutDownOrTermination = CancellationTokenSource.CreateLinkedTokenSource(errorHandler.Token);
         }
