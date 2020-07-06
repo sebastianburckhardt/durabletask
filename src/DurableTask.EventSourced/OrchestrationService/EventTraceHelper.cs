@@ -71,20 +71,23 @@ namespace DurableTask.EventSourced
                 // Q: isn't the IsEnabled unneccessary?
                 if (this.logger.IsEnabled(LogLevel.Warning))
                 {
+                    string eventType;
                     switch (evt)
                     {
                         case CreationRequestReceived creationRequestEvent:
                             // Q: Is the receivedTimestamp the correct point to measure response time?
                             var startTimestamp = creationRequestEvent.ReceivedTimestamp;
                             var instanceId = creationRequestEvent.InstanceId;
-                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} CreationRequestReceived for {instanceId} at {startTimestamp}", this.partitionId, commitLogPosition, instanceId, startTimestamp);
+                            eventType = "CreationRequestReceived";
+                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
                             break;
 
                         case StateRequestReceived readEvent:
                             // Q: Is this how all our benchmarks end? It seems so.
                             var endTimestamp = finishedTimestamp;
-                            var readTarget = readEvent.ReadTarget;
-                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} StateRequestReceived for {readTarget} was processed at {endTimestamp}", this.partitionId, commitLogPosition, readTarget, endTimestamp);
+                            var readTarget = readEvent.ReadTarget.InstanceId;
+                            eventType = "StateRequestReceived";
+                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
                             break;
                     }
                 }
