@@ -97,6 +97,7 @@ namespace DurableTask.EventSourced
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
+                outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
                 Partition.Send(outmessage);
             }
         }

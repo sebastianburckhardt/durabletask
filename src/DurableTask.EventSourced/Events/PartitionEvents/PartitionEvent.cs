@@ -42,7 +42,19 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public double ReadyToSendTimestamp { get; set; }
 
+        [IgnoreDataMember]
         public double SentTimestamp { get; set; }
+
+        /// <summary>
+        /// This is set (using Unix time) just before sending the event on EventHubs and is used to measure the time that it takes for an event to pass through eventHubs.
+        /// It is compared with the local unix time at the receiver's end.
+        /// Warning: If there is clock skew, the result might not be very accurate.
+        /// </summary>
+        [DataMember]
+        public long SentTimestampUnixMs { get; set; } = 0;
+
+        [IgnoreDataMember]
+        public long ReceivedTimestampUnixMs { get; set; }
 
         [IgnoreDataMember]
         public double IssuedTimestamp { get; set; }

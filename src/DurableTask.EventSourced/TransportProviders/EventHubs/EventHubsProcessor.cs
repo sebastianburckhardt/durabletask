@@ -301,6 +301,14 @@ namespace DurableTask.EventSourced.EventHubs
                             pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                             DurabilityListeners.Register(partitionEvent, this);
                             partitionEvent.ReceivedTimestamp = current.Partition.CurrentTimeMs;
+                            partitionEvent.ReceivedTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+
+                            // Output the time it took for the event to go through eventhubs.
+                            if (partitionEvent.SentTimestampUnixMs != 0)
+                            {
+                                long duration = partitionEvent.ReceivedTimestampUnixMs - partitionEvent.SentTimestampUnixMs;
+                                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, eventId, duration);
+                            }
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {
