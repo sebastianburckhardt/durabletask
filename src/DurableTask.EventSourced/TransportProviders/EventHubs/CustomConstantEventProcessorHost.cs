@@ -1,4 +1,5 @@
-﻿using DurableTask.EventSourced.EventHubs;
+﻿using DurableTask.Core.Common;
+using DurableTask.EventSourced.EventHubs;
 using Microsoft.Azure.Documents;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
@@ -53,10 +54,65 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.logger = logger;
         }
 
+        public List<ProcessorHostTimestep> ParseInput(String inputString)
+        {
+            // TODO: Make this automatic
+            // TODO: Make this be a string(or json) here, and the parsing to happen in the custom host
+            var timesteps = new List<ProcessorHostTimestep>();
+            var startingEvents = new List<ProcessorHostEvent>();
+            var partitionNumber = this.parameters.StartPositions.Length;
+            for (var partitionIndex = 0; partitionIndex < partitionNumber; partitionIndex++)
+            {
+                startingEvents.Add(new ProcessorHostEvent(Convert.ToUInt32(partitionIndex), "start"));
+            }
+            timesteps.Add(new ProcessorHostTimestep(0, startingEvents));
+            var restartingEvent = new List<ProcessorHostEvent>();
+            restartingEvent.Add(new ProcessorHostEvent(0, "restart"));
+            timesteps.Add(new ProcessorHostTimestep(30000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(60000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(90000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(120000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(150000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(180000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(210000, restartingEvent));
+            timesteps.Add(new ProcessorHostTimestep(240000, restartingEvent));
+            return timesteps;
+        }
+
+        /// <summary>
+        /// This represents events that the CustomProcessorHost can handle, e.g. starting, stopping, restarting a partition.
+        /// </summary>
+        public class ProcessorHostEvent
+        {
+            public uint partitionId;
+            
+            // TODO: Make this an enum
+            public string action;
+
+            public ProcessorHostEvent(uint partitionId, string action)
+            {
+                this.partitionId = partitionId;
+                this.action = action;
+            }
+        }
+
+        public class ProcessorHostTimestep
+        {
+            public long time;
+            public List<ProcessorHostEvent> events;
+
+            public ProcessorHostTimestep(long time, List<ProcessorHostEvent> events)
+            {
+                this.time = time;
+                this.events = events;
+            }
+        }
 
         // TODO: Refactor for host events to be a class and be parse-able from a string or json
-        public async Task StartEventProcessing(List<Tuple<long, List<Tuple<uint, string>>>> timesteps)
+        public async Task StartEventProcessing(String inputString)
         {
+            List<ProcessorHostTimestep> timesteps = this.ParseInput(inputString);
+
             this.stopwatch = new Stopwatch();
             this.stopwatch.Start();
             this.logger.LogInformation("Custom EventProcessorHost {eventHubPath}--{consumerGroupName} is starting", this.eventHubPath, this.consumerGroupName);
@@ -75,16 +131,18 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             // For each of the events in the HostEvents list, wait until it is time and then perform the event
             foreach (var timestep in timesteps)
             {
-                var timestepTime = timestep.Item1;
+                var timestepTime = timestep.time;
                 var waitTime = Math.Max(timestepTime - this.stopwatch.ElapsedMilliseconds, 0);
                 this.logger.LogDebug("Custom EventProcessorHost will wait for {milliseconds} ms until next hostEvent", waitTime);
                 System.Threading.Thread.Sleep(Convert.ToInt32(waitTime));
-                await ProcessHostEvents(timestepTime, timestep.Item2);
+                await ProcessHostEvents(timestep);
             }
         }
 
-        private async Task ProcessHostEvents(long timestepTime, List<Tuple<uint, string>> hostEvents)
+        private async Task ProcessHostEvents(ProcessorHostTimestep timestep)
         {
+            var timestepTime = timestep.time;
+            var hostEvents = timestep.events;
             this.logger.LogWarning("Custom EventProcessorHost performs actions at time:{time}. Real time: {realTime}", timestepTime, this.stopwatch.ElapsedMilliseconds);
 
             var tasks = new List<Task>();
@@ -100,28 +158,37 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
 
         }
 
-        private async Task ProcessHostEvent(long timestepTime, Tuple<uint, string> hostEvent)
+        private async Task ProcessHostEvent(long timestepTime, ProcessorHostEvent hostEvent)
         {
-            var action = hostEvent.Item2;
-            var partitionId = hostEvent.Item1;
+            var action = hostEvent.action;
+            var partitionId = hostEvent.partitionId;
             this.logger.LogWarning("Custom EventProcessorHost performs {action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
-            if (action == "restart")
+            try
             {
-                var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
-                await partitionController.StopPartitionAndLoop();
-                await partitionController.StartPartitionAndLoop();
+                if (action == "restart")
+                {
+                    var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
+                    await partitionController.StopPartitionAndLoop();
+                    await partitionController.StartPartitionAndLoop();
+                }
+                else if (action == "start")
+                {
+                    var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
+                    await partitionController.StartPartitionAndLoop();
+                }
+                else
+                {
+                    this.logger.LogError("Custom EventProcessorHost cannot perform action:{action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
+                    //throw new InvalidOperationException($"Custom EventProcessorHost cannot perform hostEvent with action: {action}");
+                }
+                this.logger.LogWarning("Custom EventProcessorHost successfully performed {action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
             }
-            else if (action == "start")
+            catch (Exception e) when (!Utils.IsFatal(e))
             {
-                var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
-                await partitionController.StartPartitionAndLoop();
-            }
-            else
-            {
+                // TODO: Maybe in the future we would like to actually do something in case of failure. 
+                //       For now it is fine to ignore them.
                 this.logger.LogError("Custom EventProcessorHost failed on action: {action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
-                throw new InvalidOperationException($"Custom EventProcessorHost cannot perform hostEvent with action: {action}");
             }
-            this.logger.LogWarning("Custom EventProcessorHost successfully performed {action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using Microsoft.Azure.EventHubs;
+﻿using DurableTask.Core.Common;
+using Microsoft.Azure.EventHubs;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -42,9 +43,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             
             var errorHandler = this.eventProcessorHost.host.CreateErrorHandler(partitionId);
 
-            // TODO: What if this fails???
             this.nextPacketToReceive = await partition.CreateOrRestoreAsync(errorHandler, this.eventProcessorHost.parameters.StartPositions[Convert.ToInt32(partitionId)]).ConfigureAwait(false);
-
             this.eventProcessorHost.logger.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition, next expected packet is #{nextSeqno}", this.eventProcessorHost.eventHubPath, partitionId, nextPacketToReceive);
 
             this.eventProcessorHost.logger.LogDebug("Starting Event Processing loop for partition{partitionIndex}", partitionId);
