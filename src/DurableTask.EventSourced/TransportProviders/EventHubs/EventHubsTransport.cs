@@ -181,7 +181,7 @@ namespace DurableTask.EventSourced.EventHubs
 
                 await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
             }
-            else if (this.settings.EventProcessorManagement == "Custom")
+            else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
             {
                 this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
                 this.customEventProcessorHost = new CustomConstantEventProcessorHost(
@@ -196,21 +196,7 @@ namespace DurableTask.EventSourced.EventHubs
                         this.parameters, 
                         this.traceHelper);
 
-                // TODO: Make this automatic
-                // TODO: Make this be a string(or json) here, and the parsing to happen in the custom host
-                var timesteps = new List<Tuple<long, List<Tuple<uint, string>>>>();
-                var startingEvents = new List<Tuple<uint, string>>();
-                var partitionNumber = this.parameters.StartPositions.Length;
-                for (var partitionIndex = 0; partitionIndex < partitionNumber; partitionIndex ++)
-                {
-                    startingEvents.Add(new Tuple<uint, string>(Convert.ToUInt32(partitionIndex), "start"));
-                }
-                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(0, startingEvents));
-                var restartingEvent = new List<Tuple<uint, string>>();
-                restartingEvent.Add(new Tuple<uint, string>(0, "restart"));
-                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(10000, restartingEvent));
-
-                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(timesteps));
+                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(this.settings.EventProcessorManagement));
             }
             else
             {
@@ -228,8 +214,8 @@ namespace DurableTask.EventSourced.EventHubs
             this.traceHelper.LogDebug("Unregistering event processor");
             if (this.settings.EventProcessorManagement == "EventHubs")
                 await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
-            else if (this.settings.EventProcessorManagement == "Custom")
-                throw new NotImplementedException("Custom eventhubs not yet implemented");
+            else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
+                throw new NotImplementedException("Custom eventhubs stopping not yet implemented");
             else
                 throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
             this.traceHelper.LogDebug("Closing connections");
