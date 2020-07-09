@@ -64,8 +64,9 @@ namespace DurableTask.EventSourced
 
                 etw?.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
             }
-            
-            if (this.logLevelLimit <= LogLevel.Warning)
+
+            // TODO remove this for production, it is here for benchmarking only      
+            if (this.logLevelLimit <= LogLevel.Warning && !replaying)
             {
                 // This is here for measuring response times
                 // Q: isn't the IsEnabled unneccessary?
