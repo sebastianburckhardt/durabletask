@@ -266,11 +266,13 @@ namespace DurableTask.EventSourced
         /// <returns>The partition id.</returns>
         public uint GetPartitionId(string instanceId)
         {
-            if (instanceId.Contains("-manual-partition-"))
+            // if the instance id ends with !nn, where nn is a two-digit number, it indicates explicit partition placement
+            if (instanceId.Length >= 3 
+                && instanceId[instanceId.Length - 3] == '!'
+                && uint.TryParse(instanceId.Substring(instanceId.Length - 2), out uint nn))
             {
-                var i = instanceId.LastIndexOf("-");
-                var partitionId = uint.Parse(instanceId.Substring(i + 1)) % this.NumberPartitions;
-                this.Logger.LogTrace($"Instance: {instanceId} was manually hashed to partition: {partitionId}");
+                var partitionId = nn % this.NumberPartitions;
+                this.Logger.LogTrace($"Instance: {instanceId} was explicitly placed on partition: {partitionId}");
                 return partitionId;
             }
             else

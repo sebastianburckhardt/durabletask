@@ -115,9 +115,6 @@ namespace DurableTask.EventSourced.Faster
                 await this.pendingStoreCheckpoint.ConfigureAwait(false);
             }
 
-            // always publish the final load since it indicates whether there is unprocessed work
-            await this.PublishPartitionLoad().ConfigureAwait(false);
-
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
        
@@ -147,7 +144,11 @@ namespace DurableTask.EventSourced.Faster
                 return;
             }
 
-            partition.LoadPublisher.Submit((this.partition.PartitionId, info));
+            // to avoid publishing not-yet committed state, publish
+            // only after the current log is persisted.
+            var task = this.LogWorker.WaitForCompletionAsync()
+                .ContinueWith((t) => partition.LoadPublisher.Submit((this.partition.PartitionId, info)));
+
             this.lastPublishedCommitLogPosition = this.CommitLogPosition;
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
             this.lastPublishedLatencyTrend = info.LatencyTrend;
