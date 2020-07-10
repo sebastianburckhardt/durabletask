@@ -82,12 +82,27 @@ namespace DurableTask.EventSourced
                             this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
                             break;
 
-                        case StateRequestReceived readEvent:
-                            // Q: Is this how all our benchmarks end? It seems so.
-                            var endTimestamp = finishedTimestamp;
-                            var readTarget = readEvent.ReadTarget.InstanceId;
-                            eventType = "StateRequestReceived";
-                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
+                        // Old way of measuring orchestration completion time that involves noise due to client polling times
+                        //case StateRequestReceived readEvent:
+                        //    // Q: Is this how all our benchmarks end? It seems so.
+                        //    var endTimestamp = finishedTimestamp;
+                        //    var readTarget = readEvent.ReadTarget.InstanceId;
+                        //    eventType = "StateRequestReceived";
+                        //    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
+                        //    break;
+
+                        case BatchProcessed batchProcessedEvent:
+                            var instanceStatus = batchProcessedEvent.State.OrchestrationStatus;
+                            if (instanceStatus == OrchestrationStatus.Canceled ||
+                                instanceStatus == OrchestrationStatus.Completed ||
+                                instanceStatus == OrchestrationStatus.Failed ||
+                                instanceStatus == OrchestrationStatus.Terminated)
+                            {
+                                var targetInstanceId = batchProcessedEvent.InstanceId;
+                                var finalTimestamp = finishedTimestamp;
+                                eventType = "BatchProcessed";
+                                this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+                            }
                             break;
                     }
                 }
