@@ -93,16 +93,34 @@ namespace DurableTask.EventSourced
                         //    break;
 
                         case BatchProcessed batchProcessedEvent:
-                            var instanceStatus = batchProcessedEvent.State.OrchestrationStatus;
-                            if (instanceStatus == OrchestrationStatus.Canceled ||
-                                instanceStatus == OrchestrationStatus.Completed ||
-                                instanceStatus == OrchestrationStatus.Failed ||
-                                instanceStatus == OrchestrationStatus.Terminated)
+                            var state = batchProcessedEvent.State;
+                            // Q: When could this be null?
+                            if (state != null)
+                            {
+                                var instanceStatus = state.OrchestrationStatus;
+                                if (instanceStatus == OrchestrationStatus.Canceled ||
+                                    instanceStatus == OrchestrationStatus.Completed ||
+                                    instanceStatus == OrchestrationStatus.Failed ||
+                                    instanceStatus == OrchestrationStatus.Terminated)
+                                {
+                                    var targetInstanceId = batchProcessedEvent.InstanceId;
+                                    var finalTimestamp = finishedTimestamp;
+                                    var creationTime = batchProcessedEvent.State.CreatedTime.Ticks;
+                                    var completionTime = batchProcessedEvent.State.CompletedTime.Ticks;
+                                    var elapsedTime = new TimeSpan(completionTime - creationTime);
+                                    eventType = "BatchProcessed";
+                                    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+                                    //this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} with creation time: {creationTime} and completionTime: {completionTime} was {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, creationTime, completionTime, instanceStatus, finalTimestamp);
+                                    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
+                                }
+
+                            }
+                            else
                             {
                                 var targetInstanceId = batchProcessedEvent.InstanceId;
-                                var finalTimestamp = finishedTimestamp;
+                                var eventIdString = batchProcessedEvent.EventIdString;
                                 eventType = "BatchProcessed";
-                                this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+                                this.logger.LogError("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
                             }
                             break;
                     }
