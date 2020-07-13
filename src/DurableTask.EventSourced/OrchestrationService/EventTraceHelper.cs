@@ -94,7 +94,6 @@ namespace DurableTask.EventSourced
 
                         case BatchProcessed batchProcessedEvent:
                             var state = batchProcessedEvent.State;
-                            // Q: When could this be null?
                             if (state != null)
                             {
                                 var instanceStatus = state.OrchestrationStatus;
@@ -117,10 +116,11 @@ namespace DurableTask.EventSourced
                             }
                             else
                             {
+                                // This could be `null` if the instance is not executable (e.g. when the messages where for an existing completed executionID).
                                 var targetInstanceId = batchProcessedEvent.InstanceId;
                                 var eventIdString = batchProcessedEvent.EventIdString;
                                 eventType = "BatchProcessed";
-                                this.logger.LogError("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
+                                this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
                             }
                             break;
                     }
@@ -172,7 +172,7 @@ namespace DurableTask.EventSourced
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
                         this.partitionId, prefix, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, workItemId);
                 }
 
