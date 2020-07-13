@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced
         public long RequestId { get; set; }
 
         [DataMember]
-        public TimeSpan Timeout { get; set; }
+        public DateTime TimeoutUtc { get; set; }
 
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);

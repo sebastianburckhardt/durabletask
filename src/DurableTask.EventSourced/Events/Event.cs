@@ -70,6 +70,7 @@ namespace DurableTask.EventSourced
             yield return typeof(ActivityCompleted);
             yield return typeof(BatchProcessed);
             yield return typeof(CreationRequestProcessed);
+            yield return typeof(WaitRequestProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
             yield return typeof(ActivityOffloadReceived);

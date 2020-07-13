@@ -136,11 +136,10 @@ namespace DurableTask.EventSourced
 
         private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, IClientRequestEvent request, bool doneWhenSent)
         {
-            DateTime due = DateTime.UtcNow + request.Timeout;
             int timeoutId = this.ResponseTimeouts.GetFreshId();
-            var waiter = new ResponseWaiter(this.shutdownToken, request.RequestId, this, due, timeoutId);
+            var waiter = new ResponseWaiter(this.shutdownToken, request.RequestId, this, request.TimeoutUtc, timeoutId);
             this.ResponseWaiters.TryAdd(request.RequestId, waiter);
-            this.ResponseTimeouts.Schedule(due, waiter, timeoutId);
+            this.ResponseTimeouts.Schedule(request.TimeoutUtc, waiter, timeoutId);
 
             if (doneWhenSent)
             {
@@ -197,7 +196,7 @@ namespace DurableTask.EventSourced
                 TaskMessage = creationMessage,
                 DedupeStatuses = dedupeStatuses,
                 Timestamp = DateTime.UtcNow,
-                Timeout = DefaultTimeout,
+                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false);
@@ -211,7 +210,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 TaskMessages = messages.ToArray(),
-                Timeout = DefaultTimeout,
+                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
@@ -236,7 +235,7 @@ namespace DurableTask.EventSourced
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
                 ExecutionId = executionId,
-                Timeout = timeout,         
+                TimeoutUtc = DateTime.UtcNow + timeout,         
             };
 
             var response = await PerformRequestWithTimeoutAndCancellation(cancellationToken, request, false).ConfigureAwait(false);
@@ -256,7 +255,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
-                Timeout = DefaultTimeout,
+                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
             };
 
             var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false).ConfigureAwait(false);
@@ -269,7 +268,7 @@ namespace DurableTask.EventSourced
                     PartitionId = partitionId,
                     ClientId = this.ClientId,
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                    Timeout = DefaultTimeout
+                    TimeoutUtc = DateTime.UtcNow + DefaultTimeout
                 }, cancellationToken);
 
         public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo,
@@ -279,7 +278,7 @@ namespace DurableTask.EventSourced
                    PartitionId = partitionId,
                    ClientId = this.ClientId,
                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                   Timeout = DefaultTimeout,
+                   TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
                    CreatedTimeFrom = createdTimeFrom,
                    CreatedTimeTo = createdTimeTo,
                    RuntimeStatus = runtimeStatus,
@@ -313,7 +312,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 TaskMessages = taskMessages,
-                Timeout = DefaultTimeout,
+                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
