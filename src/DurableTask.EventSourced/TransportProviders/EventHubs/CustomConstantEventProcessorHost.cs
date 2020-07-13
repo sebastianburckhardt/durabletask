@@ -24,9 +24,9 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         public TransportAbstraction.ISender sender;
         public readonly EventHubsConnections connections;
         public EventHubsTransport.TaskhubParameters parameters;
-        public EventHubsTraceHelper logger;
+        public EventHubsTraceHelper logger; 
         private int numberOfPartitions;
-        private List<CustomPartitionController> partitionControllers = new List<CustomPartitionController>();
+        private List<PartitionInstance> partitionInstances = new List<PartitionInstance>();
         private Stopwatch stopwatch;
 
 
@@ -123,8 +123,8 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             for (var partitionIndex = 0; partitionIndex < this.numberOfPartitions; partitionIndex++)
             {
                 var partitionId = Convert.ToUInt32(partitionIndex);
-                var partitionController = new CustomPartitionController(partitionId, this);
-                this.partitionControllers.Add(partitionController);
+                var partitionController = new PartitionInstance(partitionId, 0, this);
+                this.partitionInstances.Add(partitionController);
             }
             this.logger.LogDebug("Custom EventProcessorHost successfully initialized.");
 
@@ -161,20 +161,21 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         private async Task ProcessHostEvent(long timestepTime, ProcessorHostEvent hostEvent)
         {
             var action = hostEvent.action;
-            var partitionId = hostEvent.partitionId;
+            int partitionId = (int) hostEvent.partitionId;
             this.logger.LogWarning("Custom EventProcessorHost performs {action} for partition{partitionId} at time:{time}. Real time: {realTime}", action, partitionId, timestepTime, this.stopwatch.ElapsedMilliseconds);
             try
             {
                 if (action == "restart")
                 {
-                    var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
-                    await partitionController.StopPartitionAndLoop();
-                    await partitionController.StartPartitionAndLoop();
+                    var oldPartitionInstance = this.partitionInstances[partitionId];
+                    var newPartitionInstance = new PartitionInstance(hostEvent.partitionId, oldPartitionInstance.Incarnation + 1, this);
+                    this.partitionInstances[partitionId] = newPartitionInstance;
+                    await Task.WhenAll(newPartitionInstance.StartAsync(), oldPartitionInstance.StopAsync());
                 }
                 else if (action == "start")
                 {
-                    var partitionController = this.partitionControllers[Convert.ToInt32(partitionId)];
-                    await partitionController.StartPartitionAndLoop();
+                    var partitionInstance = this.partitionInstances[partitionId];
+                    await partitionInstance.StartAsync();
                 }
                 else
                 {
