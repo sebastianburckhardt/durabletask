@@ -31,12 +31,15 @@ namespace DurableTask.EventSourced
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
 
+        [DataMember]
+        public List<WaitRequestProcessed> Waiters { get; set; }
+
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
 
         public override string ToString()
         {
-            return $"History InstanceId={InstanceId} Status={OrchestrationState?.OrchestrationStatus}";
+            return $"History InstanceId={this.InstanceId} Status={this.OrchestrationState?.OrchestrationStatus}";
         }
 
         public void Process(CreationRequestProcessed evt, EffectTracker effects)
@@ -51,7 +54,7 @@ namespace DurableTask.EventSourced
                 var ee = evt.ExecutionStartedEvent;
 
                 // set the orchestration state now (before processing the creation in the history)
-                // so that this instance is "on record" immediately
+                // so that this new instance is "on record" immediately - it is guaranteed to replace whatever is in flight
                 this.OrchestrationState = new OrchestrationState
                 {
                     Name = ee.Name,
@@ -93,10 +96,45 @@ namespace DurableTask.EventSourced
             // update the index also
             effects.Add(TrackedObjectKey.Index);
 
-            // notify observers that this orchestration state has changed
-            if (!effects.IsReplaying)
+            // if the orchestration is complete, notify clients that are waiting for it
+            if (this.Waiters != null && WaitRequestProcessed.SatisfiesWaitCondition(this.OrchestrationState))
             {
-                this.Partition.InstanceStatePubSub.Notify(InstanceId, OrchestrationState);
+                if (!effects.IsReplaying)
+                {
+                    foreach (var request in this.Waiters)
+                    {
+                        this.Partition.Send(request.CreateResponse(this.OrchestrationState));
+                    }
+                }
+
+                this.Waiters = null;
+            }
+        }
+
+        public void Process(WaitRequestProcessed evt, EffectTracker effects)
+        {
+            if (WaitRequestProcessed.SatisfiesWaitCondition(this.OrchestrationState))
+            {
+                if (!effects.IsReplaying)
+                {
+                    this.Partition.Send(evt.CreateResponse(this.OrchestrationState));
+                }
+            }
+            else
+            {
+                if (this.Waiters == null)
+                {
+                    this.Waiters = new List<WaitRequestProcessed>();
+                }
+                else
+                {
+                    // cull the list of waiters to remove requests that have already timed out
+                    this.Waiters = this.Waiters
+                        .Where(request => request.TimeoutUtc > DateTime.UtcNow)
+                        .ToList();
+                }
+                
+                this.Waiters.Add(evt);
             }
         }
     }
