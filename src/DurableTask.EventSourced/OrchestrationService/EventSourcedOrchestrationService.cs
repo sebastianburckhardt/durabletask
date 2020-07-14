@@ -475,7 +475,7 @@ namespace DurableTask.EventSourced
             }
 
             // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
-            bool cacheWorkItemForReuse = state.OrchestrationStatus != OrchestrationStatus.Running;           
+            bool cacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;           
 
             try
             {
