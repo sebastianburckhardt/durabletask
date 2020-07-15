@@ -29,6 +29,7 @@ namespace DurableTask.EventSourced
     internal class EventTraceHelper
     {
         private readonly ILogger logger;
+        private readonly ILogger benchmarkLogger;
         private readonly LogLevel logLevelLimit;
         private readonly string account;
         private readonly string taskHub;
@@ -38,6 +39,7 @@ namespace DurableTask.EventSourced
         public EventTraceHelper(ILoggerFactory loggerFactory, LogLevel logLevelLimit, Partition partition)
         {
             this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Events");
+            this.benchmarkLogger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Benchmark");
             this.logLevelLimit = logLevelLimit;
             this.account = partition.StorageAccountName;
             this.taskHub = partition.Settings.TaskHubName;
@@ -69,8 +71,7 @@ namespace DurableTask.EventSourced
             if (this.logLevelLimit <= LogLevel.Warning && !replaying)
             {
                 // This is here for measuring response times
-                // Q: isn't the IsEnabled unneccessary?
-                if (this.logger.IsEnabled(LogLevel.Warning))
+                if (this.benchmarkLogger.IsEnabled(LogLevel.Warning))
                 {
                     string eventType;
                     switch (evt)
@@ -80,7 +81,7 @@ namespace DurableTask.EventSourced
                             var startTimestamp = creationRequestEvent.ReceivedTimestamp;
                             var instanceId = creationRequestEvent.InstanceId;
                             eventType = "CreationRequestReceived";
-                            this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
+                            this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
                             break;
 
                         // Old way of measuring orchestration completion time that involves noise due to client polling times
@@ -108,9 +109,9 @@ namespace DurableTask.EventSourced
                                     var completionTime = batchProcessedEvent.State.CompletedTime.Ticks;
                                     var elapsedTime = new TimeSpan(completionTime - creationTime);
                                     eventType = "BatchProcessed";
-                                    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
                                     //this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} with creation time: {creationTime} and completionTime: {completionTime} was {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, creationTime, completionTime, instanceStatus, finalTimestamp);
-                                    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
+                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
                                 }
 
                             }
@@ -120,12 +121,11 @@ namespace DurableTask.EventSourced
                                 var targetInstanceId = batchProcessedEvent.InstanceId;
                                 var eventIdString = batchProcessedEvent.EventIdString;
                                 eventType = "BatchProcessed";
-                                this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
+                                this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
                             }
                             break;
                     }
                 }
-
             }
         }
 
