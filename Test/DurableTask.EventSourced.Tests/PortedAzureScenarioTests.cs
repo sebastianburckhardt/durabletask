@@ -49,12 +49,18 @@ namespace DurableTask.EventSourced.Tests
             this.host = fixture.Host;
             fixture.LoggerProvider.Output = outputHelper;
             this.traceListener = new TestTraceListener(outputHelper);
-            Trace.Listeners.Add(this.traceListener);
+            lock (fixture.LoggerProvider)
+            {
+                Trace.Listeners.Add(this.traceListener);
+            }
         }
 
         public void Dispose()
         {
-            Trace.Listeners.Remove(this.traceListener);
+            lock (fixture.LoggerProvider)
+            {
+                Trace.Listeners.Remove(this.traceListener);
+            }
         }
 
         internal class TestTraceListener : TraceListener

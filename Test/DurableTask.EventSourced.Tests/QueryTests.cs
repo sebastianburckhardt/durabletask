@@ -139,17 +139,27 @@ namespace DurableTask.EventSourced.Tests
     {
         private readonly TestTraceListener traceListener;
         private readonly ILoggerFactory loggerFactory;
+        private readonly XunitLoggerProvider provider;
 
         public NonFixtureQueryTests(ITestOutputHelper outputHelper)
         {
             this.traceListener = new TestTraceListener(outputHelper);
             loggerFactory = new LoggerFactory();
-            var loggerProvider = new XunitLoggerProvider(outputHelper);
-            loggerFactory.AddProvider(loggerProvider);
-            Trace.Listeners.Add(this.traceListener);
+            this.provider = new XunitLoggerProvider(outputHelper);
+            loggerFactory.AddProvider(this.provider);
+            lock (this.provider)
+            {
+                Trace.Listeners.Add(this.traceListener);
+            }
         }
 
-        public void Dispose() => Trace.Listeners.Remove(this.traceListener);
+        public void Dispose()
+        {
+            lock (this.provider)
+            {
+                Trace.Listeners.Remove(this.traceListener);
+            }
+        }
 
         /// <summary>
         /// This exercises what LinqPAD queries do.

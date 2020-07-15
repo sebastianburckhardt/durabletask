@@ -39,24 +39,29 @@ namespace DurableTask.EventSourced.Tests
             public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
             {
                 // Write the information to the system trace
-                switch (logLevel)
+                string formattedString = formatter(state, exception);
+
+                lock (this.provider)
                 {
-                    case LogLevel.Information:
-                    case LogLevel.Debug:
-                    case LogLevel.Trace:
-                        System.Diagnostics.Trace.TraceInformation($"{formatter(state, exception)}");
-                        break;
-                    case LogLevel.Error:
-                    case LogLevel.Critical:
-                        System.Diagnostics.Trace.TraceError($"{formatter(state, exception)}");
-                        if (exception != null)
-                            System.Diagnostics.Trace.TraceError(exception.ToString());
-                        break;
-                    case LogLevel.Warning:
-                        System.Diagnostics.Trace.TraceWarning($"{formatter(state, exception)}");
-                        if (exception != null)
-                            System.Diagnostics.Trace.TraceWarning(exception.ToString());
-                        break;
+                    switch (logLevel)
+                    {
+                        case LogLevel.Information:
+                        case LogLevel.Debug:
+                        case LogLevel.Trace:
+                            System.Diagnostics.Trace.TraceInformation($"{formattedString}");
+                            break;
+                        case LogLevel.Error:
+                        case LogLevel.Critical:
+                            System.Diagnostics.Trace.TraceError($"{formattedString}");
+                            if (exception != null)
+                                System.Diagnostics.Trace.TraceError(exception.ToString());
+                            break;
+                        case LogLevel.Warning:
+                            System.Diagnostics.Trace.TraceWarning($"{formattedString}");
+                            if (exception != null)
+                                System.Diagnostics.Trace.TraceWarning(exception.ToString());
+                            break;
+                    }
                 }
             }
 
