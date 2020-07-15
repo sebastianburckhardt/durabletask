@@ -146,7 +146,7 @@ namespace DurableTask.EventSourced.Faster
                 return;
             }
 
-            partition.LoadPublisher.Submit((this.partition.PartitionId, info));
+            partition.LoadPublisher?.Submit((this.partition.PartitionId, info));
             this.lastPublishedCommitLogPosition = this.CommitLogPosition;
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
             this.lastPublishedLatencyTrend = info.LatencyTrend;
@@ -226,8 +226,8 @@ namespace DurableTask.EventSourced.Faster
                     {
                         case PartitionReadEvent readEvent:
                             readEvent.OnReadIssued(this.partition);
-                            this.store.Read(readEvent, this.effectTracker);
                             // we don't await async reads, they complete when CompletePending() is called
+                            _ = this.store.ReadAsync(readEvent, this.effectTracker);
                             break;
 
                         case PartitionUpdateEvent updateEvent:

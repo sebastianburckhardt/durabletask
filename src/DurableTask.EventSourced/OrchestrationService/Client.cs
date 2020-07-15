@@ -282,7 +282,7 @@ namespace DurableTask.EventSourced
                    Timeout = DefaultTimeout,
                    CreatedTimeFrom = createdTimeFrom,
                    CreatedTimeTo = createdTimeTo,
-                   RuntimeStatus = runtimeStatus,
+                   RuntimeStatus = runtimeStatus?.ToArray(),
                    InstanceIdPrefix = instanceIdPrefix
                }, cancellationToken);
 

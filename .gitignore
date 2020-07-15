@@ -45,3 +45,6 @@ Icon?
 ehthumbs.db
 Thumbs.db
 .vs/
+
+# Local nuget.config for local nuget packages only.
+NuGet.Config

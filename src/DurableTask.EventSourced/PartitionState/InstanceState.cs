@@ -67,9 +67,6 @@ namespace DurableTask.EventSourced
 
                 // add or create a session to handle the new taskmessage
                 effects.Add(TrackedObjectKey.Sessions);
-
-                // update the index also
-                effects.Add(TrackedObjectKey.Index);
             }
 
             // send response to client
@@ -89,9 +86,6 @@ namespace DurableTask.EventSourced
         {
             // update the state of an orchestration
             this.OrchestrationState = evt.State;
-
-            // update the index also
-            effects.Add(TrackedObjectKey.Index);
 
             // notify observers that this orchestration state has changed
             if (!effects.IsReplaying)

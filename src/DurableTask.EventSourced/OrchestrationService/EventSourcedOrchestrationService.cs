@@ -79,7 +79,9 @@ namespace DurableTask.EventSourced
             TransportConnectionString.Parse(this.Settings.EventHubsConnectionString, out this.configuredStorage, out this.configuredTransport, out _);
             this.Logger = loggerFactory.CreateLogger(LoggerCategoryName);
             this.LoggerFactory = loggerFactory;
-            this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
+            this.StorageAccountName = this.configuredTransport == TransportConnectionString.TransportChoices.Memory
+                ? this.Settings.StorageConnectionString
+                : CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
             EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}, transport={transport}, storage={storage}", this.ServiceInstanceId, this.configuredTransport, this.configuredStorage);
@@ -102,7 +104,8 @@ namespace DurableTask.EventSourced
                     throw new NotImplementedException("no such transport choice");
             }
 
-            this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
+            if (this.configuredTransport != TransportConnectionString.TransportChoices.Memory)
+                this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
 
             this.Logger.LogInformation(
                 "trace level limits: general={general} , transport={transport}, storage={storage}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
@@ -144,7 +147,8 @@ namespace DurableTask.EventSourced
 
         async Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
 
             switch (this.configuredStorage)
             {
@@ -184,7 +188,8 @@ namespace DurableTask.EventSourced
                 await this.taskHub.CreateAsync().ConfigureAwait(false);
             }
 
-            await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -195,7 +200,8 @@ namespace DurableTask.EventSourced
         {
             await this.taskHub.DeleteAsync().ConfigureAwait(false);
 
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -217,7 +223,8 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
             this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
-            this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
+            if (!(this.LoadMonitorService is null))
+                this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
 
             await taskHub.StartAsync().ConfigureAwait(false);
 

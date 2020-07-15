@@ -12,7 +12,6 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
 using DurableTask.Core;
@@ -26,7 +25,7 @@ namespace DurableTask.EventSourced
         /// The subset of runtime statuses to return, or null if all
         /// </summary>
         [DataMember]
-        public IEnumerable<OrchestrationStatus> RuntimeStatus { get; set; }
+        public OrchestrationStatus[] RuntimeStatus { get; set; }
 
         /// <summary>
         /// The lowest creation time to return, or null if no lower bound
@@ -46,102 +45,48 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string InstanceIdPrefix { get; set; }
 
+        internal bool HasRuntimeStatus => !(this.RuntimeStatus is null) && this.RuntimeStatus.Length > 0;
+
+        internal bool IsSet => this.HasRuntimeStatus || !string.IsNullOrWhiteSpace(this.InstanceIdPrefix) 
+                                || !(this.CreatedTimeFrom is null) || !(this.CreatedTimeTo is null);
+
         internal bool Matches(OrchestrationState targetState) 
-            => (this.RuntimeStatus is null || this.RuntimeStatus.Contains(targetState.OrchestrationStatus))
+            => (!this.HasRuntimeStatus || this.RuntimeStatus.Contains(targetState.OrchestrationStatus))
                  && (string.IsNullOrWhiteSpace(this.InstanceIdPrefix) || targetState.OrchestrationInstance.InstanceId.StartsWith(this.InstanceIdPrefix))
                  && (this.CreatedTimeFrom is null || targetState.CreatedTime >= this.CreatedTimeFrom)
                  && (this.CreatedTimeTo is null || targetState.CreatedTime <= this.CreatedTimeTo);
 
+        private QueryResponseReceived response;
+
         public override void OnReadIssued(Partition partition)
         {
             partition.Assert(partition.RecoveryIsComplete);
-        }
-
-        [IgnoreDataMember]
-        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Index;
-
-        public override void OnReadComplete(TrackedObject target, Partition partition)
-        {
-            var response = new QueryResponseReceived
+            this.response = new QueryResponseReceived
             {
                 ClientId = this.ClientId,
                 RequestId = this.RequestId
             };
-
-            if (target is null)
-            {
-                // Short-circuit if none
-               partition.Send(response);
-            }
-
-            if (!(target is IndexState indexState))
-            {
-                throw new ArgumentException(nameof(target));
-            }
-
-            if (indexState.InstanceIds.Count == 0)
-            {
-                // Short-circuit if empty
-                partition.Send(response);
-            }
-
-            // We're all on one partition here--the IndexState has only the InstanceIds for its partition.
-            response.ExpectedCount = indexState.InstanceIds.Count;
-
-            int counter = 0;
-
-            foreach (var instanceId in indexState.InstanceIds)
-            {
-                // For now the query is implemented as an enumeration over the singleton IndexState's InstanceIds;
-                // read the InstanceState and compare state fields.
-                partition.SubmitInternalEvent(new ResponseWaiter(partition, this, instanceId, counter++, response));
-            }
         }
 
-        private class ResponseWaiter : InternalReadEvent
+        [IgnoreDataMember]
+        public override TrackedObjectKey ReadTarget => this.readTarget;
+
+        // There's no "set" accessor to override so we must add a setter function as we overwrite this with the actual instances.
+        internal void SetReadTarget(TrackedObjectKey rt) => this.readTarget = rt;
+        TrackedObjectKey readTarget = TrackedObjectKey.Index;
+
+        public override void OnReadComplete(TrackedObject target, Partition partition)
         {
-            private readonly InstanceQueryReceived query;
-            private readonly QueryResponseReceived response;
-            private readonly int index;
+            if (target is null)
+                throw new ArgumentNullException(nameof(target));
 
-            public ResponseWaiter(Partition partition, InstanceQueryReceived query, string instanceId, int index, QueryResponseReceived response)
-            {
-                this.query = query;
-                this.response = response;
-                this.index = index;
-                this.ReadTarget = TrackedObjectKey.Instance(instanceId);
-            }
+            if (!(target is InstanceState instanceState))
+                throw new ArgumentException(nameof(target));
 
-            public override EventId EventId => EventId.MakeSubEventId(query.EventId, index);
-
-            public override TrackedObjectKey ReadTarget { get; }
-
-            public override void OnReadComplete(TrackedObject target, Partition partition)
-            {
-                if (target is null)
-                {
-                    throw new ArgumentNullException(nameof(target));
-                }
-
-                if (!(target is InstanceState instanceState))
-                {
-                    throw new ArgumentException(nameof(target));
-                }
-
-                if (!query.Matches(instanceState.OrchestrationState))
-                {
-                    this.response.DiscardState();
-                }
-                else
-                {
-                    this.response.OrchestrationStates.Add(instanceState.OrchestrationState);
-                }
-
-                if (this.response.IsDone)
-                {
-                    partition.Send(response);
-                }
-            }
+            if (Matches(instanceState.OrchestrationState))
+                this.response.OrchestrationStates.Add(instanceState.OrchestrationState);
         }
+
+        internal void OnPSFComplete(Partition partition) => partition.Send(response);
     }
 }

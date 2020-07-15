@@ -52,12 +52,12 @@ namespace DurableTask.EventSourced.Tests
         public async Task QueryOrchestrationInstancesByDateRange()
         {
             const int numInstances = 3;
-            string getPrefix(int ii) => $"inst{ii}__";
+            string getPrefix(int ii) => $"@inst{ii}@__";
 
             // Start multiple orchestrations. Use 1-based to avoid confusion where we use explicit values in asserts.
             for (var ii = 1; ii <= numInstances; ++ii)
             {
-                var client = await host.StartOrchestrationAsync(typeof(Orchestrations.SayHelloInline), $"world {ii}", $"{getPrefix(ii)}__{Guid.NewGuid().ToString()}");
+                var client = await host.StartOrchestrationAsync(typeof(Orchestrations.SayHelloInline), $"world {ii}", $"{getPrefix(ii)}__{Guid.NewGuid()}");
                 await Task.Delay(100);  // To ensure time separation for the date time range queries
                 await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
             }
