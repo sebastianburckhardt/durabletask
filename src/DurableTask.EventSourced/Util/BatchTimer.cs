@@ -61,7 +61,7 @@ namespace DurableTask.EventSourced
         {
             lock (this.thisLock)
             {
-                 var key = (due, id.HasValue ? id.Value : sequenceNumber++);
+                var key = (due, id.HasValue ? id.Value : sequenceNumber++);
 
                 this.schedule.Add(key, what);
 

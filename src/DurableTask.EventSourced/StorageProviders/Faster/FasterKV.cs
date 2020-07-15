@@ -199,6 +199,16 @@ namespace DurableTask.EventSourced.Faster
 
         public EffectTracker NoInput = null;
 
+        private long missCount;
+        private long hitCount;
+
+        public double ReadAndResetCacheStats()
+        {
+            double ratio = (missCount > 0) ? ((double)missCount / (missCount + hitCount)) : 0.0;
+            hitCount = missCount = 0;
+            return ratio;
+        }
+
         // kick off a read of a tracked object, completing asynchronously if necessary
         public async Task ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
@@ -259,16 +269,18 @@ namespace DurableTask.EventSourced.Faster
                     // try to read directly (fast path)
                     var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
 
-                    switch (status)
-                    {
-                        case Status.NOTFOUND:
-                        case Status.OK:
-                            effectTracker.ProcessReadResult(readEvent, target);
-                            break;
+                switch (status)
+                {
+                    case Status.NOTFOUND:
+                    case Status.OK:
+                        this.hitCount++;
+                        effectTracker.ProcessReadResult(readEvent, target);
+                        break;
 
-                        case Status.PENDING:
-                            // read continuation will be called when complete
-                            break;
+                    case Status.PENDING:
+                        // read continuation will be called when complete
+                        this.missCount++;
+                        break;
 
                         case Status.ERROR:
                             throw new Exception("Faster"); //TODO

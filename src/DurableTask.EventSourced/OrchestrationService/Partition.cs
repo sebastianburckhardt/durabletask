@@ -52,7 +52,6 @@ namespace DurableTask.EventSourced
         public LoadPublisher LoadPublisher { get; private set; }
 
         public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
-        public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
 
         public EventTraceHelper EventTraceHelper { get; }
 
@@ -84,7 +83,7 @@ namespace DurableTask.EventSourced
             this.OrchestrationWorkItemQueue = orchestrationWorkItemQueue;
             this.LoadPublisher = loadPublisher;
             this.TraceHelper = new PartitionTraceHelper(host.Logger, settings.LogLevelLimit, this.StorageAccountName, this.Settings.TaskHubName, this.PartitionId);
-            this.EventTraceHelper = new EventTraceHelper(host.Logger, settings.LogLevelLimit, this);
+            this.EventTraceHelper = new EventTraceHelper(host.LoggerFactory, settings.EventLogLevelLimit, this);
             this.stopwatch.Start();
         }
 
@@ -101,9 +100,8 @@ namespace DurableTask.EventSourced
                 // create the state
                 this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
 
-                // initialize collections for pending work
+                // initialize timer for this partition
                 this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);
-                this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
 
                 // goes to storage to create or restore the partition state
                 this.TraceHelper.TraceProgress("Loading partition state");

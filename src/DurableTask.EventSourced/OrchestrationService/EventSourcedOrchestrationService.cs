@@ -108,10 +108,11 @@ namespace DurableTask.EventSourced
                 this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
 
             this.Logger.LogInformation(
-                "trace level limits: general={general} , transport={transport}, storage={storage}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
+                "trace level limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
                 settings.LogLevelLimit,
                 settings.TransportLogLevelLimit,
                 settings.StorageLogLevelLimit,
+                settings.EventLogLevelLimit,
                 EtwSource.Log.IsEnabled(),
                 DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled);
         }
@@ -270,7 +271,22 @@ namespace DurableTask.EventSourced
         /// </summary>
         /// <param name="instanceId">The instance id.</param>
         /// <returns>The partition id.</returns>
-        public uint GetPartitionId(string instanceId) => Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
+        public uint GetPartitionId(string instanceId)
+        {
+            // if the instance id ends with !nn, where nn is a two-digit number, it indicates explicit partition placement
+            if (instanceId.Length >= 3 
+                && instanceId[instanceId.Length - 3] == '!'
+                && uint.TryParse(instanceId.Substring(instanceId.Length - 2), out uint nn))
+            {
+                var partitionId = nn % this.NumberPartitions;
+                this.Logger.LogTrace($"Instance: {instanceId} was explicitly placed on partition: {partitionId}");
+                return partitionId;
+            }
+            else
+            {
+                return Fnv1aHashHelper.ComputeHash(instanceId) % this.NumberPartitions;
+            }
+        }
 
         private uint GetNumberPartitions() => this.NumberPartitions;
 
@@ -466,7 +482,7 @@ namespace DurableTask.EventSourced
             }
 
             // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
-            bool cacheWorkItemForReuse = state.OrchestrationStatus != OrchestrationStatus.Running;           
+            bool cacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;           
 
             try
             {

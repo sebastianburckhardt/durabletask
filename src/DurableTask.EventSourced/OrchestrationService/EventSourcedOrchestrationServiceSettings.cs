@@ -30,6 +30,11 @@ namespace DurableTask.EventSourced
         public string EventHubsConnectionString { get; set; }
 
         /// <summary>
+        /// Gets or sets the EventProcessor management
+        /// </summary>
+        public string EventProcessorManagement { get; set; } = "EventHubs";
+
+        /// <summary>
         /// Gets or sets the connection string for the Azure storage account.
         /// </summary>
         public string StorageConnectionString { get; set; }
@@ -98,7 +103,14 @@ namespace DurableTask.EventSourced
         public LogLevel StorageLogLevelLimit { get; set; } = LogLevel.Information;
 
         /// <summary>
-        /// A lower limit on the severity level of trace events emitted by partitions and clients.
+        /// A lower limit on the severity level of event processor trace events emitted.
+        /// </summary>
+        /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public LogLevel EventLogLevelLimit { get; set; } = LogLevel.Information;
+
+        /// <summary>
+        /// A lower limit on the severity level of all other trace events emitted.
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
@@ -189,7 +201,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            if (transport != TransportConnectionString.TransportChoices.EventHubs)
+            if ((transport != TransportConnectionString.TransportChoices.EventHubs))
             {
                 if (numPartitions < 1 || numPartitions > 32)
                 {

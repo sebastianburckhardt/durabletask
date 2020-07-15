@@ -70,6 +70,7 @@ namespace DurableTask.EventSourced
             yield return typeof(ActivityCompleted);
             yield return typeof(BatchProcessed);
             yield return typeof(CreationRequestProcessed);
+            yield return typeof(WaitRequestProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
             yield return typeof(ActivityOffloadReceived);
@@ -79,10 +80,11 @@ namespace DurableTask.EventSourced
             yield return typeof(PartitionEventFragment);
         }
 
-        public bool SafeToDuplicateInTransport()
+        public bool SafeToRetryFailedSend()
         {
             if (this is ClientUpdateRequestEvent)
             {
+                // these are not safe to duplicate as they could restart an orchestration or deliver a message twice
                 return false;
             }
             else

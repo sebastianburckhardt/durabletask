@@ -16,6 +16,7 @@ using Dynamitey;
 using Dynamitey.DynamicObjects;
 using FASTER.core;
 using Microsoft.Extensions.Logging;
+using Mono.Unix.Native;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -28,15 +29,17 @@ namespace DurableTask.EventSourced
     internal class EventTraceHelper
     {
         private readonly ILogger logger;
+        private readonly ILogger benchmarkLogger;
         private readonly LogLevel logLevelLimit;
         private readonly string account;
         private readonly string taskHub;
         private readonly int partitionId;
         private readonly EtwSource etw;
 
-        public EventTraceHelper(ILogger logger, LogLevel logLevelLimit, Partition partition)
+        public EventTraceHelper(ILoggerFactory loggerFactory, LogLevel logLevelLimit, Partition partition)
         {
-            this.logger = logger;
+            this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Events");
+            this.benchmarkLogger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Benchmark");
             this.logLevelLimit = logLevelLimit;
             this.account = partition.StorageAccountName;
             this.taskHub = partition.Settings.TaskHubName;
@@ -62,6 +65,67 @@ namespace DurableTask.EventSourced
                 }
 
                 etw?.PartitionEventProcessed(this.account, this.taskHub, this.partitionId, commitLogPosition, evt.EventIdString, evt.ToString(), nextCommitLogPosition, evt.NextInputQueuePosition, queueLatencyMs, fetchLatencyMs, latencyMs, replaying, TraceUtils.ExtensionVersion);
+            }
+
+            // TODO remove this for production, it is here for benchmarking only      
+            if (this.logLevelLimit <= LogLevel.Warning && !replaying)
+            {
+                // This is here for measuring response times
+                if (this.benchmarkLogger.IsEnabled(LogLevel.Warning))
+                {
+                    string eventType;
+                    switch (evt)
+                    {
+                        case CreationRequestReceived creationRequestEvent:
+                            // Q: Is the receivedTimestamp the correct point to measure response time?
+                            var startTimestamp = creationRequestEvent.ReceivedTimestamp;
+                            var instanceId = creationRequestEvent.InstanceId;
+                            eventType = "CreationRequestReceived";
+                            this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
+                            break;
+
+                        // Old way of measuring orchestration completion time that involves noise due to client polling times
+                        //case StateRequestReceived readEvent:
+                        //    // Q: Is this how all our benchmarks end? It seems so.
+                        //    var endTimestamp = finishedTimestamp;
+                        //    var readTarget = readEvent.ReadTarget.InstanceId;
+                        //    eventType = "StateRequestReceived";
+                        //    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
+                        //    break;
+
+                        case BatchProcessed batchProcessedEvent:
+                            var state = batchProcessedEvent.State;
+                            if (state != null)
+                            {
+                                var instanceStatus = state.OrchestrationStatus;
+                                if (instanceStatus == OrchestrationStatus.Canceled ||
+                                    instanceStatus == OrchestrationStatus.Completed ||
+                                    instanceStatus == OrchestrationStatus.Failed ||
+                                    instanceStatus == OrchestrationStatus.Terminated)
+                                {
+                                    var targetInstanceId = batchProcessedEvent.InstanceId;
+                                    var finalTimestamp = finishedTimestamp;
+                                    var creationTime = batchProcessedEvent.State.CreatedTime.Ticks;
+                                    var completionTime = batchProcessedEvent.State.CompletedTime.Ticks;
+                                    var elapsedTime = new TimeSpan(completionTime - creationTime);
+                                    eventType = "BatchProcessed";
+                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+                                    //this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} with creation time: {creationTime} and completionTime: {completionTime} was {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, creationTime, completionTime, instanceStatus, finalTimestamp);
+                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
+                                }
+
+                            }
+                            else
+                            {
+                                // This could be `null` if the instance is not executable (e.g. when the messages where for an existing completed executionID).
+                                var targetInstanceId = batchProcessedEvent.InstanceId;
+                                var eventIdString = batchProcessedEvent.EventIdString;
+                                eventType = "BatchProcessed";
+                                this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
+                            }
+                            break;
+                    }
+                }
             }
         }
 
@@ -101,14 +165,14 @@ namespace DurableTask.EventSourced
 
         public void TraceTaskMessageDiscarded(TaskMessage message, string reason, string workItemId)
         {
-            if (this.logLevelLimit <= LogLevel.Debug)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logger.IsEnabled(LogLevel.Debug))
+                if (this.logger.IsEnabled(LogLevel.Warning))
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} discarded TaskMessage reason={reason} eventType={eventType} taskEventId={taskEventId} instanceId={instanceId} executionId={executionId} workItemId={workItemId}",
                         this.partitionId, prefix, reason, message.Event.EventType.ToString(), TraceUtils.GetTaskEventId(message.Event), message.OrchestrationInstance.InstanceId, message.OrchestrationInstance.ExecutionId, workItemId);
                 }
 
@@ -135,14 +199,14 @@ namespace DurableTask.EventSourced
 
         public void TraceOrchestrationWorkItemDiscarded(BatchProcessed evt)
         {
-            if (this.logLevelLimit <= LogLevel.Debug)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logger.IsEnabled(LogLevel.Debug))
+                if (this.logger.IsEnabled(LogLevel.Warning))
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Discarded OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId}",
                         this.partitionId, prefix, evt.WorkItemId, evt.InstanceId);
                 }
 
@@ -245,14 +309,14 @@ namespace DurableTask.EventSourced
 
         public void TracePartitionOffloadDecision(int reportedLocalLoad, int pending, int backlog, int remotes, string reportedRemotes)
         {
-            if (this.logLevelLimit <= LogLevel.Information)
+            if (this.logLevelLimit <= LogLevel.Warning)
             {
-                if (this.logLevelLimit <= LogLevel.Information)
+                if (this.logLevelLimit <= LogLevel.Warning)
                 {
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogInformation("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Offload decision reportedLocalLoad={reportedLocalLoad} pending={pending} backlog={backlog} remotes={remotes} reportedRemotes={reportedRemotes}",
                         this.partitionId, prefix, reportedLocalLoad, pending, backlog, remotes, reportedRemotes);
 
                     etw?.PartitionOffloadDecision(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId, reportedLocalLoad, pending, backlog, remotes, reportedRemotes, TraceUtils.ExtensionVersion);
@@ -285,6 +349,22 @@ namespace DurableTask.EventSourced
                     this.logger.LogTrace("Part{partition:D2}{prefix} {details}", this.partitionId, prefix, details);
                 }
                 etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", details, TraceUtils.ExtensionVersion);
+            }
+        }
+
+        public void TraceEventSentDetail(PartitionUpdateEvent evt)
+        {
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                double sentTimestamp = evt.SentTimestamp;
+                double noSpeculationDelay = sentTimestamp - ((PartitionUpdateEvent)evt).ReadyToSendTimestamp;
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogWarning("Part{partition:D2}{prefix} Event sent with delay: {noSpeculationDelay} ms", this.partitionId, prefix, noSpeculationDelay);
+                }
+                etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", $"Event sent with delay: {noSpeculationDelay} ms", TraceUtils.ExtensionVersion);
             }
         }
     }

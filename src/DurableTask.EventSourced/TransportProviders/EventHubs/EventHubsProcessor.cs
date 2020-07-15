@@ -250,7 +250,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         Task IEventProcessor.ProcessErrorAsync(PartitionContext context, Exception exception)
         {
-            this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} encountered an exception: {exception}", this.eventHubName, this.eventHubPartition, exception);
+            this.traceHelper.LogWarning("EventHubsProcessor {eventHubName}/{eventHubPartition} received internal error indication from EventProcessorHost: {exception}", this.eventHubName, this.eventHubPartition, exception);
             return Task.CompletedTask;
         }
 
@@ -301,6 +301,14 @@ namespace DurableTask.EventSourced.EventHubs
                             pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                             DurabilityListeners.Register(partitionEvent, this);
                             partitionEvent.ReceivedTimestamp = current.Partition.CurrentTimeMs;
+                            partitionEvent.ReceivedTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+
+                            // Output the time it took for the event to go through eventhubs.
+                            if (partitionEvent.SentTimestampUnixMs != 0)
+                            {
+                                long duration = partitionEvent.ReceivedTimestampUnixMs - partitionEvent.SentTimestampUnixMs;
+                                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, eventId, duration);
+                            }
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {

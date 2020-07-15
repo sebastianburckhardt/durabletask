@@ -120,7 +120,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(221, Account, TaskHub, PartitionId, EventType, TaskEventId, InstanceId, ExecutionId, MessageId, ExtensionVersion);
         }
 
-        [Event(222, Level = EventLevel.Verbose, Version = 1)]
+        [Event(222, Level = EventLevel.Warning, Version = 1)]
         public void TaskMessageDiscarded(string Account, string TaskHub, int PartitionId, string Reason, string EventType, int TaskEventId, string InstanceId, string ExecutionId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(223, Account, TaskHub, PartitionId, ExecutionType, InstanceId, WorkItemId, ExtensionVersion);
         }
 
-        [Event(224, Level = EventLevel.Verbose, Version = 1)]
+        [Event(224, Level = EventLevel.Warning, Version = 1)]
         public void OrchestrationWorkItemDiscarded(string Account, string TaskHub, int PartitionId, string InstanceId, string WorkItemId, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
@@ -192,7 +192,7 @@ namespace DurableTask.EventSourced
             this.WriteEvent(243, Account, TaskHub, ClientId, MessageId, EventInfo, ExtensionVersion);
         }
 
-        [Event(244, Level = EventLevel.Informational, Version = 1)]
+        [Event(244, Level = EventLevel.Warning, Version = 1)]
         public void PartitionOffloadDecision(string Account, string TaskHub, int PartitionId, long CommitLogPosition, string MessageId, int ReportedLocalLoad, int Pending, int Backlog, int Remotes, string ReportedRemoteLoad, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
@@ -200,10 +200,10 @@ namespace DurableTask.EventSourced
         }
 
         [Event(245, Level = EventLevel.Informational, Version = 1)]
-        public void PartitionLoadPublished(string Account, string TaskHub, int PartitionId, int WorkItems, int Activities, int Timers, int Outbox, string NextTimer, long ActivityLatencyMs, long WorkItemLatencyMs, string WorkerId, string LatencyTrend, long InputQueuePosition, long CommitLogPosition, string ExtensionVersion)
+        public void PartitionLoadPublished(string Account, string TaskHub, int PartitionId, int WorkItems, int Activities, int Timers, int Outbox, string NextTimer, long ActivityLatencyMs, long WorkItemLatencyMs, string WorkerId, string LatencyTrend, double MissRate, long InputQueuePosition, long CommitLogPosition, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(245, Account, TaskHub, PartitionId, WorkItems, Activities, Timers, Outbox, NextTimer, ActivityLatencyMs, WorkItemLatencyMs, WorkerId, LatencyTrend, InputQueuePosition, CommitLogPosition, ExtensionVersion);
+            this.WriteEvent(245, Account, TaskHub, PartitionId, WorkItems, Activities, Timers, Outbox, NextTimer, ActivityLatencyMs, WorkItemLatencyMs, WorkerId, LatencyTrend, MissRate, InputQueuePosition, CommitLogPosition, ExtensionVersion);
         }
 
         // ----- Faster Storage

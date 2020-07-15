@@ -63,6 +63,11 @@ namespace DurableTask.EventSourced
         {
             // put the messages in the outbox where they are kept until actually sent
             var commitPosition = evt.NextCommitLogPosition;
+
+            // Update the ready to send timestamp to check the delay caused 
+            // by non-speculation
+            evt.ReadyToSendTimestamp = this.Partition.CurrentTimeMs;
+
             this.Outbox[commitPosition] = batch;
             batch.Position = commitPosition;
             batch.Partition = this.Partition;
@@ -75,6 +80,10 @@ namespace DurableTask.EventSourced
 
         public void ConfirmDurable(Event evt)
         {
+            // Calculate the delay by not sending immediately
+            ((PartitionUpdateEvent)evt).SentTimestamp = this.Partition.CurrentTimeMs;
+            this.Partition.EventTraceHelper.TraceEventSentDetail((PartitionUpdateEvent)evt);
+
             long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
             this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
             this.Send(this.Outbox[commitPosition]);
@@ -88,6 +97,7 @@ namespace DurableTask.EventSourced
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
+                outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
                 Partition.Send(outmessage);
             }
         }
