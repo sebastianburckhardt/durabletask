@@ -88,9 +88,10 @@ namespace DurableTask.EventSourced
         private string GetSessionPosition(Session session) => $"{this.Partition.PartitionId:D2}-S{session.SessionId}:{session.BatchStartPosition + session.Batch.Count}";
       
 
-        private void AddMessageToSession(TaskMessage message, bool forceNewExecution, bool isReplaying)
+        private void AddMessageToSession(TaskMessage message, bool isReplaying)
         {
-            var instanceId = message.OrchestrationInstance.InstanceId;
+            string instanceId = message.OrchestrationInstance.InstanceId;
+            bool forceNewExecution = message.Event is ExecutionStartedEvent;
 
             if (this.Sessions.TryGetValue(instanceId, out var session) && !forceNewExecution)
             {
@@ -120,7 +121,9 @@ namespace DurableTask.EventSourced
 
         private void AddMessagesToSession(string instanceId, IEnumerable<TaskMessage> messages, bool isReplaying)
         {
-            if (this.Sessions.TryGetValue(instanceId, out var session))
+            int? forceNewExecution = FindLastExecutionStartedEvent(messages);
+
+            if (this.Sessions.TryGetValue(instanceId, out var session) && forceNewExecution == null)
             {
                 // A session for this instance already exists, so a work item is in progress already.
                 // We don't need to schedule a work item because we'll notice the new messages 
@@ -133,17 +136,32 @@ namespace DurableTask.EventSourced
             }
             else
             {
+                if (forceNewExecution.HasValue)
+                {
+                    // the new instance replaces whatever state the old instance was in
+                    // since our transport is exactly once and in order, we do not save the old messages
+                    // but "consider them delivered" to the old instance which is then replaced
+                    foreach (var taskMessage in messages.Take(forceNewExecution.Value))
+                    {
+                        this.Partition.EventTraceHelper.TraceTaskMessageDiscarded(taskMessage, "message bound for an instance that was replaced", "");
+                    }
+
+                    messages = messages.Skip(forceNewExecution.Value);
+                }
+          
                 // Create a new session
                 this.Sessions[instanceId] = session = new Session()
                 {
                     SessionId = SequenceNumber++,
                     Batch = new List<TaskMessage>(),
-                    BatchStartPosition = 0
+                    BatchStartPosition = 0,
+                    ForceNewExecution = forceNewExecution.HasValue,
                 };
 
                 foreach (var message in messages)
                 {
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
+
                     session.Batch.Add(message);
                 }
 
@@ -152,6 +170,21 @@ namespace DurableTask.EventSourced
                     new OrchestrationMessageBatch(instanceId, session, this.Partition);
                 }
             }
+        }
+
+        private static int? FindLastExecutionStartedEvent(IEnumerable<TaskMessage> messages)
+        {
+            int? lastOccurence = null;
+            int position = 0;
+            foreach (TaskMessage taskMessage in messages)
+            {
+                if (taskMessage.Event is ExecutionStartedEvent)
+                {
+                    lastOccurence = position;
+                }
+                position++;
+            }
+            return lastOccurence;
         }
 
         public void Process(TaskMessagesReceived evt, EffectTracker effects)
@@ -167,7 +200,7 @@ namespace DurableTask.EventSourced
         public void Process(RemoteActivityResultReceived evt, EffectTracker effects)
         {
             // queues task message (from another partition) in a new or existing session
-            this.AddMessageToSession(evt.Result, false, effects.IsReplaying);
+            this.AddMessageToSession(evt.Result, effects.IsReplaying);
         }
 
         public void Process(ClientTaskMessagesReceived evt, EffectTracker effects)
@@ -180,19 +213,19 @@ namespace DurableTask.EventSourced
         public void Process(TimerFired timerFired, EffectTracker effects)
         {
             // queues a timer fired message in a session
-            this.AddMessageToSession(timerFired.TaskMessage, false, effects.IsReplaying);
+            this.AddMessageToSession(timerFired.TaskMessage, effects.IsReplaying);
         }
 
         public void Process(ActivityCompleted activityCompleted, EffectTracker effects)
         {
             // queues an activity-completed message in a session
-            this.AddMessageToSession(activityCompleted.Response, false, effects.IsReplaying);
+            this.AddMessageToSession(activityCompleted.Response, effects.IsReplaying);
         }
 
         public void Process(CreationRequestProcessed creationRequestProcessed, EffectTracker effects)
         {
             // queues the execution started message
-            this.AddMessageToSession(creationRequestProcessed.TaskMessage, true, effects.IsReplaying);
+            this.AddMessageToSession(creationRequestProcessed.TaskMessage, effects.IsReplaying);
         }
         
         public void Process(BatchProcessed evt, EffectTracker effects)

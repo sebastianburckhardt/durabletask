@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced
             Reassembly,
             Sessions,
             Timers,
-            Prefetch,
+            Creation,
 
             // non-singletons
             History,
@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced
             { TrackedObjectType.Reassembly, typeof(ReassemblyState) },
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
-            { TrackedObjectType.Prefetch, typeof(PrefetchState) },
+            { TrackedObjectType.Creation, typeof(CreationState) },
             
             // non-singletons
             { TrackedObjectType.History, typeof(HistoryState) },
@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
         public static TrackedObjectKey Reassembly = new TrackedObjectKey() { ObjectType = TrackedObjectType.Reassembly };
         public static TrackedObjectKey Sessions = new TrackedObjectKey() { ObjectType = TrackedObjectType.Sessions };
         public static TrackedObjectKey Timers = new TrackedObjectKey() { ObjectType = TrackedObjectType.Timers };
-        public static TrackedObjectKey Prefetch = new TrackedObjectKey() { ObjectType = TrackedObjectType.Prefetch };
+        public static TrackedObjectKey Prefetch = new TrackedObjectKey() { ObjectType = TrackedObjectType.Creation };
 
         // convenient constructors for non-singletons
 
@@ -112,8 +112,8 @@ namespace DurableTask.EventSourced
                     return new SessionsState();
                 case TrackedObjectKey.TrackedObjectType.Timers:
                     return new TimersState();
-                case TrackedObjectKey.TrackedObjectType.Prefetch:
-                    return new PrefetchState();
+                case TrackedObjectKey.TrackedObjectType.Creation:
+                    return new CreationState();
                 case TrackedObjectKey.TrackedObjectType.History:
                     return new HistoryState() { InstanceId = key.InstanceId };
                 case TrackedObjectKey.TrackedObjectType.Instance:

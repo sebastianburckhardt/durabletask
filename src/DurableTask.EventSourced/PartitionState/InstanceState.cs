@@ -44,47 +44,24 @@ namespace DurableTask.EventSourced
 
         public void Process(CreationRequestProcessed evt, EffectTracker effects)
         {
-            // can create or replace an instance and return a success response, or 
-            // return an error response
+            effects.Partition.Assert(!evt.FilteredDuplicate);
 
-            bool filterDuplicate = this.OrchestrationState != null && evt.DedupeStatuses != null && evt.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus);
+            var ee = evt.ExecutionStartedEvent;
 
-            if (!filterDuplicate)
+            // set the orchestration state now (before processing the creation in the history)
+            // so that this new instance is "on record" immediately - it is guaranteed to replace whatever is in flight
+            this.OrchestrationState = new OrchestrationState
             {
-                var ee = evt.ExecutionStartedEvent;
-
-                // set the orchestration state now (before processing the creation in the history)
-                // so that this new instance is "on record" immediately - it is guaranteed to replace whatever is in flight
-                this.OrchestrationState = new OrchestrationState
-                {
-                    Name = ee.Name,
-                    Version = ee.Version,
-                    OrchestrationInstance = ee.OrchestrationInstance,
-                    OrchestrationStatus = OrchestrationStatus.Pending,
-                    Input = ee.Input,
-                    Tags = ee.Tags,
-                    CreatedTime = ee.Timestamp,
-                    LastUpdatedTime = evt.Timestamp,
-                    CompletedTime = Core.Common.DateTimeUtils.MinDateTime
-                };
-
-                // add or create a session to handle the new taskmessage
-                effects.Add(TrackedObjectKey.Sessions);
-
-                // update the index also
-                effects.Add(TrackedObjectKey.Index);
-            }
-
-            // send response to client
-            if (!effects.IsReplaying)
-            {
-                this.Partition.Send(new CreationResponseReceived()
-                {
-                    ClientId = evt.ClientId,
-                    RequestId = evt.RequestId,
-                    Succeeded = !filterDuplicate,
-                });
-            }
+                Name = ee.Name,
+                Version = ee.Version,
+                OrchestrationInstance = ee.OrchestrationInstance,
+                OrchestrationStatus = OrchestrationStatus.Pending,
+                Input = ee.Input,
+                Tags = ee.Tags,
+                CreatedTime = ee.Timestamp,
+                LastUpdatedTime = evt.Timestamp,
+                CompletedTime = Core.Common.DateTimeUtils.MinDateTime
+            };
         }
 
 

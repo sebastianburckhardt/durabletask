@@ -275,6 +275,29 @@ namespace DurableTask.EventSourced.Tests
         }
 
         /// <summary>
+        /// End-to-end test which validates that a completed orchestration with suborchestration can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateCompletedInstanceWithSuborchestration()
+        {
+            string instanceId = $"Factorial{Guid.NewGuid():N}";
+
+            var client = await host.StartOrchestrationAsync(typeof(Orchestrations.ParentOfFactorial), 10, instanceId);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal(10, JToken.Parse(status?.Input));
+            Assert.Equal(3628800, JToken.Parse(status?.Output));
+
+            client = await host.StartOrchestrationAsync(typeof(Orchestrations.ParentOfFactorial), 10, instanceId);
+            status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal(10, JToken.Parse(status?.Input));
+            Assert.Equal(3628800, JToken.Parse(status?.Output));
+        }
+
+        /// <summary>
         /// End-to-end test which validates that a failed singleton instance can be recreated.
         /// </summary>
         [Fact]

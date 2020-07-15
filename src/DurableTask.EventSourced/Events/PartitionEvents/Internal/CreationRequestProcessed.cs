@@ -33,13 +33,13 @@ namespace DurableTask.EventSourced
         public string CreationRequestEventId { get; set; }
 
         [DataMember]
-        public OrchestrationStatus[] DedupeStatuses { get; set; }
-
-        [DataMember]
         public TaskMessage TaskMessage { get; set; }
 
         [DataMember]
         public DateTime Timestamp { get; set; }
+
+        [DataMember]
+        public bool FilteredDuplicate { get; set; }
 
         [IgnoreDataMember]
         public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
@@ -53,7 +53,6 @@ namespace DurableTask.EventSourced
         public override void DetermineEffects(EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Prefetch);
-            effects.Add(TrackedObjectKey.Instance(InstanceId));
         }
     }
 }
