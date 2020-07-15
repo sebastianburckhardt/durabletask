@@ -11,30 +11,16 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 namespace DurableTask.EventSourced
 {
+    // There is no persistent instance state as PSFs are now used, so this is just for the initial InstanceQueryReceived ReadTarget.
+
     [DataContract]
     internal class IndexState : TrackedObject
     {
-        [DataMember]
-        public HashSet<string> InstanceIds { get; set; } = new HashSet<string>();
-
         [IgnoreDataMember]
         public override TrackedObjectKey Key => TrackedObjectKey.Index;
-
-        public void Process(CreationRequestProcessed evt, EffectTracker _)
-        {
-            // Track the instanceId of the created object.
-            InstanceIds.Add(evt.InstanceId);
-        }
-
-        public void Process(BatchProcessed evt, EffectTracker _)
-        {
-            // Track the instanceId of the processed object.
-            InstanceIds.Add(evt.InstanceId);
-        }
     }
 }

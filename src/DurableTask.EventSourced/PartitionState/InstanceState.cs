@@ -70,9 +70,6 @@ namespace DurableTask.EventSourced
             // update the state of an orchestration
             this.OrchestrationState = evt.State;
 
-            // update the index also
-            effects.Add(TrackedObjectKey.Index);
-
             // if the orchestration is complete, notify clients that are waiting for it
             if (this.Waiters != null && WaitRequestProcessed.SatisfiesWaitCondition(this.OrchestrationState))
             {

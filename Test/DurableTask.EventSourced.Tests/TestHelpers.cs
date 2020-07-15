@@ -37,17 +37,11 @@ namespace DurableTask.EventSourced.Tests
 
         public static LogLevel UnitTestLogLevel = LogLevel.Trace;
 
-        public static EventSourcedOrchestrationService GetTestOrchestrationService(ILoggerFactory loggerFactory)
-        {
-            return new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings(), loggerFactory);
-        }
+        public static EventSourcedOrchestrationService GetTestOrchestrationService(ILoggerFactory loggerFactory) 
+            => new EventSourcedOrchestrationService(GetEventSourcedOrchestrationServiceSettings(), loggerFactory);
 
-        public static TestOrchestrationHost GetTestOrchestrationHost(
-            ILoggerFactory loggerFactory)
-        {
-            var settings = GetEventSourcedOrchestrationServiceSettings();
-            return new TestOrchestrationHost(settings, loggerFactory);
-        }
+        public static TestOrchestrationHost GetTestOrchestrationHost(ILoggerFactory loggerFactory)
+            => new TestOrchestrationHost(GetEventSourcedOrchestrationServiceSettings(), loggerFactory);
 
         public static string GetTestTaskHubName()
         {
@@ -65,34 +59,33 @@ namespace DurableTask.EventSourced.Tests
         public static string GetStorageConnectionString()
         {
             // NOTE: If using the local file system, modify GetEventHubsConnectionString use one of the memory options.
-            // return FasterStorage.UseLocalFileStorage;
+            return FasterStorage.LocalFileStorageConnectionString;
 
-            return GetAzureStorageConnectionString();
+            //return GetAzureStorageConnectionString();
         }
 
         public static string GetEventHubsConnectionString()
         {
             // NOTE: If using any of the memory options, modify GetStorageConnectionString to use the local file system.
+            // Memory means StorageChoices.Memory
             // return "Memory:1";
             // return "Memory:4";
             // return "Memory:32";
-            // return "MemoryF:1";
+
+            // MemoryF means StorageChoices.Faster
+            return "MemoryF:1";
             // return "MemoryF:4";
             // return "MemoryF:32";
 
-            return GetTestSetting("EventHubsConnectionString", false);
+            //return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)
         {
-            var setting =  Environment.GetEnvironmentVariable(DurableTaskTestPrefix + name);
-
-            if (require && string.IsNullOrEmpty(setting))
-            {
-                throw new ArgumentNullException($"The environment variable {DurableTaskTestPrefix + name} must be defined for the tests to run");
-            }
-
-            return setting;
+            var setting = Environment.GetEnvironmentVariable(DurableTaskTestPrefix + name);
+            return !string.IsNullOrEmpty(setting) || !require
+                ? setting
+                : throw new ArgumentNullException($"The environment variable {DurableTaskTestPrefix + name} must be defined for the tests to run");
         }
     }
 }

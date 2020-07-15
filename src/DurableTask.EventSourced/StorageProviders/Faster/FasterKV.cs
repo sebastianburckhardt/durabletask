@@ -1,7 +1,21 @@
-﻿using DurableTask.Core.Common;
+﻿//  ----------------------------------------------------------------------------------
+//  Copyright Microsoft Corporation
+//  Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//  http://www.apache.org/licenses/LICENSE-2.0
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+//  ----------------------------------------------------------------------------------
+
+using DurableTask.Core.Common;
 using FASTER.core;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,21 +32,45 @@ namespace DurableTask.EventSourced.Faster
 
         private ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> mainSession;
 
+        internal const long HashTableSize = 1L << 16;
+
+        // We currently place all PSFs into a single group with a single TPSFKey type
+        internal const int PSFCount = 1;
+        internal IPSF RuntimeStatusPsf;
+        internal IPSF CreatedTimePsf;
+        internal IPSF InstanceIdPrefixPsf;
+
         public FasterKV(Partition partition, BlobManager blobManager)
         {
             this.partition = partition;
             this.blobManager = blobManager;
  
-            this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, PartitionReadEvent, FasterKV.Functions>(
-                1L << 16,
+            this.fht = new FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions>(
+                HashTableSize,
                 new Functions(partition),
                 blobManager.StoreLogSettings(partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
-                new SerializerSettings<FasterKV.Key, FasterKV.Value>
+                new SerializerSettings<Key, Value>
                 {
                     keySerializer = () => new Key.Serializer(),
                     valueSerializer = () => new Value.Serializer(),
                 });
+
+            int groupOrdinal = 0;
+            var psfs = fht.RegisterPSF(this.blobManager.CreatePSFRegistrationSettings<PSFKey>(groupOrdinal++),
+                                       (nameof(this.RuntimeStatusPsf), (k, v) => v.Val is InstanceState state 
+                                                                            ? (PSFKey?)new PSFKey(state.OrchestrationState.OrchestrationStatus)
+                                                                            : null),
+                                       (nameof(this.CreatedTimePsf), (k, v) => v.Val is InstanceState state
+                                                                            ? (PSFKey?)new PSFKey(state.OrchestrationState.CreatedTime)
+                                                                            : null),
+                                       (nameof(this.InstanceIdPrefixPsf), (k, v) => v.Val is InstanceState state
+                                                                            ? (PSFKey?)new PSFKey(state.InstanceId)
+                                                                            : null));
+
+            this.RuntimeStatusPsf = psfs[0];
+            this.CreatedTimePsf = psfs[1];
+            this.InstanceIdPrefixPsf = psfs[2];
 
             this.terminationToken = partition.ErrorHandler.Token;
 
@@ -44,6 +82,7 @@ namespace DurableTask.EventSourced.Faster
                         fht.Dispose();
                         this.blobManager.HybridLogDevice.Close();
                         this.blobManager.ObjectLogDevice.Close();
+                        this.blobManager.ClosePSFDevices();
                     }
                     catch(Exception e)
                     {
@@ -124,12 +163,9 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                bool success = this.fht.TakeIndexCheckpoint(out var token);
-
-                if (!success)
-                    throw new InvalidOperationException("Faster refused index checkpoint");
-
-                return token;
+                return this.fht.TakeIndexCheckpoint(out var token)
+                    ? token
+                    : throw new InvalidOperationException("Faster refused index checkpoint");
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -174,15 +210,64 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // kick off a read of a tracked object, completing asynchronously if necessary
-        public void Read(PartitionReadEvent readEvent, EffectTracker effectTracker)
+        public async Task ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
             try
             {
-                FasterKV.Key key = readEvent.ReadTarget;
-                TrackedObject target = null;
+                // Note: In the debugger this will show as "Activities", but that's just the default value (it is an IgnoreDataMember).
+                if (readEvent is InstanceQueryReceived instanceQuery)
+                {
+                    // TODO: Resolve issue with File storage => breaks Azure stuff in EventSourcedOrchestrationService
+                    // TODO: Perf of EnumerateAllTrackedObjects
+                    instanceQuery.OnReadIssued(this.partition);
 
-                // try to read directly (fast path)
-                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
+                    IEnumerable<TrackedObject> queryPSFs()
+                    {
+                        // Issue the PSF query. Note that pending operations will be completed before this returns.
+                        var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
+                        if (instanceQuery.HasRuntimeStatus)
+                            querySpec.Add((this.RuntimeStatusPsf, instanceQuery.RuntimeStatus.Select(s => new PSFKey(s))));
+                        if (instanceQuery.CreatedTimeFrom.HasValue || instanceQuery.CreatedTimeTo.HasValue)
+                        {
+                            IEnumerable<PSFKey> enumerateDateBinKeys()
+                            {
+                                var to = instanceQuery.CreatedTimeTo ?? DateTime.UtcNow;
+                                var from = instanceQuery.CreatedTimeFrom ?? to.AddDays(-7);   // TODO Some default so we don't have to iterate from the first possible date
+                                for (var dt = from; dt <= to; dt += PSFKey.DateBinInterval)
+                                    yield return new PSFKey(dt);
+                            }
+                            querySpec.Add((this.CreatedTimePsf, enumerateDateBinKeys()));
+                        }
+                        if (!string.IsNullOrWhiteSpace(instanceQuery.InstanceIdPrefix))
+                            querySpec.Add((this.InstanceIdPrefixPsf, new[] { new PSFKey(instanceQuery.InstanceIdPrefix) }));
+                        var querySettings = new PSFQuerySettings
+                        {
+                            // This is a match-all-PSFs enumeration so do not continue after any PSF has hit EOS
+                            OnStreamEnded = (unusedPsf, unusedIndex) => false 
+                        };
+                        return this.mainSession.QueryPSF(querySpec, matches => matches.All(b => b), querySettings)
+                                               .Select(providerData => (TrackedObject)providerData.GetValue());
+                    }
+
+                    var trackedObjects = instanceQuery.IsSet
+                        ? queryPSFs()
+                        : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly:true)).Values;
+
+                    foreach (var target in trackedObjects)
+                    {
+                        instanceQuery.SetReadTarget(target.Key);
+                        effectTracker.ProcessReadResult(readEvent, target);
+                    }
+
+                    instanceQuery.OnPSFComplete(this.partition);
+                }
+                else
+                {
+                    Key key = readEvent.ReadTarget;
+                    TrackedObject target = null;
+
+                    // try to read directly (fast path)
+                    var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
 
                 switch (status)
                 {
@@ -197,9 +282,11 @@ namespace DurableTask.EventSourced.Faster
                         this.missCount++;
                         break;
 
-                    case Status.ERROR:
-                        throw new Exception("Faster"); //TODO
+                        case Status.ERROR:
+                            throw new Exception("Faster"); //TODO
+                    }
                 }
+
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -255,31 +342,41 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        private async Task<string> DumpCurrentState(EffectTracker effectTracker)
+        private async Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        {
+            // TODOperf: Performance of getting all tracked objects
+            var results = new SortedDictionary<TrackedObjectKey, TrackedObject>(new TrackedObjectKey.Comparer());
+            var keysToLookup = new HashSet<TrackedObjectKey>();
+
+            // get the set of keys appearing in the log
+            using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
+            {
+                while (iter1.GetNext(out RecordInfo recordInfo) && !recordInfo.Tombstone)
+                {
+                    TrackedObjectKey key = iter1.GetKey().Val;
+                    if (!instanceOnly || key.ObjectType == TrackedObjectKey.TrackedObjectType.Instance)
+                        keysToLookup.Add(key);
+                }
+            }
+
+            // read the current value of each
+            foreach (var k in keysToLookup)
+            {
+                TrackedObject target = await this.ReadAsync(k, effectTracker).ConfigureAwait(false);
+                if (target != null)
+                {
+                    results.Add(k, target);
+                }
+            }
+
+            return results;
+        }
+
+        private async Task<string> DumpCurrentState(EffectTracker effectTracker)    // TODO unused
         {
             try
             {
-                var results = new SortedDictionary<TrackedObjectKey, TrackedObject>(new TrackedObjectKey.Comparer());
-                var keysToLookup = new HashSet<TrackedObjectKey>();    
-
-                // get the set of keys appearing in the log
-                using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
-                {
-                    while (iter1.GetNext(out RecordInfo recordInfo))
-                    {
-                        keysToLookup.Add(iter1.GetKey().Val);
-                    }
-                }
-
-                // read the current value of each
-                foreach (var k in keysToLookup)
-                {
-                    TrackedObject target = await this.ReadAsync(k, effectTracker).ConfigureAwait(false);
-                    if (target != null)
-                    {
-                        results.Add(k, target);
-                    }
-                }
+                SortedDictionary<TrackedObjectKey, TrackedObject> results = await EnumerateAllTrackedObjects(effectTracker).ConfigureAwait(false);
 
                 var stringBuilder = new StringBuilder();
                 foreach (var trackedObject in results.Values)
@@ -329,27 +426,16 @@ namespace DurableTask.EventSourced.Faster
                 }
             }
 
-            public override string ToString()
-            {
-                return Val.ToString();
-            }
+            public override string ToString() => Val.ToString();
 
-            public bool Equals(ref Key k1, ref Key k2)
-            {
-                return k1.Val.ObjectType == k2.Val.ObjectType && k1.Val.InstanceId == k2.Val.InstanceId;
-            }
+            public bool Equals(ref Key k1, ref Key k2) 
+                => k1.Val.ObjectType == k2.Val.ObjectType && k1.Val.InstanceId == k2.Val.InstanceId;
 
             public class Serializer : BinaryObjectSerializer<Key>
             {
-                public override void Deserialize(ref Key obj)
-                {
-                    obj.Val.Deserialize(this.reader);
-                }
+                public override void Deserialize(ref Key obj) => obj.Val.Deserialize(this.reader);
 
-                public override void Serialize(ref Key obj)
-                {
-                    obj.Val.Serialize(this.writer);
-                }
+                public override void Serialize(ref Key obj) => obj.Val.Serialize(this.writer);
             }
         }
 
@@ -360,10 +446,7 @@ namespace DurableTask.EventSourced.Faster
             public static implicit operator TrackedObject(Value v) => (TrackedObject)v.Val;
             public static implicit operator Value(TrackedObject v) => new Value() { Val = v };
 
-            public override string ToString()
-            {
-                return Val.ToString();
-            }
+            public override string ToString() => Val.ToString();
 
             public class Serializer : BinaryObjectSerializer<Value>
             {
@@ -396,10 +479,7 @@ namespace DurableTask.EventSourced.Faster
         {
             private readonly Partition partition;
 
-            public Functions(Partition partition)
-            {
-                this.partition = partition;
-            }
+            public Functions(Partition partition) => this.partition = partition;
 
             public void InitialUpdater(ref Key key, ref EffectTracker tracker, ref Value value)
             {

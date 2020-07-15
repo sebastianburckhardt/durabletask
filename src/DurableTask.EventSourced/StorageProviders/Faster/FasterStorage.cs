@@ -44,7 +44,7 @@ namespace DurableTask.EventSourced.Faster
 
         public FasterStorage(string connectionString, string taskHubName, ILoggerFactory loggerFactory)
         {
-            if (connectionString != FasterStorage.LocalFileStorageConnectionString)
+            if (connectionString != LocalFileStorageConnectionString)
             {
                 this.storageAccount = CloudStorageAccount.Parse(connectionString);
             }
@@ -54,7 +54,7 @@ namespace DurableTask.EventSourced.Faster
 
         public static Task DeleteTaskhubStorageAsync(string connectionString, string taskHubName)
         {
-            var storageAccount = (connectionString != FasterStorage.LocalFileStorageConnectionString) ? CloudStorageAccount.Parse(connectionString) : null;
+            var storageAccount = (connectionString != LocalFileStorageConnectionString) ? CloudStorageAccount.Parse(connectionString) : null;
             return BlobManager.DeleteTaskhubStorageAsync(storageAccount, taskHubName);
         }
 
@@ -63,9 +63,9 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.terminationToken = errorHandler.Token;
 
-            this.TraceHelper = new FasterTraceHelper(this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, this.storageAccount.Credentials.AccountName, this.taskHubName);
+            this.TraceHelper = new FasterTraceHelper(this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, this.storageAccount is null ? "none" : this.storageAccount.Credentials.AccountName, this.taskHubName);
 
-            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler);
+            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler, FasterKV.PSFCount);
 
             this.TraceHelper.FasterProgress("Starting BlobManager");
             await blobManager.StartAsync().ConfigureAwait(false);

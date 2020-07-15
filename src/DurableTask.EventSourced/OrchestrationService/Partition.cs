@@ -162,7 +162,7 @@ namespace DurableTask.EventSourced
             this.Assert(this.ErrorHandler.IsTerminated);
 
             // tell the load publisher to send all buffered info
-            this.LoadPublisher.Flush();
+            this.LoadPublisher?.Flush();
 
             this.TraceHelper.TraceProgress("Stopped partition");
         }

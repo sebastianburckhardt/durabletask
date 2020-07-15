@@ -78,7 +78,6 @@ namespace DurableTask.EventSourced.Faster
             var prefix = $"{blobDirectory.Prefix}{blobName}.";
 
             BlobContinuationToken continuationToken = null;
-            List<IListBlobItem> results = new List<IListBlobItem>();
             do
             {
                 if (this.underLease)

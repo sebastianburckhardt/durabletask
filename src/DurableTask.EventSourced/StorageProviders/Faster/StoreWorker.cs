@@ -147,7 +147,7 @@ namespace DurableTask.EventSourced.Faster
             // to avoid publishing not-yet committed state, publish
             // only after the current log is persisted.
             var task = this.LogWorker.WaitForCompletionAsync()
-                .ContinueWith((t) => partition.LoadPublisher.Submit((this.partition.PartitionId, info)));
+                .ContinueWith((t) => partition.LoadPublisher?.Submit((this.partition.PartitionId, info)));
 
             this.lastPublishedCommitLogPosition = this.CommitLogPosition;
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
@@ -228,8 +228,8 @@ namespace DurableTask.EventSourced.Faster
                     {
                         case PartitionReadEvent readEvent:
                             readEvent.OnReadIssued(this.partition);
-                            this.store.Read(readEvent, this.effectTracker);
                             // we don't await async reads, they complete when CompletePending() is called
+                            _ = this.store.ReadAsync(readEvent, this.effectTracker);
                             break;
 
                         case PartitionUpdateEvent updateEvent:
