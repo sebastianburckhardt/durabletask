@@ -70,20 +70,37 @@ namespace DurableTask.EventSourced.Faster
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging ?
                 new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolder}\\{CommitBlobName}") : (ILogCommitManager)this,
-            PageSizeBits = 18, // 256k
+            PageSizeBits = 17, // 128k
             SegmentSizeBits = 28, // 256 MB
-            MemorySizeBits = 22, // 4MB
+            MemorySizeBits = 21, // 2MB
         };
 
-        public LogSettings StoreLogSettings => new LogSettings
+        //public LogSettings StoreLogSettings => new LogSettings
+        //{
+        //    LogDevice = this.HybridLogDevice,
+        //    ObjectLogDevice = this.ObjectLogDevice,
+        //    PageSizeBits = 20, // 1MB
+        //    MutableFraction = 0.9,
+        //    SegmentSizeBits = 28, // 256 MB
+        //    CopyReadsToTail = true,
+        //    MemorySizeBits = 24, // 16MB
+        //};
+
+        public LogSettings StoreLogSettings(uint numPartitions) => new LogSettings
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
-            PageSizeBits = 20, // 1MB
+            PageSizeBits = 13, // 8kB
             MutableFraction = 0.9,
             SegmentSizeBits = 28, // 256 MB
             CopyReadsToTail = true,
-            MemorySizeBits = 24, // 16MB
+            MemorySizeBits =
+                (numPartitions <=  1) ? 25 : // 32MB
+                (numPartitions <=  2) ? 24 : // 16MB
+                (numPartitions <=  4) ? 23 : // 8MB
+                (numPartitions <=  8) ? 22 : // 4MB
+                (numPartitions <= 16) ? 21 : // 2MB
+                                        20 , // 1MB         
         };
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings

@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced.Faster
             this.fht = new FASTER.core.FasterKV<FasterKV.Key, FasterKV.Value, EffectTracker, TrackedObject, PartitionReadEvent, FasterKV.Functions>(
                 1L << 16,
                 new Functions(partition),
-                blobManager.StoreLogSettings,
+                blobManager.StoreLogSettings(partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
                 new SerializerSettings<FasterKV.Key, FasterKV.Value>
                 {
