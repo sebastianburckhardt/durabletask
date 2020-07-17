@@ -104,7 +104,6 @@ namespace DurableTask.EventSourced
                 {
                     effects.Add(TrackedObjectKey.Instance(creationRequestProcessed.InstanceId));
                     effects.Add(TrackedObjectKey.Sessions);
-                    effects.Add(TrackedObjectKey.Index);
                 }
                  
                 if (!effects.IsReplaying)

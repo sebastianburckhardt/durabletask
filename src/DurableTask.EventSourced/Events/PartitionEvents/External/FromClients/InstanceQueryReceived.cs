@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
 using DurableTask.Core;
@@ -19,74 +20,41 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class InstanceQueryReceived : ClientReadRequestEvent
-    {   
-        /// <summary>
-        /// The subset of runtime statuses to return, or null if all
-        /// </summary>
+    internal class InstanceQueryReceived : PartitionQueryEvent, IClientRequestEvent
+    {
         [DataMember]
-        public OrchestrationStatus[] RuntimeStatus { get; set; }
+        public Guid ClientId { get; set; }
 
-        /// <summary>
-        /// The lowest creation time to return, or null if no lower bound
-        /// </summary>
         [DataMember]
-        public DateTime? CreatedTimeFrom { get; set; }
+        public long RequestId { get; set; }
 
-        /// <summary>
-        /// The latest creation time to return, or null if no upper bound
-        /// </summary>
         [DataMember]
-        public DateTime? CreatedTimeTo { get; set; }
-
-        /// <summary>
-        /// A prefix of the instance ids to return, or null if no specific prefix
-        /// </summary>
-        [DataMember]
-        public string InstanceIdPrefix { get; set; }
-
-        internal bool HasRuntimeStatus => !(this.RuntimeStatus is null) && this.RuntimeStatus.Length > 0;
-
-        internal bool IsSet => this.HasRuntimeStatus || !string.IsNullOrWhiteSpace(this.InstanceIdPrefix) 
-                                || !(this.CreatedTimeFrom is null) || !(this.CreatedTimeTo is null);
-
-        internal bool Matches(OrchestrationState targetState) 
-            => (!this.HasRuntimeStatus || this.RuntimeStatus.Contains(targetState.OrchestrationStatus))
-                 && (string.IsNullOrWhiteSpace(this.InstanceIdPrefix) || targetState.OrchestrationInstance.InstanceId.StartsWith(this.InstanceIdPrefix))
-                 && (this.CreatedTimeFrom is null || targetState.CreatedTime >= this.CreatedTimeFrom)
-                 && (this.CreatedTimeTo is null || targetState.CreatedTime <= this.CreatedTimeTo);
-
-        private QueryResponseReceived response;
-
-        public override void OnReadIssued(Partition partition)
-        {
-            partition.Assert(partition.RecoveryIsComplete);
-            this.response = new QueryResponseReceived
-            {
-                ClientId = this.ClientId,
-                RequestId = this.RequestId
-            };
-        }
+        public DateTime TimeoutUtc { get; set; }
 
         [IgnoreDataMember]
-        public override TrackedObjectKey ReadTarget => this.readTarget;
+        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
 
-        // There's no "set" accessor to override so we must add a setter function as we overwrite this with the actual instances.
-        internal void SetReadTarget(TrackedObjectKey rt) => this.readTarget = rt;
-        TrackedObjectKey readTarget = TrackedObjectKey.Index;
-
-        public override void OnReadComplete(TrackedObject target, Partition partition)
+        public override void OnQueryComplete(IEnumerable<TrackedObject> instances, Partition partition)
         {
-            if (target is null)
-                throw new ArgumentNullException(nameof(target));
+            var response = new QueryResponseReceived
+            {
+                ClientId = this.ClientId,
+                RequestId = this.RequestId,
+                OrchestrationStates = new List<OrchestrationState>()
+            };
 
-            if (!(target is InstanceState instanceState))
-                throw new ArgumentException(nameof(target));
+            foreach (var trackedObject in instances)
+            {
+                var instanceState = trackedObject as InstanceState;
+                partition.Assert(instanceState != null);
 
-            if (Matches(instanceState.OrchestrationState))
-                this.response.OrchestrationStates.Add(instanceState.OrchestrationState);
+                if (this.Matches(instanceState.OrchestrationState))
+                {
+                    response.OrchestrationStates.Add(instanceState.OrchestrationState);
+                }
+            }
+
+            partition.Send(response);
         }
-
-        internal void OnPSFComplete(Partition partition) => partition.Send(response);
     }
 }

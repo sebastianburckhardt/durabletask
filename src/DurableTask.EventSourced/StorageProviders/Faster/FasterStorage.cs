@@ -201,7 +201,7 @@ namespace DurableTask.EventSourced.Faster
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
             this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
-            this.storeWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionReadEvent).Where(e => e != null));
+            this.storeWorker.SubmitIncomingBatch(evts.Where(e => ! (e is PartitionUpdateEvent)));
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)

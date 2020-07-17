@@ -115,18 +115,20 @@ namespace DurableTask.EventSourced.Faster
             CheckPointType = CheckpointType.FoldOver
         };
 
-        internal PSFRegistrationSettings<TKey> CreatePSFRegistrationSettings<TKey>(int groupOrdinal)
-            => new PSFRegistrationSettings<TKey>
+        internal PSFRegistrationSettings<TKey> CreatePSFRegistrationSettings<TKey>(uint numberPartitions, int groupOrdinal)
+        {
+            var storeLogSettings = this.StoreLogSettings(numberPartitions);
+            return new PSFRegistrationSettings<TKey>
             {
                 HashTableSize = FasterKV.HashTableSize,
                 LogSettings = new LogSettings()
                 {
                     LogDevice = this.PsfLogDevices[groupOrdinal],
-                    PageSizeBits = this.StoreLogSettings.PageSizeBits,
-                    SegmentSizeBits = this.StoreLogSettings.SegmentSizeBits,
-                    MemorySizeBits = this.StoreLogSettings.MemorySizeBits,
+                    PageSizeBits = storeLogSettings.PageSizeBits,
+                    SegmentSizeBits = storeLogSettings.SegmentSizeBits,
+                    MemorySizeBits = storeLogSettings.MemorySizeBits,
                     CopyReadsToTail = false,
-                    ReadCacheSettings = this.StoreLogSettings.ReadCacheSettings
+                    ReadCacheSettings = storeLogSettings.ReadCacheSettings
                 },
                 CheckpointSettings = new CheckpointSettings
                 {
@@ -136,6 +138,7 @@ namespace DurableTask.EventSourced.Faster
                     CheckPointType = CheckpointType.FoldOver
                 }
             };
+        }
 
         public BlobRequestOptions BlobRequestOptionsUnderLease => new BlobRequestOptions()
         {
@@ -185,7 +188,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // For testing and debugging with local files
-        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = @"E:\Faster";
+        internal static string LocalFileDirectoryForTestingAndDebugging { get; set; } = $"{Environment.GetEnvironmentVariable("temp")}\\FasterTestStorage";
 
         private string LocalDirectoryPath => $"{LocalFileDirectoryForTestingAndDebugging}\\{this.ContainerName}";
 

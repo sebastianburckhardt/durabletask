@@ -204,5 +204,35 @@ namespace DurableTask.EventSourced
                 }
             }
         }
+        
+        public void ProcessQueryResult(PartitionQueryEvent queryEvent, IEnumerable<TrackedObject> instances)
+        {
+            (long commitLogPosition, long inputQueuePosition) = this.getPositions();
+            this.Partition.Assert(!this.IsReplaying); // query events are never part of the replay
+            double startedTimestamp = this.Partition.CurrentTimeMs;
+
+            using (EventTraceContext.MakeContext(commitLogPosition, queryEvent.EventIdString))
+            {
+                try
+                {
+                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, queryEvent, false);
+                    queryEvent.OnQueryComplete(instances, this.Partition);
+                }
+                catch (OperationCanceledException)
+                {
+                    // o.k. during termination
+                }
+                catch (Exception exception) when (!Utils.IsFatal(exception))
+                {
+                    // for robustness, swallow exceptions, but report them
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessQueryResult), $"Encountered exception while processing query event {queryEvent}", exception, false, false);
+                }
+                finally
+                {
+                    double finishedTimestamp = this.Partition.CurrentTimeMs;
+                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, queryEvent, startedTimestamp, finishedTimestamp, false);
+                }
+            }
+        }
     }
 }

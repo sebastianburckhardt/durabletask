@@ -20,7 +20,7 @@ namespace DurableTask.EventSourced
     internal class QueryResponseReceived : ClientEvent
     {
         [DataMember]
-        public IList<OrchestrationState> OrchestrationStates { get; set; } = new List<OrchestrationState>();
+        public IList<OrchestrationState> OrchestrationStates { get; set; }
 
         public override string ToString() => $"Count: {this.OrchestrationStates.Count}";
     }

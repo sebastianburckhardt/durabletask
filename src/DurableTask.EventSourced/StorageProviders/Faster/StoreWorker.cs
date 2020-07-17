@@ -226,14 +226,19 @@ namespace DurableTask.EventSourced.Faster
                     // now process the read or update
                     switch (partitionEvent)
                     {
-                        case PartitionReadEvent readEvent:
-                            readEvent.OnReadIssued(this.partition);
-                            // we don't await async reads, they complete when CompletePending() is called
-                            _ = this.store.ReadAsync(readEvent, this.effectTracker);
-                            break;
-
                         case PartitionUpdateEvent updateEvent:
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
+                            break;
+
+                        case PartitionReadEvent readEvent:
+                            readEvent.OnReadIssued(this.partition);
+                            // async reads may either complete immediately (on cache hit) or later (on cache miss) when CompletePending() is called
+                            this.store.ReadAsync(readEvent, this.effectTracker);
+                            break;
+
+                        case PartitionQueryEvent queryEvent:
+                            // async queries execute on their own task and their own session
+                            Task ignored = Task.Run(() => this.store.QueryAsync(queryEvent, this.effectTracker));
                             break;
 
                         default:

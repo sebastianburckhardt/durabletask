@@ -101,6 +101,14 @@ namespace DurableTask.EventSourced
             return result;
         }
 
+        private IEnumerable<InstanceState> GetAllInstances()
+        {
+            return trackedObjects
+                .Values
+                .Select(trackedObject => (trackedObject as InstanceState))
+                .Where(instanceState => instanceState != null).ToList();
+        }
+
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -123,16 +131,20 @@ namespace DurableTask.EventSourced
                         {
                             switch (partitionEvent)
                             {
+                                case PartitionUpdateEvent updateEvent:
+                                    updateEvent.NextCommitLogPosition = commitPosition + 1;
+                                    await effects.ProcessUpdate(updateEvent).ConfigureAwait(false);
+                                    DurabilityListeners.ConfirmDurable(updateEvent);
+                                    break;
+
                                 case PartitionReadEvent readEvent:
                                     readEvent.OnReadIssued(this.partition);
                                     var readTarget = this.GetOrAdd(readEvent.ReadTarget);
                                     effects.ProcessReadResult(readEvent, readTarget);
                                     break;
 
-                                case PartitionUpdateEvent updateEvent:
-                                    updateEvent.NextCommitLogPosition = commitPosition + 1;
-                                    await effects.ProcessUpdate(updateEvent).ConfigureAwait(false);
-                                    DurabilityListeners.ConfirmDurable(updateEvent);
+                                case PartitionQueryEvent queryEvent:
+                                    effects.ProcessQueryResult(queryEvent, this.GetAllInstances());
                                     break;
 
                                 default:

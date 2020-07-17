@@ -52,7 +52,7 @@ namespace DurableTask.EventSourced
 
         public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Prefetch);
+            effects.Add(TrackedObjectKey.Creation);
         }
     }
 }

@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.Faster
                 });
 
             int groupOrdinal = 0;
-            var psfs = fht.RegisterPSF(this.blobManager.CreatePSFRegistrationSettings<PSFKey>(groupOrdinal++),
+            var psfs = fht.RegisterPSF(this.blobManager.CreatePSFRegistrationSettings<PSFKey>(partition.NumberPartitions(), groupOrdinal++),
                                        (nameof(this.RuntimeStatusPsf), (k, v) => v.Val is InstanceState state 
                                                                             ? (PSFKey?)new PSFKey(state.OrchestrationState.OrchestrationStatus)
                                                                             : null),
@@ -209,65 +209,71 @@ namespace DurableTask.EventSourced.Faster
             return ratio;
         }
 
-        // kick off a read of a tracked object, completing asynchronously if necessary
-        public async Task ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
+        // perform a query
+        public async Task QueryAsync(PartitionQueryEvent queryEvent, EffectTracker effectTracker)
         {
             try
             {
-                // Note: In the debugger this will show as "Activities", but that's just the default value (it is an IgnoreDataMember).
-                if (readEvent is InstanceQueryReceived instanceQuery)
-                {
-                    // TODO: Resolve issue with File storage => breaks Azure stuff in EventSourcedOrchestrationService
-                    // TODO: Perf of EnumerateAllTrackedObjects
-                    instanceQuery.OnReadIssued(this.partition);
+                // TODO: Resolve issue with File storage => breaks Azure stuff in EventSourcedOrchestrationService
+                // TODO: Perf of EnumerateAllTrackedObjects
 
-                    IEnumerable<TrackedObject> queryPSFs()
+                IEnumerable<TrackedObject> queryPSFs()
+                {
+                    // Issue the PSF query. Note that pending operations will be completed before this returns.
+                    var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
+                    if (queryEvent.HasRuntimeStatus)
+                        querySpec.Add((this.RuntimeStatusPsf, queryEvent.RuntimeStatus.Select(s => new PSFKey(s))));
+                    if (queryEvent.CreatedTimeFrom.HasValue || queryEvent.CreatedTimeTo.HasValue)
                     {
-                        // Issue the PSF query. Note that pending operations will be completed before this returns.
-                        var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
-                        if (instanceQuery.HasRuntimeStatus)
-                            querySpec.Add((this.RuntimeStatusPsf, instanceQuery.RuntimeStatus.Select(s => new PSFKey(s))));
-                        if (instanceQuery.CreatedTimeFrom.HasValue || instanceQuery.CreatedTimeTo.HasValue)
+                        IEnumerable<PSFKey> enumerateDateBinKeys()
                         {
-                            IEnumerable<PSFKey> enumerateDateBinKeys()
-                            {
-                                var to = instanceQuery.CreatedTimeTo ?? DateTime.UtcNow;
-                                var from = instanceQuery.CreatedTimeFrom ?? to.AddDays(-7);   // TODO Some default so we don't have to iterate from the first possible date
-                                for (var dt = from; dt <= to; dt += PSFKey.DateBinInterval)
-                                    yield return new PSFKey(dt);
-                            }
-                            querySpec.Add((this.CreatedTimePsf, enumerateDateBinKeys()));
+                            var to = queryEvent.CreatedTimeTo ?? DateTime.UtcNow;
+                            var from = queryEvent.CreatedTimeFrom ?? to.AddDays(-7);   // TODO Some default so we don't have to iterate from the first possible date
+                            for (var dt = from; dt <= to; dt += PSFKey.DateBinInterval)
+                                yield return new PSFKey(dt);
                         }
-                        if (!string.IsNullOrWhiteSpace(instanceQuery.InstanceIdPrefix))
-                            querySpec.Add((this.InstanceIdPrefixPsf, new[] { new PSFKey(instanceQuery.InstanceIdPrefix) }));
-                        var querySettings = new PSFQuerySettings
-                        {
-                            // This is a match-all-PSFs enumeration so do not continue after any PSF has hit EOS
-                            OnStreamEnded = (unusedPsf, unusedIndex) => false 
-                        };
-                        return this.mainSession.QueryPSF(querySpec, matches => matches.All(b => b), querySettings)
-                                               .Select(providerData => (TrackedObject)providerData.GetValue());
+                        querySpec.Add((this.CreatedTimePsf, enumerateDateBinKeys()));
                     }
-
-                    var trackedObjects = instanceQuery.IsSet
-                        ? queryPSFs()
-                        : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly:true)).Values;
-
-                    foreach (var target in trackedObjects)
+                    if (!string.IsNullOrWhiteSpace(queryEvent.InstanceIdPrefix))
+                        querySpec.Add((this.InstanceIdPrefixPsf, new[] { new PSFKey(queryEvent.InstanceIdPrefix) }));
+                    var querySettings = new PSFQuerySettings
                     {
-                        instanceQuery.SetReadTarget(target.Key);
-                        effectTracker.ProcessReadResult(readEvent, target);
-                    }
-
-                    instanceQuery.OnPSFComplete(this.partition);
+                        // This is a match-all-PSFs enumeration so do not continue after any PSF has hit EOS
+                        OnStreamEnded = (unusedPsf, unusedIndex) => false
+                    };
+                    return this.mainSession.QueryPSF(querySpec, matches => matches.All(b => b), querySettings)
+                                           .Select(providerData => (TrackedObject)providerData.GetValue());
                 }
-                else
-                {
-                    Key key = readEvent.ReadTarget;
-                    TrackedObject target = null;
 
-                    // try to read directly (fast path)
-                    var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
+                // create a individual session for this query so the main session can be used
+                // while the query is progressing.
+                using (var session = this.fht.NewSession())
+                {
+
+                    var trackedObjects = queryEvent.IsSet
+                    ? queryPSFs()
+                    : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true)).Values;
+
+                    effectTracker.ProcessQueryResult(queryEvent, trackedObjects);
+                }
+            }
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            {
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+            }
+        }
+
+        // kick off a read of a tracked object, completing asynchronously if necessary
+        public void ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
+        {
+            try
+            {
+                Key key = readEvent.ReadTarget;
+                TrackedObject target = null;
+
+                // try to read directly (fast path)
+                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
 
                 switch (status)
                 {
@@ -282,11 +288,9 @@ namespace DurableTask.EventSourced.Faster
                         this.missCount++;
                         break;
 
-                        case Status.ERROR:
-                            throw new Exception("Faster"); //TODO
-                    }
+                    case Status.ERROR:
+                        throw new Exception("Faster"); //TODO
                 }
-
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -295,12 +299,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        // read a tracked object on the main session (only one of these is executing at a time)
+        // read a tracked object on the main session and wait for the response (only one of these is executing at a time)
         public async ValueTask<TrackedObject> ReadAsync(Key key, EffectTracker effectTracker)
         {
             try
             {
-                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, null, this.terminationToken).ConfigureAwait(false);
+                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, context:null, this.terminationToken).ConfigureAwait(false);
                 var (status, output) = result.CompleteRead();
                 return output;
             }

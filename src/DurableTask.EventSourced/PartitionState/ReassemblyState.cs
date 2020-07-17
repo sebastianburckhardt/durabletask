@@ -49,12 +49,16 @@ namespace DurableTask.EventSourced
 
                 switch (evt.ReassembledEvent)
                 {
+                    case PartitionUpdateEvent updateEvent:
+                        updateEvent.DetermineEffects(effects);
+                        break;
+
                     case PartitionReadEvent readEvent:
                         this.Partition.SubmitInternalEvent(readEvent);
                         break;
 
-                    case PartitionUpdateEvent updateEvent:
-                        updateEvent.DetermineEffects(effects);
+                    case PartitionQueryEvent queryEvent:
+                        this.Partition.SubmitInternalEvent(queryEvent);
                         break;
 
                     default:

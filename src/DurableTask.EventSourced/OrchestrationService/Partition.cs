@@ -181,6 +181,9 @@ namespace DurableTask.EventSourced
                         case PartitionReadEvent readEvent:
                             this.SubmitInternalEvent(readEvent);
                             break;
+                        case PartitionQueryEvent queryEvent:
+                            this.SubmitInternalEvent(queryEvent);
+                            break;
                         default:
                             throw new InvalidCastException("Could not cast to neither PartitionUpdateEvent nor PartitionReadEvent");
                     }
@@ -240,6 +243,12 @@ namespace DurableTask.EventSourced
         {
             readEvent.ReceivedTimestamp = this.CurrentTimeMs;
             this.State.SubmitInternalEvent(readEvent);
+        }
+
+        public void SubmitInternalEvent(PartitionQueryEvent queryEvent)
+        {
+            queryEvent.ReceivedTimestamp = this.CurrentTimeMs;
+            this.State.SubmitInternalEvent(queryEvent);
         }
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)
