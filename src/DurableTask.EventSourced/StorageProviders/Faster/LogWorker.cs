@@ -51,6 +51,8 @@ namespace DurableTask.EventSourced.Faster
 
         private int maxFragmentSize;
 
+        public long LastCommittedInputQueuePosition { get; private set; }
+
         public override void Submit(PartitionUpdateEvent evt)
         {
             byte[] bytes = Serializer.SerializeEvent(evt, first | last);
@@ -67,7 +69,10 @@ namespace DurableTask.EventSourced.Faster
 
                     // add to store worker (under lock for consistent ordering)
                     this.storeWorker.Submit(evt);
+
                 }
+
+                this.LastCommittedInputQueuePosition = evt.NextInputQueuePosition;
             }
         }
 

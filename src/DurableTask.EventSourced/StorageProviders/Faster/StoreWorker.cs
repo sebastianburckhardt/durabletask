@@ -42,10 +42,13 @@ namespace DurableTask.EventSourced.Faster
         public LogWorker LogWorker { get; set; }
 
         // periodic index and store checkpointing
+        private CheckpointTrigger pendingCheckpointTrigger;
         private Task pendingIndexCheckpoint;
-        private Task<long> pendingStoreCheckpoint;
-        private long lastCheckpointedPosition;
+        private Task<(long,long)> pendingStoreCheckpoint;
+        private long lastCheckpointedInputQueuePosition;
+        private long lastCheckpointedCommitLogPosition;
         private long numberEventsSinceLastCheckpoint;
+        private double timeOfLastCheckpoint;
 
         // periodic load publishing
         private long lastPublishedCommitLogPosition = 0;
@@ -53,6 +56,10 @@ namespace DurableTask.EventSourced.Faster
         private string lastPublishedLatencyTrend = "";
         private DateTime lastPublishedTime = DateTime.MinValue;
         public static TimeSpan PublishInterval = TimeSpan.FromSeconds(10);
+        public static TimeSpan IdlingPeriod = TimeSpan.FromSeconds(2);
+
+        private bool isInputQueuePositionPersisted => 
+            this.InputQueuePosition <= Math.Max(this.lastCheckpointedInputQueuePosition, this.LogWorker.LastCommittedInputQueuePosition);
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -84,7 +91,8 @@ namespace DurableTask.EventSourced.Faster
                 target.OnFirstInitialization();
             }
 
-            this.lastCheckpointedPosition = this.CommitLogPosition;
+            this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+            this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = initialCommitLogPosition;
         }
 
@@ -93,9 +101,38 @@ namespace DurableTask.EventSourced.Faster
             this.InputQueuePosition = blobManager.CheckpointInfo.InputQueuePosition;
             this.CommitLogPosition = blobManager.CheckpointInfo.CommitLogPosition;
 
-            this.lastCheckpointedPosition = this.CommitLogPosition;
+            this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+            this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = 0;
-        }    
+            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+        }
+
+        internal async ValueTask TakeFullCheckpointAsync(string reason)
+        {
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+
+            if (this.store.TakeFullCheckpoint(this.CommitLogPosition, this.InputQueuePosition, out var checkpointGuid))
+            {
+                this.traceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.CommitLogPosition, this.InputQueuePosition);
+
+                // do the faster full checkpoint and then write the checkpoint info file
+                await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
+                await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
+
+                this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+                this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
+                this.numberEventsSinceLastCheckpoint = 0;
+
+                this.traceHelper.FasterCheckpointPersisted(checkpointGuid, reason, this.CommitLogPosition, this.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                this.traceHelper.FasterProgress($"Checkpoint skipped: {reason}");
+            }
+
+            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+        }
 
         public async Task CancelAndShutdown()
         {
@@ -206,6 +243,35 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
+        private enum CheckpointTrigger
+        {
+            None,
+            CommitLogBytes,
+            EventCount,
+            TimeElapsed
+        }
+
+        private bool CheckpointDue(out CheckpointTrigger trigger)
+        {
+            trigger = CheckpointTrigger.None;
+
+            if (this.lastCheckpointedCommitLogPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition)
+            {
+                trigger = CheckpointTrigger.CommitLogBytes;
+            }
+            else if (this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
+            {
+                trigger = CheckpointTrigger.EventCount;
+            }
+            else if ((this.numberEventsSinceLastCheckpoint > 0 || !this.isInputQueuePositionPersisted)
+                && (this.partition.CurrentTimeMs - this.timeOfLastCheckpoint) > this.partition.Settings.MaxTimeMsBetweenCheckpoints)
+            {
+                trigger = CheckpointTrigger.TimeElapsed;
+            }
+             
+            return trigger != CheckpointTrigger.None;
+        }
+
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -256,8 +322,11 @@ namespace DurableTask.EventSourced.Faster
                 {
                     if (this.pendingStoreCheckpoint.IsCompleted == true)
                     {
-                        this.lastCheckpointedPosition = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
+                        (this.lastCheckpointedCommitLogPosition, this.lastCheckpointedInputQueuePosition)
+                            = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingStoreCheckpoint = null;
+                        this.pendingCheckpointTrigger = CheckpointTrigger.None;
+                        this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
                     }
                 }
                 else if (this.pendingIndexCheckpoint != null)
@@ -271,16 +340,23 @@ namespace DurableTask.EventSourced.Faster
                         this.numberEventsSinceLastCheckpoint = 0;
                     }
                 }
-                else if (this.lastCheckpointedPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition
-                    || this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
+                else if (this.CheckpointDue(out var trigger))
                 {
                     var token = this.store.StartIndexCheckpoint();
+                    this.pendingCheckpointTrigger = trigger;
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
                 }
-
+                
                 if (this.lastPublishedTime + PublishInterval < DateTime.UtcNow)
                 {
                     await this.PublishPartitionLoad().ConfigureAwait(false);
+                }
+
+                if (this.lastCheckpointedCommitLogPosition == this.CommitLogPosition 
+                    && this.lastCheckpointedInputQueuePosition == this.InputQueuePosition
+                    && this.LogWorker.LastCommittedInputQueuePosition <= this.InputQueuePosition)
+                {
+                    this.timeOfLastCheckpoint = this.partition.CurrentTimeMs; // nothing has changed since the last checkpoint
                 }
 
                 // make sure to complete ready read requests, or notify this worker
@@ -305,13 +381,13 @@ namespace DurableTask.EventSourced.Faster
             }
         }     
 
-        public async Task<long> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
+        public async Task<(long,long)> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
             var commitLogPosition = this.CommitLogPosition;
             var inputQueuePosition = this.InputQueuePosition;
-            string description = isIndexCheckpoint ? "index checkpoint" : "store checkpoint";
+            string description = $"{(isIndexCheckpoint ? "index" : "store")} checkpoint triggered by {this.pendingCheckpointTrigger}";
             this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
 
             // first do the faster checkpoint
@@ -329,7 +405,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
 
             this.Notify();
-            return commitLogPosition;
+            return (commitLogPosition, inputQueuePosition);
         }
 
         public async Task ReplayCommitLog(LogWorker logWorker)

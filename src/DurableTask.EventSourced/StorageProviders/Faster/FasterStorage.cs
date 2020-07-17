@@ -95,7 +95,7 @@ namespace DurableTask.EventSourced.Faster
                     // this is a fresh partition
                     await storeWorker.Initialize(this.log.BeginAddress, firstInputQueuePosition).ConfigureAwait(false);
 
-                    await this.TakeFullCheckpointAsync("initial checkpoint").ConfigureAwait(false);
+                    await this.storeWorker.TakeFullCheckpointAsync("initial checkpoint").ConfigureAwait(false);
                     this.TraceHelper.FasterStoreCreated(storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
 
                     this.partition.Assert(!FASTER.core.LightEpoch.AnyInstanceProtected());
@@ -167,36 +167,13 @@ namespace DurableTask.EventSourced.Faster
             if (takeFinalCheckpoint)
             {
                 this.TraceHelper.FasterProgress("Writing final checkpoint");
-                await this.TakeFullCheckpointAsync("final checkpoint").ConfigureAwait(false);
+                await this.storeWorker.TakeFullCheckpointAsync("final checkpoint").ConfigureAwait(false);
             }
 
             this.TraceHelper.FasterProgress("Stopping BlobManager");
             await this.blobManager.StopAsync().ConfigureAwait(false);
         }
 
-        private async ValueTask TakeFullCheckpointAsync(string reason)
-        {
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
-            bool success = this.store.TakeFullCheckpoint(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, out var checkpointGuid);
-            if (success)
-            {
-                this.TraceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.storeWorker.CommitLogPosition, this.storeWorker.InputQueuePosition);
-            }
-            else
-            {
-                this.TraceHelper.FasterProgress($"Checkpoint skipped: {reason}");
-            }
-
-            // do the faster full checkpoint and then write the checkpoint info file
-            await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
-            await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
-
-            if (success)
-            {
-                this.TraceHelper.FasterCheckpointPersisted(checkpointGuid, reason, this.storeWorker.CommitLogPosition, this.storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
-            }
-        }
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
@@ -220,7 +197,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                await Task.Delay(StoreWorker.PublishInterval, this.terminationToken).ConfigureAwait(false);
+                await Task.Delay(StoreWorker.IdlingPeriod).ConfigureAwait(false);
 
                 // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
                 this.storeWorker.Notify();

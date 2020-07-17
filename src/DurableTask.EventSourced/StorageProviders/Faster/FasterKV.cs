@@ -249,7 +249,6 @@ namespace DurableTask.EventSourced.Faster
                 // while the query is progressing.
                 using (var session = this.fht.NewSession())
                 {
-
                     var trackedObjects = queryEvent.IsSet
                     ? queryPSFs()
                     : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true)).Values;

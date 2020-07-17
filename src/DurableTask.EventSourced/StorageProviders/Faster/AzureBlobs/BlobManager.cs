@@ -590,7 +590,7 @@ namespace DurableTask.EventSourced.Faster
 
 #endregion
 
-#region ICheckpointManager
+        #region ICheckpointManager
 
         void ICheckpointManager.InitializeIndexCheckpoint(Guid indexToken)
         {
