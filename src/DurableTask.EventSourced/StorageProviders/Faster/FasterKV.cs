@@ -56,21 +56,24 @@ namespace DurableTask.EventSourced.Faster
                     valueSerializer = () => new Value.Serializer(),
                 });
 
-            int groupOrdinal = 0;
-            var psfs = fht.RegisterPSF(this.blobManager.CreatePSFRegistrationSettings<PSFKey>(partition.NumberPartitions(), groupOrdinal++),
-                                       (nameof(this.RuntimeStatusPsf), (k, v) => v.Val is InstanceState state 
-                                                                            ? (PSFKey?)new PSFKey(state.OrchestrationState.OrchestrationStatus)
-                                                                            : null),
-                                       (nameof(this.CreatedTimePsf), (k, v) => v.Val is InstanceState state
-                                                                            ? (PSFKey?)new PSFKey(state.OrchestrationState.CreatedTime)
-                                                                            : null),
-                                       (nameof(this.InstanceIdPrefixPsf), (k, v) => v.Val is InstanceState state
-                                                                            ? (PSFKey?)new PSFKey(state.InstanceId)
-                                                                            : null));
+            if (partition.Settings.UsePSFQueries)
+            {
+                int groupOrdinal = 0;
+                var psfs = fht.RegisterPSF(this.blobManager.CreatePSFRegistrationSettings<PSFKey>(partition.NumberPartitions(), groupOrdinal++),
+                                           (nameof(this.RuntimeStatusPsf), (k, v) => v.Val is InstanceState state
+                                                                                ? (PSFKey?)new PSFKey(state.OrchestrationState.OrchestrationStatus)
+                                                                                : null),
+                                           (nameof(this.CreatedTimePsf), (k, v) => v.Val is InstanceState state
+                                                                                ? (PSFKey?)new PSFKey(state.OrchestrationState.CreatedTime)
+                                                                                : null),
+                                           (nameof(this.InstanceIdPrefixPsf), (k, v) => v.Val is InstanceState state
+                                                                                ? (PSFKey?)new PSFKey(state.InstanceId)
+                                                                                : null));
 
-            this.RuntimeStatusPsf = psfs[0];
-            this.CreatedTimePsf = psfs[1];
-            this.InstanceIdPrefixPsf = psfs[2];
+                this.RuntimeStatusPsf = psfs[0];
+                this.CreatedTimePsf = psfs[1];
+                this.InstanceIdPrefixPsf = psfs[2];
+            }
 
             this.terminationToken = partition.ErrorHandler.Token;
 
@@ -249,7 +252,7 @@ namespace DurableTask.EventSourced.Faster
                 // while the query is progressing.
                 using (var session = this.fht.NewSession())
                 {
-                    var trackedObjects = queryEvent.IsSet
+                    var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet)
                     ? queryPSFs()
                     : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true)).Values;
 
