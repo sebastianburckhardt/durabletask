@@ -47,8 +47,11 @@ namespace DurableTask.EventSourced.Faster
         internal PSFKey(string instanceId, int prefixLength = InstanceIdPrefixLen)    // TODO change this to pass a list of prefixFunc<string, string> and make a PSF for each? E.g. parse "@{entityName.ToLowerInvariant()}@" or "@"
         {
             this.column = (int)PsfColumn.InstanceIdPrefix;
-            var prefix = prefixLength > 0 ? instanceId.Substring(0, prefixLength) : instanceId;
-            this.value = GetInvariantHashCode(prefix);
+            if (instanceId.Length > prefixLength)
+            {
+                instanceId = instanceId.Substring(0, Math.Min(instanceId.Length, prefixLength));
+            }
+            this.value = GetInvariantHashCode(instanceId);
         }
 
         private static int GetInvariantHashCode(string item)
