@@ -238,6 +238,7 @@ namespace DurableTask.EventSourced
             if (!this.Sessions.TryGetValue(evt.InstanceId, out var session) || session.SessionId != evt.SessionId)
             {
                 this.Partition.EventTraceHelper.TraceOrchestrationWorkItemDiscarded(evt);    
+                return;
             };
 
             if (evt.ActivityMessages?.Count > 0)
