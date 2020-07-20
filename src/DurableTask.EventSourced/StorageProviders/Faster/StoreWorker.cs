@@ -49,6 +49,7 @@ namespace DurableTask.EventSourced.Faster
         private long lastCheckpointedCommitLogPosition;
         private long numberEventsSinceLastCheckpoint;
         private double timeOfLastCheckpoint;
+        private double maxTimeOfNextCheckpoint;
 
         // periodic load publishing
         private long lastPublishedCommitLogPosition = 0;
@@ -60,6 +61,11 @@ namespace DurableTask.EventSourced.Faster
 
         private bool isInputQueuePositionPersisted => 
             this.InputQueuePosition <= Math.Max(this.lastCheckpointedInputQueuePosition, this.LogWorker.LastCommittedInputQueuePosition);
+
+        private double ComputeMaxTimeOfNextCheckpoint => 
+            // we randomize this so that partitions don't all decide to checkpoint at the exact same time
+            this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * new Random().NextDouble());
+
 
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
@@ -105,6 +111,7 @@ namespace DurableTask.EventSourced.Faster
             this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = 0;
             this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
         }
 
         internal async ValueTask TakeFullCheckpointAsync(string reason)
@@ -132,6 +139,7 @@ namespace DurableTask.EventSourced.Faster
             }
 
             this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
         }
 
         public async Task CancelAndShutdown()
@@ -264,7 +272,7 @@ namespace DurableTask.EventSourced.Faster
                 trigger = CheckpointTrigger.EventCount;
             }
             else if ((this.numberEventsSinceLastCheckpoint > 0 || !this.isInputQueuePositionPersisted)
-                && (this.partition.CurrentTimeMs - this.timeOfLastCheckpoint) > this.partition.Settings.MaxTimeMsBetweenCheckpoints)
+                && this.partition.CurrentTimeMs > this.maxTimeOfNextCheckpoint)
             {
                 trigger = CheckpointTrigger.TimeElapsed;
             }
@@ -327,6 +335,7 @@ namespace DurableTask.EventSourced.Faster
                         this.pendingStoreCheckpoint = null;
                         this.pendingCheckpointTrigger = CheckpointTrigger.None;
                         this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+                        this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
                     }
                 }
                 else if (this.pendingIndexCheckpoint != null)
@@ -357,6 +366,7 @@ namespace DurableTask.EventSourced.Faster
                     && this.LogWorker.LastCommittedInputQueuePosition <= this.InputQueuePosition)
                 {
                     this.timeOfLastCheckpoint = this.partition.CurrentTimeMs; // nothing has changed since the last checkpoint
+                    this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
                 }
 
                 // make sure to complete ready read requests, or notify this worker
