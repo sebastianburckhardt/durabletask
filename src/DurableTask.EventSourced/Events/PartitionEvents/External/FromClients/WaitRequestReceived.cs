@@ -27,6 +27,12 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.InstanceId);
 
+        protected override void ExtraTraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.InstanceId);
+        }
+
         public override void OnReadComplete(TrackedObject target, Partition partition)
         {
             partition.SubmitInternalEvent(new WaitRequestProcessed()

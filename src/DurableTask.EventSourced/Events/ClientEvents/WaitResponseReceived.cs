@@ -23,5 +23,11 @@ namespace DurableTask.EventSourced
     {
         [DataMember]
         public OrchestrationState OrchestrationState { get; set; }
+
+        protected override void ExtraTraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.OrchestrationState.OrchestrationStatus.ToString());
+        }
     }
 }

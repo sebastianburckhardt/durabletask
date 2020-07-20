@@ -50,6 +50,12 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakeSubEventId(EventId.MakeClientRequestEventId(this.ClientId, this.RequestId), 1);
 
+        protected override void ExtraTraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.InstanceId);
+        }
+
         public override void DetermineEffects(EffectTracker effects)
         {
             effects.Add(TrackedObjectKey.Creation);
