@@ -36,6 +36,8 @@ namespace DurableTask.EventSourced.Faster
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
+            partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.blobManager = blobManager;
             this.log = log;
             this.partition = partition;

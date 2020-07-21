@@ -44,7 +44,9 @@ namespace DurableTask.EventSourced.Faster
         {
             this.partition = partition;
             this.blobManager = blobManager;
- 
+
+            partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.fht = new FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions>(
                 HashTableSize,
                 new Functions(partition),

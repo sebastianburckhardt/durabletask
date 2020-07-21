@@ -70,6 +70,8 @@ namespace DurableTask.EventSourced.Faster
         public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
         {
+            partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.store = store;
             this.partition = partition;
             this.traceHelper = traceHelper;
@@ -86,6 +88,8 @@ namespace DurableTask.EventSourced.Faster
 
         public async Task Initialize(long initialCommitLogPosition, long initialInputQueuePosition)
         {
+            this.partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.InputQueuePosition = initialInputQueuePosition;
             this.CommitLogPosition = initialCommitLogPosition;
            

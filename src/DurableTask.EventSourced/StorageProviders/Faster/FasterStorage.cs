@@ -63,9 +63,9 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.terminationToken = errorHandler.Token;
 
-            this.TraceHelper = new FasterTraceHelper(this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, this.storageAccount is null ? "none" : this.storageAccount.Credentials.AccountName, this.taskHubName);
 
             this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler, FasterKV.PSFCount);
+            this.TraceHelper = blobManager.TraceHelper;
 
             this.TraceHelper.FasterProgress("Starting BlobManager");
             await blobManager.StartAsync().ConfigureAwait(false);
