@@ -399,16 +399,15 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                await Task.Delay(this.LeaseRenewal, this.shutDownOrTermination.Token).ConfigureAwait(false);
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 var nextLeaseTimer = new System.Diagnostics.Stopwatch();
                 nextLeaseTimer.Start();
 
                 if (!this.UseLocalFilesForTestingAndDebugging)
                 {
-                    this.TraceHelper.LeaseProgress("Renewing lease");
+                    this.TraceHelper.LeaseProgress($"Renewing lease at {this.leaseTimer.Elapsed.TotalSeconds - this.LeaseDuration.TotalSeconds}s");
                     await this.eventLogCommitBlob.RenewLeaseAsync(acc, this.PartitionErrorHandler.Token).ConfigureAwait(false);
-                    this.TraceHelper.LeaseProgress("Renewed lease");
+                    this.TraceHelper.LeaseProgress($"Renewed lease at {this.leaseTimer.Elapsed.TotalSeconds - this.LeaseDuration.TotalSeconds}s");
                 }
 
                 this.leaseTimer = nextLeaseTimer;
@@ -427,8 +426,16 @@ namespace DurableTask.EventSourced.Faster
             {
                 while (true)
                 {
-                    // save the task so storage accesses can wait for it
-                    this.NextLeaseRenewalTask = this.RenewLeaseTask();
+                    int timeLeft = (int) (this.LeaseRenewal - this.leaseTimer.Elapsed).TotalMilliseconds;
+
+                    if (timeLeft <= 0)
+                    {
+                        this.NextLeaseRenewalTask = this.RenewLeaseTask();
+                    }
+                    else
+                    {
+                        this.NextLeaseRenewalTask = LeaseTimer.Instance.Schedule(timeLeft, this.RenewLeaseTask);
+                    }
 
                     // wait for successful renewal, or exit the loop as this throws
                     await this.NextLeaseRenewalTask.ConfigureAwait(false); 
