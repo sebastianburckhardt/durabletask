@@ -26,9 +26,11 @@
 //using System.Threading.Tasks;
 
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core.Common;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -45,21 +47,43 @@ namespace DurableTask.EventSourced.Faster
 
         private readonly Timer timer;
         private readonly Entry[] schedule = new Entry[MaxDelay * TicksPerSecond];
-       
-        private volatile int position = 0;
+        public readonly object reentrancyLock = new object();
+
+        private readonly Stopwatch stopwatch = new Stopwatch();
+        private int performedSteps;
+
+        private int position = 0;
         
         public static LeaseTimer Instance => instance.Value;
+
+        public Action<int> DelayWarning { get; set; }
 
         private class Entry
         {
             public TaskCompletionSource<bool> Tcs;
+            public CancellationTokenRegistration Registration;
             public Func<Task> Callback;
             public Entry Next;
 
             public async Task Run()
             {
-                await Callback().ConfigureAwait(false);
-                Tcs.SetResult(true);
+                try
+                {
+                    await Callback().ConfigureAwait(false);
+                    Tcs.TrySetResult(true);
+
+                }
+                catch (Exception exception) when (!Utils.IsFatal(exception))
+                {
+                    Tcs.TrySetException(exception);
+                }
+                Registration.Dispose();
+            }
+
+            public void Cancel()
+            {
+                Tcs.TrySetCanceled();
+                Registration.Dispose();
             }
 
             public void RunAll()
@@ -75,12 +99,32 @@ namespace DurableTask.EventSourced.Faster
         private LeaseTimer()
         {
             this.timer = new Timer(this.Run, null, 0, 1000 / TicksPerSecond);
+            this.stopwatch.Start();
         }
 
         public void Run(object _)
         {
+            lock (this.reentrancyLock)
+            {
+                var stepsToDo = (this.stopwatch.ElapsedMilliseconds * TicksPerSecond / 1000) - this.performedSteps;
+
+                if (stepsToDo > 5 * TicksPerSecond)
+                {
+                    this.DelayWarning?.Invoke((int)stepsToDo / TicksPerSecond);
+                }
+
+                for (int i = 0; i < stepsToDo; i++)
+                {
+                    AdvancePosition();
+                }
+            }
+        }
+
+        private void AdvancePosition()
+        {
             int position = this.position;
             this.position = (position + 1) % (MaxDelay * TicksPerSecond);
+            this.performedSteps++;
 
             Entry current;
             while (true)
@@ -95,7 +139,7 @@ namespace DurableTask.EventSourced.Faster
             current?.RunAll();
         }
 
-        public Task Schedule(int delay, Func<Task> callback)
+        public Task Schedule(int delay, Func<Task> callback, CancellationToken token)
         {
             if ((delay / 1000) >= MaxDelay || delay < 0)
             {
@@ -107,6 +151,8 @@ namespace DurableTask.EventSourced.Faster
                Tcs = new TaskCompletionSource<bool>(),
                Callback = callback,
             };
+
+            entry.Registration = token.Register(entry.Cancel);
 
             while (true)
             {

@@ -399,6 +399,8 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
+                this.shutDownOrTermination.Token.ThrowIfCancellationRequested();
+
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 var nextLeaseTimer = new System.Diagnostics.Stopwatch();
                 nextLeaseTimer.Start();
@@ -411,6 +413,10 @@ namespace DurableTask.EventSourced.Faster
                 }
 
                 this.leaseTimer = nextLeaseTimer;
+            }
+            catch(OperationCanceledException)
+            {
+                // o.k. during termination or shutdown
             }
             catch (Exception)
             {
@@ -434,7 +440,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                     else
                     {
-                        this.NextLeaseRenewalTask = LeaseTimer.Instance.Schedule(timeLeft, this.RenewLeaseTask);
+                        this.NextLeaseRenewalTask = LeaseTimer.Instance.Schedule(timeLeft, this.RenewLeaseTask, this.shutDownOrTermination.Token);
                     }
 
                     // wait for successful renewal, or exit the loop as this throws
@@ -468,35 +474,38 @@ namespace DurableTask.EventSourced.Faster
                 // this is an unclean shutdown, so we let the lease expire to protect straggling storage accesses
                 this.TraceHelper.LeaseProgress("Leaving lease to expire on its own");
             }
-            else if (!this.UseLocalFilesForTestingAndDebugging)
+            else
             {
-                try
+                if (!this.UseLocalFilesForTestingAndDebugging)
                 {
-                    this.TraceHelper.LeaseProgress("Releasing lease");
+                    try
+                    {
+                        this.TraceHelper.LeaseProgress("Releasing lease");
 
-                    AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
+                        AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
 
-                    await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc,
-                        options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                        await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc,
+                            options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
 
-                    this.TraceHelper.LeaseReleased();
+                        this.TraceHelper.LeaseReleased();
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // it's o.k. if termination is triggered while waiting
+                    }
+                    catch (StorageException e) when (e.InnerException != null && e.InnerException is OperationCanceledException)
+                    {
+                        // it's o.k. if termination is triggered while we are releasing the lease
+                    }
+                    catch (Exception e)
+                    {
+                        this.TraceHelper.FasterBlobStorageWarning("could not release lease", this.eventLogCommitBlob.Name, e);
+                        // swallow exceptions when releasing a lease
+                    }
                 }
-                catch (OperationCanceledException)
-                {
-                    // it's o.k. if termination is triggered while waiting
-                }
-                catch (StorageException e) when (e.InnerException != null && e.InnerException is OperationCanceledException)
-                {
-                    // it's o.k. if termination is triggered while we are releasing the lease
-                }
-                catch (Exception e)
-                {
-                    this.TraceHelper.FasterBlobStorageWarning("could not release lease", this.eventLogCommitBlob.Name, e);
-                    // swallow exceptions when releasing a lease
-                }
+
+                this.PartitionErrorHandler.TerminateNormally();
             }
-
-            this.PartitionErrorHandler.TerminateNormally();
 
             this.TraceHelper.LeaseProgress("Blob manager stopped");
         }

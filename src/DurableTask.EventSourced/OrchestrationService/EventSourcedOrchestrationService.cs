@@ -224,6 +224,9 @@ namespace DurableTask.EventSourced
             this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
             this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
+            LeaseTimer.Instance.DelayWarning = (int delay) =>
+                this.Logger.LogWarning("EventSourcedOrchestrationService lease timer on workerId={workerId} is running {delay}s behind schedule", this.Settings.WorkerId, delay);
+
             if (!(this.LoadMonitorService is null))
                 this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
 
