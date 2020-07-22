@@ -19,7 +19,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
-using Microsoft.Azure.Storage.Blob.Protocol;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
@@ -52,8 +51,8 @@ namespace DurableTask.EventSourced.EventHubs
 
         private CloudBlobContainer cloudBlobContainer;
         private CloudBlockBlob taskhubParameters;
-        private CustomConstantEventProcessorHost customEventProcessorHost;
-        private Task customEventProcessorHostTask;
+        private CloudBlockBlob partitionScript;
+        private ScriptedEventProcessorHost customEventProcessorHost;
         private const int MaxReceiveBatchSize = 10000; // actual batches will always be much smaller
 
         public Guid ClientId { get; private set; }
@@ -71,6 +70,7 @@ namespace DurableTask.EventSourced.EventHubs
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
+            this.partitionScript = cloudBlobContainer.GetBlockBlobReference("partitionscript.json");
         }
 
         private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
@@ -156,7 +156,7 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 throw new InvalidOperationException("Only one taskhub is allowed per EventHub");
             }
-
+     
             this.host.NumberPartitions = (uint) this.parameters.StartPositions.Length;
 
             this.client = host.AddClient(this.ClientId, this);
@@ -184,7 +184,7 @@ namespace DurableTask.EventSourced.EventHubs
             else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
             {
                 this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
-                this.customEventProcessorHost = new CustomConstantEventProcessorHost(
+                this.customEventProcessorHost = new ScriptedEventProcessorHost(
                         EventHubsConnections.PartitionsPath,
                         EventHubsConnections.PartitionsConsumerGroup,
                         settings.EventHubsConnectionString,
@@ -194,9 +194,12 @@ namespace DurableTask.EventSourced.EventHubs
                         this, 
                         this.connections,
                         this.parameters, 
-                        this.traceHelper);
+                        this.traceHelper,
+                        settings.WorkerId);
 
-                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(this.settings.EventProcessorManagement));
+                var thread = new Thread(() => this.customEventProcessorHost.StartEventProcessing(settings, this.partitionScript));
+                thread.Name = "ScriptedEventProcessorHost";
+                thread.Start();
             }
             else
             {

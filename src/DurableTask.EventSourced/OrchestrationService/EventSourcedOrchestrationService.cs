@@ -14,6 +14,7 @@
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Faster;
 using DurableTask.EventSourced.Scaling;
 using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
@@ -84,7 +85,7 @@ namespace DurableTask.EventSourced
                 : CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
             EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
-            this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}, transport={transport}, storage={storage}", this.ServiceInstanceId, this.configuredTransport, this.configuredStorage);
+            this.Logger.LogInformation("EventSourcedOrchestrationService created, workerId={workerId}, transport={transport}, storage={storage}", this.Settings.WorkerId, this.configuredTransport, this.configuredStorage);
 
             switch (this.configuredTransport)
             {
@@ -217,7 +218,7 @@ namespace DurableTask.EventSourced
                 return;
             }
 
-            this.Logger.LogInformation("EventSourcedOrchestrationService is starting, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            this.Logger.LogInformation("EventSourcedOrchestrationService is starting on workerId={workerId}", this.Settings.WorkerId);
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
@@ -248,7 +249,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc />
         public async Task StopAsync(bool isForced)
         {
-            this.Logger.LogInformation("EventSourcedOrchestrationService stopping, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            this.Logger.LogInformation("EventSourcedOrchestrationService stopping, workerId={workerId}", this.Settings.WorkerId);
 
             if (!this.Settings.KeepServiceRunning && this.serviceShutdownSource != null)
             {
@@ -258,7 +259,7 @@ namespace DurableTask.EventSourced
 
                 await this.taskHub.StopAsync().ConfigureAwait(false);
 
-                this.Logger.LogInformation("EventSourcedOrchestrationService stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+                this.Logger.LogInformation("EventSourcedOrchestrationService stopped, workerId={workerId}", this.Settings.WorkerId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
