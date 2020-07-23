@@ -124,6 +124,11 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     Thread.Sleep(delay);
                 }
 
+                Stopwatch stopwatch = new Stopwatch();
+                stopwatch.Start();
+
+                bool parallel = true;
+
                 var tasks = new List<Task>();
                 int lasttime = 0;
                 foreach (var timestep in ready)
@@ -133,10 +138,17 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 }
                 foreach (var timestep in ready)
                 {
-                    tasks.Add(Task.Run(() => ProcessHostEvent(timestep)));
+                    if (parallel)
+                    {
+                        tasks.Add(ProcessHostEvent(timestep));
+                    }
+                    else
+                    {
+                        ProcessHostEvent(timestep).GetAwaiter().GetResult();
+                    }
                 }
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
-                this.logger.LogWarning("ScriptedEventProcessorHost workerId={workerId} finished all actions for time={time}.", this.workerId, lasttime);
+                this.logger.LogWarning("ScriptedEventProcessorHost workerId={workerId} finished all actions for time={time} in {elapsedSeconds}s.", this.workerId, lasttime, stopwatch.Elapsed.TotalSeconds);
             }
         }
 
