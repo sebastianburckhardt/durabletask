@@ -104,18 +104,25 @@ namespace DurableTask.EventSourced.Faster
 
         public void Run(object _)
         {
-            lock (this.reentrancyLock)
+            if (Monitor.TryEnter(this.reentrancyLock))
             {
-                var stepsToDo = (this.stopwatch.ElapsedMilliseconds * TicksPerSecond / 1000) - this.performedSteps;
-
-                if (stepsToDo > 5 * TicksPerSecond)
+                try
                 {
-                    this.DelayWarning?.Invoke((int)stepsToDo / TicksPerSecond);
+                    var stepsToDo = (this.stopwatch.ElapsedMilliseconds * TicksPerSecond / 1000) - this.performedSteps;
+
+                    if (stepsToDo > 5 * TicksPerSecond)
+                    {
+                        this.DelayWarning?.Invoke((int)stepsToDo / TicksPerSecond);
+                    }
+
+                    for (int i = 0; i < stepsToDo; i++)
+                    {
+                        AdvancePosition();
+                    }
                 }
-
-                for (int i = 0; i < stepsToDo; i++)
+                finally
                 {
-                    AdvancePosition();
+                    Monitor.Exit(this.reentrancyLock);
                 }
             }
         }
