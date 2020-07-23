@@ -266,9 +266,21 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     {
                         this.host.logger.LogTrace("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) trying to receive eventdata from position {position}", this.host.eventHubPath, partitionId, this.Incarnation, nextPacketToReceive);
 
-                        // TODO: Catch errors around this
+
                         // TODO: Is there a way to cancel the receive async if there is a requested cancellation?
-                        IEnumerable<EventData> eventData = await this.partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                        IEnumerable<EventData> eventData;
+
+                        try
+                        {
+                            eventData = await this.partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+                        }
+                        catch (TimeoutException exception)
+                        {
+                            // not sure that we should be seeing this, but we do.
+                            this.host.logger.LogWarning("Retrying after transient(?) TimeoutException in ReceiveAsync {exception}", exception);
+                            eventData = null;
+                        }
 
                         this.shutdownSource.Token.ThrowIfCancellationRequested();
 
