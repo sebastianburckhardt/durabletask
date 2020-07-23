@@ -104,6 +104,13 @@ namespace DurableTask.EventSourced
             this.WriteEvent(215, Account, TaskHub, ClientId, Context, Message, Details, ExtensionVersion);
         }
 
+        [Event(216, Level = EventLevel.Verbose, Version = 1)]
+        public void ClientTimerProgress(string Account, string TaskHub, Guid ClientId, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(216, Account, TaskHub, ClientId, Details, ExtensionVersion);
+        }
+
         // ----- specific events relating to DurableTask concepts (TaskMessage, OrchestrationWorkItem, Instance)
 
         [Event(220, Level = EventLevel.Verbose, Version = 1)]

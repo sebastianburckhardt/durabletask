@@ -40,8 +40,8 @@ namespace DurableTask.EventSourced
 
         private long SequenceNumber; // for numbering requests that enter on this client
 
-        private BatchTimer<ResponseWaiter> ResponseTimeouts;
-        private ConcurrentDictionary<long, ResponseWaiter> ResponseWaiters;
+        private BatchTimer<PendingRequest> ResponseTimeouts;
+        private ConcurrentDictionary<long, PendingRequest> ResponseWaiters;
         private Dictionary<string, MemoryStream> Fragments;
         
         public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
@@ -55,8 +55,8 @@ namespace DurableTask.EventSourced
             this.taskHub = host.Settings.TaskHubName;
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
-            this.ResponseTimeouts = new BatchTimer<ResponseWaiter>(this.shutdownToken, this.Timeout);
-            this.ResponseWaiters = new ConcurrentDictionary<long, ResponseWaiter>();
+            this.ResponseTimeouts = new BatchTimer<PendingRequest>(this.shutdownToken, this.Timeout, this.traceHelper.TraceTimerProgress);
+            this.ResponseWaiters = new ConcurrentDictionary<long, PendingRequest>();
             this.Fragments = new Dictionary<string, MemoryStream>();
             this.ResponseTimeouts.Start("ClientTimer");
 
@@ -105,9 +105,9 @@ namespace DurableTask.EventSourced
         private void ProcessInternal(ClientEvent clientEvent)
         {
             this.traceHelper.TraceReceive(clientEvent);
-            if (this.ResponseWaiters.TryGetValue(clientEvent.RequestId, out var waiter))
+            if (this.ResponseWaiters.TryRemove(clientEvent.RequestId, out var waiter))
             {
-                waiter.TrySetResult(clientEvent);
+                waiter.Respond(clientEvent);
             }
         }
 
@@ -118,67 +118,82 @@ namespace DurableTask.EventSourced
             this.BatchSender.Submit(partitionEvent);
         }
 
-
-        private void Timeout<T>(IEnumerable<CancellableCompletionSource<T>> promises) where T : class
+        private void Timeout(List<PendingRequest> pendingRequests)
         {
-            foreach (var promise in promises)
-            {
-                try
-                {
-                    promise.TrySetTimeoutException();
-                }
-                catch(Exception e)
-                {
-                    this.traceHelper.TraceError("Timeout", "Exception in client timeout notification", e);
-                }
-            }
+            Parallel.ForEach(pendingRequests, pendingRequest => pendingRequest.TryTimeout());
         }
 
+        // we align timeouts into buckets so we can process timeout storms more efficiently
+        private const long ticksPerBucket = 2 * TimeSpan.TicksPerSecond;
+        private DateTime GetTimeoutBucket(TimeSpan timeout) => new DateTime((((DateTime.UtcNow + timeout).Ticks / ticksPerBucket) * ticksPerBucket), DateTimeKind.Utc);
+        
         private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, IClientRequestEvent request, bool doneWhenSent)
         {
             int timeoutId = this.ResponseTimeouts.GetFreshId();
-            var waiter = new ResponseWaiter(this.shutdownToken, request.RequestId, this, request.TimeoutUtc, timeoutId);
-            this.ResponseWaiters.TryAdd(request.RequestId, waiter);
-            this.ResponseTimeouts.Schedule(request.TimeoutUtc, waiter, timeoutId);
+            var pendingRequest = new PendingRequest(request.RequestId, this, request.TimeoutUtc, timeoutId);
+            this.ResponseWaiters.TryAdd(request.RequestId, pendingRequest);
+            this.ResponseTimeouts.Schedule(request.TimeoutUtc, pendingRequest, timeoutId);
 
             if (doneWhenSent)
             {
-                DurabilityListeners.Register((Event) request, waiter);
+                DurabilityListeners.Register((Event) request, pendingRequest);
             }
 
             this.Send(request);
 
-            return waiter.Task;
+            return pendingRequest.Task;
         }
 
-        internal class ResponseWaiter : CancellableCompletionSource<ClientEvent>, TransportAbstraction.IDurabilityOrExceptionListener
+        internal class PendingRequest : TransportAbstraction.IDurabilityOrExceptionListener
         {
             private long requestId;
             private Client client;
-            private (DateTime, int) timeoutKey;
+            private (DateTime due, int id) timeoutKey;
+            private TaskCompletionSource<ClientEvent> continuation;
+            private static TimeoutException timeoutException = new TimeoutException("Client request timed out.");
 
-            public ResponseWaiter(CancellationToken token, long id, Client client, DateTime due, int timeoutId) : base(token)
+            public Task<ClientEvent> Task => this.continuation.Task;
+            public (DateTime, int) TimeoutKey => this.timeoutKey;
+
+            public PendingRequest(long id, Client client, DateTime due, int timeoutId)
             {
                 this.requestId = id;
                 this.client = client;
                 this.timeoutKey = (due, timeoutId);
+                this.continuation = new TaskCompletionSource<ClientEvent>(TaskContinuationOptions.ExecuteSynchronously);
             }
 
-            public void ConfirmDurable(Event evt)
+            public void Respond(ClientEvent evt)
             {
-                this.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
+                this.client.ResponseTimeouts.TryCancel(this.timeoutKey);
+                this.continuation.TrySetResult(evt);
             }
 
-            public void ReportException(Event evt, Exception e)
+            void TransportAbstraction.IDurabilityListener.ConfirmDurable(Event evt)
             {
-                this.TrySetException(e); // task finishes with exception
+                if (this.client.ResponseWaiters.TryRemove(this.requestId, out var _))
+                {
+                    this.client.ResponseTimeouts.TryCancel(this.timeoutKey);
+                    this.continuation.TrySetResult(null); // task finishes when the send has been confirmed, no result is returned
+                }
             }
 
-            protected override void Cleanup()
+            void TransportAbstraction.IDurabilityOrExceptionListener.ReportException(Event evt, Exception e)
             {
-                client.ResponseWaiters.TryRemove(this.requestId, out var _);
-                client.ResponseTimeouts.TryRemove(timeoutKey);
-                base.Cleanup();
+                if (this.client.ResponseWaiters.TryRemove(this.requestId, out var _))
+                {
+                    this.client.ResponseTimeouts.TryCancel(this.timeoutKey);
+                    this.continuation.TrySetException(e); // task finishes with exception
+                }
+            }
+
+            public void TryTimeout()
+            {
+                this.client.traceHelper.TraceTimerProgress($"firing ({timeoutKey.due:o},{timeoutKey.id})");
+                if (this.client.ResponseWaiters.TryRemove(this.requestId, out var _))
+                {
+                    this.continuation.TrySetException(timeoutException); 
+                }
             }
         }
 
@@ -196,7 +211,7 @@ namespace DurableTask.EventSourced
                 TaskMessage = creationMessage,
                 DedupeStatuses = dedupeStatuses,
                 Timestamp = DateTime.UtcNow,
-                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false);
@@ -210,7 +225,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 TaskMessages = messages.ToArray(),
-                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
@@ -235,7 +250,7 @@ namespace DurableTask.EventSourced
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
                 ExecutionId = executionId,
-                TimeoutUtc = DateTime.UtcNow + timeout,         
+                TimeoutUtc = this.GetTimeoutBucket(timeout),         
             };
 
             var response = await PerformRequestWithTimeoutAndCancellation(cancellationToken, request, false).ConfigureAwait(false);
@@ -255,7 +270,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
-                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
             var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false).ConfigureAwait(false);
@@ -268,7 +283,7 @@ namespace DurableTask.EventSourced
                     PartitionId = partitionId,
                     ClientId = this.ClientId,
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                    TimeoutUtc = DateTime.UtcNow + DefaultTimeout
+                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
                 }, cancellationToken);
 
         public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo,
@@ -278,7 +293,7 @@ namespace DurableTask.EventSourced
                    PartitionId = partitionId,
                    ClientId = this.ClientId,
                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                   TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
+                   TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
                    CreatedTimeFrom = createdTimeFrom,
                    CreatedTimeTo = createdTimeTo,
                    RuntimeStatus = runtimeStatus?.ToArray(),
@@ -312,7 +327,7 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 TaskMessages = taskMessages,
-                TimeoutUtc = DateTime.UtcNow + DefaultTimeout,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
