@@ -81,8 +81,7 @@ namespace DurableTask.EventSourced.Faster
             this.effectTracker = new EffectTracker(
                 this.partition,
                 (key, tracker) => store.ProcessEffectOnTrackedObject(key, tracker),
-                () => (this.CommitLogPosition, this.InputQueuePosition),
-                (c, i) => { this.CommitLogPosition = c; this.InputQueuePosition = i; }
+                () => (this.CommitLogPosition, this.InputQueuePosition)
             );
         }
 
@@ -306,6 +305,12 @@ namespace DurableTask.EventSourced.Faster
                     {
                         case PartitionUpdateEvent updateEvent:
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
+
+                            if (updateEvent.NextCommitLogPosition > 0)
+                            {
+                                this.partition.Assert(updateEvent.NextCommitLogPosition > this.CommitLogPosition);
+                                this.CommitLogPosition = updateEvent.NextCommitLogPosition;
+                            }
                             break;
 
                         case PartitionReadEvent readEvent:
@@ -321,6 +326,12 @@ namespace DurableTask.EventSourced.Faster
 
                         default:
                             throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                    }
+                    
+                    if (partitionEvent.NextInputQueuePosition > 0)
+                    {
+                        this.partition.Assert(partitionEvent.NextInputQueuePosition > this.InputQueuePosition);
+                        this.InputQueuePosition = partitionEvent.NextInputQueuePosition;
                     }
                 }
 
@@ -453,7 +464,7 @@ namespace DurableTask.EventSourced.Faster
         public async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
         {
             // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
-            // (note that it may not be the very next in the sequence since readonly events are not persisted in the store)
+            // (note that it may not be the very next in the sequence since readonly events are not persisted in the log)
             if (partitionEvent.NextInputQueuePosition > 0 && partitionEvent.NextInputQueuePosition <= this.InputQueuePosition)
             {
                 this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate event detected", null, false, false);

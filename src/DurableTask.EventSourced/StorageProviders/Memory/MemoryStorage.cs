@@ -116,8 +116,7 @@ namespace DurableTask.EventSourced
                 var effects = new EffectTracker(
                     this.partition,
                     this.ApplyToStore,
-                    () => (this.commitPosition, this.inputQueuePosition),
-                    (c, i) => { this.commitPosition = c; this.inputQueuePosition = i; }
+                    () => (this.commitPosition, this.inputQueuePosition)
                 );
 
                 if (batch.Count != 0)
@@ -135,6 +134,11 @@ namespace DurableTask.EventSourced
                                     updateEvent.NextCommitLogPosition = commitPosition + 1;
                                     await effects.ProcessUpdate(updateEvent).ConfigureAwait(false);
                                     DurabilityListeners.ConfirmDurable(updateEvent);
+                                    if (updateEvent.NextCommitLogPosition > 0)
+                                    {
+                                        this.partition.Assert(updateEvent.NextCommitLogPosition > this.commitPosition);
+                                        this.commitPosition = updateEvent.NextCommitLogPosition;
+                                    }
                                     break;
 
                                 case PartitionReadEvent readEvent:
@@ -149,6 +153,12 @@ namespace DurableTask.EventSourced
 
                                 default:
                                     throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                            }
+
+                            if (partitionEvent.NextInputQueuePosition > 0)
+                            {
+                                this.partition.Assert(partitionEvent.NextInputQueuePosition > this.inputQueuePosition);
+                                this.inputQueuePosition = partitionEvent.NextInputQueuePosition;
                             }
                         }
                         catch (Exception e)

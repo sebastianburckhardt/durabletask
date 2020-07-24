@@ -31,15 +31,13 @@ namespace DurableTask.EventSourced
     {
         private readonly Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore;
         private readonly Func<(long, long)> getPositions;
-        private readonly Action<long, long> setPositions;
         private readonly System.Diagnostics.Stopwatch stopWatch;
 
-        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions, Action<long, long> setPositions)
+        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions)
         {
             this.Partition = partition;
             this.applyToStore = applyToStore;
             this.getPositions = getPositions;
-            this.setPositions = setPositions;
             this.stopWatch = new System.Diagnostics.Stopwatch();
             this.stopWatch.Start();
         }
@@ -113,19 +111,6 @@ namespace DurableTask.EventSourced
                         // pop this object now since we are done processing
                         this.RemoveAt(startPos);
                     }
-
-                    // update the commit log and input queue positions
-                    if (updateEvent.NextCommitLogPosition > 0)
-                    {
-                        this.Partition.Assert(updateEvent.NextCommitLogPosition > commitLogPosition);
-                        commitLogPosition = updateEvent.NextCommitLogPosition;
-                    }
-                    if (updateEvent.NextInputQueuePosition > 0)
-                    {
-                        this.Partition.Assert(updateEvent.NextInputQueuePosition > inputQueuePosition);
-                        inputQueuePosition = updateEvent.NextInputQueuePosition;
-                    }
-                    this.setPositions(commitLogPosition, inputQueuePosition);
 
                     this.Effect = null;
                 }
