@@ -143,13 +143,17 @@ namespace DurableTask.EventSourced.Faster
         public BlobRequestOptions BlobRequestOptionsUnderLease => new BlobRequestOptions()
         {
             RetryPolicy = new LinearRetry(TimeSpan.FromSeconds(2), 2),
-            NetworkTimeout = TimeSpan.FromSeconds(50),
+            NetworkTimeout = TimeSpan.FromSeconds(30),
+            ServerTimeout = TimeSpan.FromSeconds(20), 
+            MaximumExecutionTime = TimeSpan.FromSeconds(30),
         };
 
         public BlobRequestOptions BlobRequestOptionsNotUnderLease => new BlobRequestOptions()
         {
             RetryPolicy = new ExponentialRetry(TimeSpan.FromSeconds(4), 4),
-            NetworkTimeout = TimeSpan.FromSeconds(50),
+            NetworkTimeout = TimeSpan.FromSeconds(60),
+            ServerTimeout = TimeSpan.FromSeconds(30),
+            MaximumExecutionTime = TimeSpan.FromSeconds(60),
         };
 
         // For tests only; TODO consider adding PSFs
