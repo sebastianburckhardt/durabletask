@@ -216,42 +216,57 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
 
             public int Incarnation { get; }
 
-            // TODO: Handle errors
             public async Task StartAsync()
             {
                 this.shutdownSource = new CancellationTokenSource();
 
-                this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) is starting partition", this.host.eventHubPath, partitionId, this.Incarnation);
+                try
+                {
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) is starting partition", this.host.eventHubPath, partitionId, this.Incarnation);
 
-                // start this partition (which may include waiting for the lease to become available)
-                this.partition = this.host.host.AddPartition(partitionId, this.host.sender);
+                    // start this partition (which may include waiting for the lease to become available)
+                    this.partition = this.host.host.AddPartition(partitionId, this.host.sender);
 
-                var errorHandler = this.host.host.CreateErrorHandler(partitionId);
+                    var errorHandler = this.host.host.CreateErrorHandler(partitionId);
 
-                var nextPacketToReceive = await partition.CreateOrRestoreAsync(errorHandler, this.host.parameters.StartPositions[Convert.ToInt32(partitionId)]).ConfigureAwait(false);
-                this.host.logger.LogInformation("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) started partition, next expected packet is #{nextSeqno}", this.host.eventHubPath, partitionId, this.Incarnation, nextPacketToReceive);
+                    var nextPacketToReceive = await partition.CreateOrRestoreAsync(errorHandler, this.host.parameters.StartPositions[Convert.ToInt32(partitionId)]).ConfigureAwait(false);
+                    this.host.logger.LogInformation("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) started partition, next expected packet is #{nextSeqno}", this.host.eventHubPath, partitionId, this.Incarnation, nextPacketToReceive);
 
-                this.partitionEventLoop = Task.Run(() => this.PartitionEventLoop(nextPacketToReceive));
+                    this.partitionEventLoop = Task.Run(() => this.PartitionEventLoop(nextPacketToReceive));
+                }
+                catch(Exception e) when (!Utils.IsFatal(e))
+                {
+                    this.host.logger.LogError("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) failed to start partition: {exception}", this.host.eventHubPath, partitionId, this.Incarnation, e);
+                    throw;
+                }
             }
 
             // TODO: Handle errors
             public async Task StopAsync()
             {
-                // First stop the partition. We need to wait until it shutdowns before closing the receiver, since it needs to receive confirmation events.
-                this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopping partition)", this.host.eventHubPath, partitionId, this.Incarnation);
-                await partition.StopAsync().ConfigureAwait(false);
-                this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped partition", this.host.eventHubPath, partitionId, this.Incarnation);
+                try
+                {
+                    // First stop the partition. We need to wait until it shutdowns before closing the receiver, since it needs to receive confirmation events.
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopping partition)", this.host.eventHubPath, partitionId, this.Incarnation);
+                    await partition.StopAsync().ConfigureAwait(false);
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped partition", this.host.eventHubPath, partitionId, this.Incarnation);
 
-                // Stop the receiver loop
-                this.shutdownSource.Cancel();
+                    // Stop the receiver loop
+                    this.shutdownSource.Cancel();
 
-                // wait for the receiver loop to terminate
-                await this.partitionEventLoop;
+                    // wait for the receiver loop to terminate
+                    await this.partitionEventLoop;
 
-                // shut down the partition receiver (eventHubs complains if more than 5 of these are active per partition)
-                await this.partitionReceiver.CloseAsync();
+                    // shut down the partition receiver (eventHubs complains if more than 5 of these are active per partition)
+                    await this.partitionReceiver.CloseAsync();
 
-                this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped receive loop", this.host.eventHubPath, partitionId, this.Incarnation);
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped receive loop", this.host.eventHubPath, partitionId, this.Incarnation);
+                }
+                catch (Exception e) when (!Utils.IsFatal(e))
+                {
+                    this.host.logger.LogError("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) failed to stop partition: {exception}", this.host.eventHubPath, partitionId, this.Incarnation, e);
+                    throw;
+                }
             }
 
             // TODO: Update all the logging messages
