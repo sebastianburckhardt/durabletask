@@ -341,7 +341,7 @@ namespace DurableTask.EventSourced.Faster
                     });
         }
 
-        const int maxPortionSizeForPageBlobWrites = 4 * 1024 * 1024; // 4 MB is a limit on page blob write portions, apparently
+        const int maxPortionSizeForPageBlobWrites = 256 * 1024; // better to not upload very large portions (e.g. so lease renewal is smoother)
 
         private async Task WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, uint numBytesToWrite)
         {
