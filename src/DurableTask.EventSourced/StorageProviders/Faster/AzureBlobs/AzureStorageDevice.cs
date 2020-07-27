@@ -180,6 +180,9 @@ namespace DurableTask.EventSourced.Faster
         {
             await BlobManager.AsynchronousStorageWriteMaxConcurrency.WaitAsync();
 
+
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.WritePortionToBlobAsync Called target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+
             try
             {
                 if (this.underLease)
@@ -187,8 +190,12 @@ namespace DurableTask.EventSourced.Faster
                     await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
 
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+
                 await blob.WritePagesAsync(stream, destinationAddress + offset,
                     contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
             }
             catch (Exception exception)
             {
