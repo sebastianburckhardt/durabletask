@@ -546,6 +546,7 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     SynchronousStorageAccessMaxConcurrency.Wait();
+                    this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
                     this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
                     return;
@@ -588,6 +589,7 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     SynchronousStorageAccessMaxConcurrency.Wait();
+                    this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     using var stream = new MemoryStream();
                     this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
                     var bytes = stream.ToArray();
