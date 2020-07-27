@@ -40,22 +40,25 @@ namespace DurableTask.EventSourced.Faster
         internal IPSF CreatedTimePsf;
         internal IPSF InstanceIdPrefixPsf;
 
+        public StoreStatistics StoreStats { get; }
+
         public FasterKV(Partition partition, BlobManager blobManager)
         {
             this.partition = partition;
             this.blobManager = blobManager;
+            this.StoreStats = new StoreStatistics();
 
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
             this.fht = new FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions>(
                 HashTableSize,
-                new Functions(partition),
+                new Functions(partition, this.StoreStats),
                 blobManager.StoreLogSettings(partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
                 new SerializerSettings<Key, Value>
                 {
                     keySerializer = () => new Key.Serializer(),
-                    valueSerializer = () => new Value.Serializer(),
+                    valueSerializer = () => new Value.Serializer(this.StoreStats),
                 });
 
             if (partition.Settings.UsePSFQueries)
@@ -458,11 +461,37 @@ namespace DurableTask.EventSourced.Faster
 
             public class Serializer : BinaryObjectSerializer<Value>
             {
+                private readonly StoreStatistics storeStats;
+
+                public Serializer(StoreStatistics storeStats)
+                {
+                    this.storeStats = storeStats;
+                }
+
                 public override void Deserialize(ref Value obj)
                 {
                     int count = this.reader.ReadInt32();
                     byte[] bytes = this.reader.ReadBytes(count);
-                    obj.Val = DurableTask.EventSourced.Serializer.DeserializeTrackedObject(bytes);
+                    var trackedObject = DurableTask.EventSourced.Serializer.DeserializeTrackedObject(bytes);
+                    //if (trackedObject.Key.IsSingleton)
+                    //{
+                    //    this.storeStats.A++;
+                    //    this.storeStats.B += bytes.Length;
+                    //}
+                    //else if (trackedObject is InstanceState i)
+                    //{
+                    //    this.storeStats.C++;
+                    //    this.storeStats.D += bytes.Length;
+                    //    this.storeStats.U.Add(i.InstanceId);
+                    //}
+                    //else if (trackedObject is HistoryState h)
+                    //{
+                    //    this.storeStats.E++;
+                    //    this.storeStats.F += bytes.Length;
+                    //    this.storeStats.UU.Add(h.InstanceId);
+                    //}
+                    obj.Val = trackedObject;
+                    this.storeStats.Deserialize++;
                 }
 
                 public override void Serialize(ref Value obj)
@@ -476,6 +505,7 @@ namespace DurableTask.EventSourced.Faster
                     {
                         TrackedObject trackedObject = obj;
                         DurableTask.EventSourced.Serializer.SerializeTrackedObject(trackedObject);
+                        this.storeStats.Serialize++;
                         writer.Write(trackedObject.SerializationCache.Length);
                         writer.Write(trackedObject.SerializationCache);
                     }
@@ -483,18 +513,68 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        public class StoreStatistics
+        {
+            public long Create;
+            public long Modify;
+            public long Read;
+            public long Copy;
+            public long Serialize;
+            public long Deserialize;
+
+            public long LastCreate;
+            public long LastModify;
+            public long LastRead;
+            public long LastCopy;
+            public long LastSerialize;
+            public long LastDeserialize;
+
+            //public long A;
+            //public long B;
+            //public long C;
+            //public long D;
+            //public long E;
+            //public long F;
+
+            public HashSet<string> U = new HashSet<string>();
+            public HashSet<string> UU = new HashSet<string>();
+
+            public string Get()
+            {
+  //              var result = $"(A={A},B={B},C={C},D={D},E={E},F={F},U={U.Count},UU={UU.Count} Cr={Create - LastCreate} Mod={Modify - LastModify} Rd={Read - LastRead} Cpy={Copy - LastCopy} Ser={Serialize - LastSerialize} Des={Deserialize - LastDeserialize})";
+                var result = $"(Cr={Create - LastCreate} Mod={Modify - LastModify} Rd={Read - LastRead} Cpy={Copy - LastCopy} Ser={Serialize - LastSerialize} Des={Deserialize - LastDeserialize})";
+
+                this.LastCreate = Create;
+                this.LastModify = Modify;
+                this.LastRead = Read;
+                this.LastCopy = Copy;
+                this.LastCopy = Copy;
+                this.LastSerialize = Serialize;
+                this.LastDeserialize = Deserialize;
+
+                return result;
+            }
+        }
+
         public class Functions : IFunctions<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent>
         {
             private readonly Partition partition;
+            private readonly StoreStatistics stats;
 
-            public Functions(Partition partition) => this.partition = partition;
+            public Functions(Partition partition, StoreStatistics stats)
+            {
+                this.partition = partition;
+                this.stats = stats;
+            }
 
             public void InitialUpdater(ref Key key, ref EffectTracker tracker, ref Value value)
             {
                 var trackedObject = TrackedObjectKey.Factory(key.Val);
+                stats.Create++;
                 trackedObject.Partition = partition;
                 value.Val = trackedObject;
                 tracker.ProcessEffectOn(trackedObject);
+                stats.Modify++;
             }
 
             public bool InPlaceUpdater(ref Key key, ref EffectTracker tracker, ref Value value)
@@ -504,15 +584,19 @@ namespace DurableTask.EventSourced.Faster
                 trackedObject.SerializationCache = null; // cache is invalidated
                 trackedObject.Partition = partition;
                 tracker.ProcessEffectOn(trackedObject);
+                stats.Modify++;
                 return true;
             }
 
             public void CopyUpdater(ref Key key, ref EffectTracker tracker, ref Value oldValue, ref Value newValue)
             {
+                stats.Copy++;
+
                 // replace old object with its serialized snapshot
                 partition.Assert(oldValue.Val is TrackedObject);
                 TrackedObject trackedObject = oldValue;
                 DurableTask.EventSourced.Serializer.SerializeTrackedObject(trackedObject);
+                stats.Serialize++;
                 oldValue.Val = trackedObject.SerializationCache;
 
                 // keep object as the new object, and apply effect
@@ -520,6 +604,7 @@ namespace DurableTask.EventSourced.Faster
                 trackedObject.SerializationCache = null; // cache is invalidated
                 trackedObject.Partition = partition;
                 tracker.ProcessEffectOn(trackedObject);
+                stats.Modify++;
             }
 
             public void SingleReader(ref Key key, ref EffectTracker _, ref Value value, ref TrackedObject dst)
@@ -528,6 +613,7 @@ namespace DurableTask.EventSourced.Faster
                 partition.Assert(trackedObject != null);
                 trackedObject.Partition = partition;
                 dst = value;
+                stats.Read++;
             }
 
             public void ConcurrentReader(ref Key key, ref EffectTracker _, ref Value value, ref TrackedObject dst)
@@ -536,6 +622,7 @@ namespace DurableTask.EventSourced.Faster
                 partition.Assert(trackedObject != null);
                 trackedObject.Partition = partition;
                 dst = value;
+                stats.Read++;
             }
 
             public void SingleWriter(ref Key key, ref Value src, ref Value dst)

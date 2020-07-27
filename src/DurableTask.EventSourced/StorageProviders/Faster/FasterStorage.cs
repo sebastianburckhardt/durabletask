@@ -116,7 +116,7 @@ namespace DurableTask.EventSourced.Faster
                     this.store.Recover();
                     storeWorker.ReadCheckpointPositions(this.blobManager);
 
-                    this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+                    this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, store.StoreStats.Get(), stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception e)
                 {

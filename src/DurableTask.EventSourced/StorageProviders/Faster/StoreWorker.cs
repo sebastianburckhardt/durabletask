@@ -124,7 +124,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (this.store.TakeFullCheckpoint(this.CommitLogPosition, this.InputQueuePosition, out var checkpointGuid))
             {
-                this.traceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.CommitLogPosition, this.InputQueuePosition);
+                this.traceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.store.StoreStats.Get(), this.CommitLogPosition, this.InputQueuePosition);
 
                 // do the faster full checkpoint and then write the checkpoint info file
                 await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
@@ -413,7 +413,7 @@ namespace DurableTask.EventSourced.Faster
             var commitLogPosition = this.CommitLogPosition;
             var inputQueuePosition = this.InputQueuePosition;
             string description = $"{(isIndexCheckpoint ? "index" : "store")} checkpoint triggered by {this.pendingCheckpointTrigger}";
-            this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
+            this.traceHelper.FasterCheckpointStarted(checkpointToken, description, this.store.StoreStats.Get(), commitLogPosition, inputQueuePosition);
 
             // first do the faster checkpoint
             await store.CompleteCheckpointAsync().ConfigureAwait(false);
@@ -446,7 +446,7 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Stop();
             this.effectTracker.IsReplaying = false;
 
-            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
+            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, this.store.StoreStats.Get(), stopwatch.ElapsedMilliseconds);
         }
 
         public async Task RestartThingsAtEndOfRecovery()

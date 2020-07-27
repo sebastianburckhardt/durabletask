@@ -223,10 +223,10 @@ namespace DurableTask.EventSourced
         }
 
         [Event(251, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointStarted(string Account, string TaskHub, int PartitionId, Guid CheckpointId, string Reason, long CommitLogPosition, long InputQueuePosition, string ExtensionVersion)
+        public void FasterCheckpointStarted(string Account, string TaskHub, int PartitionId, Guid CheckpointId, string Reason, string StoreStats, long CommitLogPosition, long InputQueuePosition, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(251, Account, TaskHub, PartitionId, CheckpointId, Reason, CommitLogPosition, InputQueuePosition, ExtensionVersion);
+            this.WriteEvent(251, Account, TaskHub, PartitionId, CheckpointId, Reason, StoreStats, CommitLogPosition, InputQueuePosition, ExtensionVersion);
         }
 
         [Event(252, Level = EventLevel.Informational, Version = 1)]
@@ -244,17 +244,17 @@ namespace DurableTask.EventSourced
         }
 
         [Event(254, Level = EventLevel.Informational, Version = 1)]
-        public void FasterCheckpointLoaded(string Account, string TaskHub, int PartitionId, long CommitLogPosition, long InputQueuePosition, long LatencyMs, string ExtensionVersion)
+        public void FasterCheckpointLoaded(string Account, string TaskHub, int PartitionId, long CommitLogPosition, long InputQueuePosition, string StoreStats, long LatencyMs, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(254, Account, TaskHub, PartitionId, CommitLogPosition, InputQueuePosition, LatencyMs, ExtensionVersion);
+            this.WriteEvent(254, Account, TaskHub, PartitionId, CommitLogPosition, InputQueuePosition, StoreStats, LatencyMs, ExtensionVersion);
         }
 
         [Event(255, Level = EventLevel.Informational, Version = 1)]
-        public void FasterLogReplayed(string Account, string TaskHub, int PartitionId, long CommitLogPosition, long InputQueuePosition, long NumberEvents, long SizeInBytes, long LatencyMs, string ExtensionVersion)
+        public void FasterLogReplayed(string Account, string TaskHub, int PartitionId, long CommitLogPosition, long InputQueuePosition, long NumberEvents, long SizeInBytes, string StoreStats, long LatencyMs, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(255, Account, TaskHub, PartitionId, CommitLogPosition, InputQueuePosition, NumberEvents, SizeInBytes, LatencyMs, ExtensionVersion);
+            this.WriteEvent(255, Account, TaskHub, PartitionId, CommitLogPosition, InputQueuePosition, NumberEvents, SizeInBytes, StoreStats, LatencyMs, ExtensionVersion);
         }
 
         [Event(256, Level = EventLevel.Error, Version = 1)]
