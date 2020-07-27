@@ -66,6 +66,10 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
+        internal static SemaphoreSlim AsynchronousStorageReadMaxConcurrency = new SemaphoreSlim(Environment.ProcessorCount * 25);
+        internal static SemaphoreSlim AsynchronousStorageWriteMaxConcurrency = new SemaphoreSlim(Environment.ProcessorCount * 25);
+        internal static SemaphoreSlim SynchronousStorageAccessMaxConcurrency = new SemaphoreSlim(Environment.ProcessorCount * 3);
+
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
         public FasterLogSettings EventLogSettings => new FasterLogSettings
@@ -541,6 +545,7 @@ namespace DurableTask.EventSourced.Faster
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
+                    SynchronousStorageAccessMaxConcurrency.Wait();
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
                     this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
                     return;
@@ -566,18 +571,23 @@ namespace DurableTask.EventSourced.Faster
                     this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
                     throw;
                 }
+                finally
+                {
+                    SynchronousStorageAccessMaxConcurrency.Release();
+                }
             }
         }
 
         byte[] ILogCommitManager.GetCommitMetadata()
         {
-            this.StorageTracer?.FasterStorageProgress("ILogCommitManager.GetCommitMetadata Called");
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Called (thread={Thread.CurrentThread.ManagedThreadId})");
 
             while (true)
             {
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
+                    SynchronousStorageAccessMaxConcurrency.Wait();
                     using var stream = new MemoryStream();
                     this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
                     var bytes = stream.ToArray();
@@ -604,6 +614,10 @@ namespace DurableTask.EventSourced.Faster
                 {
                     this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.GetCommitMetadata), this.eventLogCommitBlob.Name, e);
                     throw;
+                }
+                finally
+                {
+                    SynchronousStorageAccessMaxConcurrency.Release();
                 }
             }
         }
@@ -695,6 +709,8 @@ namespace DurableTask.EventSourced.Faster
             CloudBlockBlob target = null;
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var metaFileBlob = target = partDir.GetBlockBlobReference(this.GetHybridLogCheckpointMetaBlobName(logToken));
                 
@@ -716,6 +732,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.CommitLogCheckpoint), target?.Name, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal byte[] GetIndexCommitMetadata(Guid indexToken, int psfGroupOrdinal)
@@ -725,6 +745,8 @@ namespace DurableTask.EventSourced.Faster
             CloudBlockBlob target = null;
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var metaFileBlob = target = partDir.GetBlockBlobReference(this.GetIndexCheckpointMetaBlobName(indexToken));
                 
@@ -741,6 +763,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCommitMetadata), target?.Name, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal byte[] GetLogCommitMetadata(Guid logToken, int psfGroupOrdinal)
@@ -750,6 +776,8 @@ namespace DurableTask.EventSourced.Faster
             CloudBlockBlob target = null;
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var metaFileBlob = target = partDir.GetBlockBlobReference(this.GetHybridLogCheckpointMetaBlobName(logToken));
                 
@@ -766,6 +794,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCommitMetadata), target?.Name, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal IDevice GetIndexDevice(Guid indexToken, int psfGroupOrdinal)
@@ -774,6 +806,8 @@ namespace DurableTask.EventSourced.Faster
             this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexDevice Called on {tag}, indexToken={indexToken}");
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var (path, blobName) = this.GetPrimaryHashTableBlobName(indexToken);
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var blobDirectory = partDir.GetDirectoryReference(path);
@@ -787,6 +821,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexDevice), null, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal IDevice GetSnapshotLogDevice(Guid token, int psfGroupOrdinal)
@@ -795,6 +833,8 @@ namespace DurableTask.EventSourced.Faster
             this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotLogDevice Called on {tag}, token={token}");
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var (path, blobName) = this.GetLogSnapshotBlobName(token);
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var blobDirectory = partDir.GetDirectoryReference(path);
@@ -808,6 +848,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetSnapshotLogDevice), null, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal IDevice GetSnapshotObjectLogDevice(Guid token, int psfGroupOrdinal)
@@ -816,6 +860,8 @@ namespace DurableTask.EventSourced.Faster
             this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotObjectLogDevice Called on {tag}, token={token}");
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var (path, blobName) = this.GetObjectLogSnapshotBlobName(token);
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var blobDirectory = partDir.GetDirectoryReference(path);
@@ -829,6 +875,10 @@ namespace DurableTask.EventSourced.Faster
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetSnapshotObjectLogDevice), null, e);
                 throw;
             }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
+            }
         }
 
         internal bool GetLatestCheckpoint(out Guid indexToken, out Guid logToken, int psfGroupOrdinal)
@@ -838,11 +888,14 @@ namespace DurableTask.EventSourced.Faster
             CloudBlockBlob target = null;
             try
             {
+                SynchronousStorageAccessMaxConcurrency.Wait();
+
                 var partDir = isPsf ? this.partitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.partitionDirectory;
                 var checkpointCompletedBlob = partDir.GetBlockBlobReference(this.GetCheckpointCompletedBlobName());
 
                 if (checkpointCompletedBlob.Exists())
                 {
+
                     target = checkpointCompletedBlob;
                     this.ConfirmLeaseIsGoodForAWhile();
                     var jsonString = checkpointCompletedBlob.DownloadText();
@@ -869,6 +922,10 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLatestCheckpoint), target?.Name, e);
                 throw;
+            }
+            finally
+            {
+                SynchronousStorageAccessMaxConcurrency.Release();
             }
         }
 
