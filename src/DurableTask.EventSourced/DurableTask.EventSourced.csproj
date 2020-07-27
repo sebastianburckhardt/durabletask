@@ -34,7 +34,7 @@
     <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.1.6" />
     <PackageReference Include="Microsoft.Azure.Storage.Queue" Version="11.1.6" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="2.2.0" />
-    <PackageReference Include="Microsoft.FASTER.Debug" Version="2020.4.27.2" />
+    <PackageReference Include="Microsoft.FASTER" Version="2020.6.5.1-tag14" />
   </ItemGroup>
 
   <ItemGroup>

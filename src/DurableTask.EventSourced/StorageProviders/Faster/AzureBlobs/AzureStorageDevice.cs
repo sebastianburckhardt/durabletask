@@ -179,6 +179,9 @@ namespace DurableTask.EventSourced.Faster
 
         private async Task WritePortionToBlobAsync(UnmanagedMemoryStream stream, CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, long offset, uint length)
         {
+
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.WritePortionToBlobAsync Called target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+
             try
             {
                 if (this.underLease)
@@ -186,8 +189,12 @@ namespace DurableTask.EventSourced.Faster
                     await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
 
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+
                 await blob.WritePagesAsync(stream, destinationAddress + offset,
                     contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+
+                this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
             }
             catch (Exception exception)
             {
@@ -342,7 +349,8 @@ namespace DurableTask.EventSourced.Faster
                     });
         }
 
-        const int maxPortionSizeForPageBlobWrites = 4 * 1024 * 1024; // 4 MB is a limit on page blob write portions, apparently
+        const int maxPortionSizeForPageBlobWrites = 256 * 1024; // don't upload more than 256k at a time.
+        //const int maxPortionSizeForPageBlobWrites = 4 * 1024 * 1024; // 4 MB is a limit on page blob write portions, apparently
 
         private async Task WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, uint numBytesToWrite)
         {

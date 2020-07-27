@@ -488,6 +488,7 @@ namespace DurableTask.EventSourced.Faster
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
+                    this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
                     this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
                     return;
@@ -525,13 +526,12 @@ namespace DurableTask.EventSourced.Faster
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
-                    using (var stream = new MemoryStream())
-                    {
-                        this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
-                        var bytes = stream.ToArray();
-                        this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Returned {bytes?.Length ?? null} bytes");
-                        return bytes.Length == 0 ? null : bytes;
-                    }
+                    using var stream = new MemoryStream();
+                    this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
+                    this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
+                    var bytes = stream.ToArray();
+                    this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Returned {bytes?.Length ?? null} bytes");
+                    return bytes.Length == 0 ? null : bytes;
                 }
                 catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
                 {
