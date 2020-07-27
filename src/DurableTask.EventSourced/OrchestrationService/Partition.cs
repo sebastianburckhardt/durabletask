@@ -60,6 +60,8 @@ namespace DurableTask.EventSourced
         // A little helper property that allows us to conventiently check the condition for low-level event tracing
         public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingAtMostDetailedLevel ? this.EventTraceHelper : null;
 
+        private static SemaphoreSlim MaxConcurrentStarts = new SemaphoreSlim(5);
+
         public Partition(
             EventSourcedOrchestrationService host,
             uint partitionId,
@@ -94,6 +96,8 @@ namespace DurableTask.EventSourced
             this.ErrorHandler = errorHandler;
             this.TraceHelper.TraceProgress("Starting partition");
 
+            await MaxConcurrentStarts.WaitAsync();
+
             // create or restore partition state from last snapshot
             try
             {
@@ -118,6 +122,10 @@ namespace DurableTask.EventSourced
             {
                 this.ErrorHandler.HandleError(nameof(CreateOrRestoreAsync), "Could not start partition", e, true, false);
                 throw;
+            }
+            finally
+            {
+                MaxConcurrentStarts.Release();
             }
         }
 
