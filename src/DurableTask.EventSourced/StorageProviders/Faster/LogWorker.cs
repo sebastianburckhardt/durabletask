@@ -123,27 +123,30 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                //  checkpoint the log
-                var stopwatch = new System.Diagnostics.Stopwatch();
-                stopwatch.Start();
-                long previous = log.CommittedUntilAddress;
-
-                await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-
-                this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-
-                foreach (var evt in batch)
+                if (batch.Count > 0)
                 {
-                    if (! (this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+                    //  checkpoint the log
+                    var stopwatch = new System.Diagnostics.Stopwatch();
+                    stopwatch.Start();
+                    long previous = log.CommittedUntilAddress;
+
+                    await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+
+                    foreach (var evt in batch)
                     {
-                        try
+                        if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
                         {
-                            DurabilityListeners.ConfirmDurable(evt);
-                        }
-                        catch (Exception exception) when (!(exception is OutOfMemoryException))
-                        {
-                            // for robustness, swallow exceptions, but report them
-                            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                            try
+                            {
+                                DurabilityListeners.ConfirmDurable(evt);
+                            }
+                            catch (Exception exception) when (!(exception is OutOfMemoryException))
+                            {
+                                // for robustness, swallow exceptions, but report them
+                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                            }
                         }
                     }
                 }
