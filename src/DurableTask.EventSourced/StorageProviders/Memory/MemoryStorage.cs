@@ -143,8 +143,13 @@ namespace DurableTask.EventSourced
 
                                 case PartitionReadEvent readEvent:
                                     readEvent.OnReadIssued(this.partition);
+                                    if (readEvent.Prefetch.HasValue)
+                                    {
+                                        var prefetchTarget = this.GetOrAdd(readEvent.Prefetch.Value);
+                                        effects.ProcessReadResult(readEvent, readEvent.Prefetch.Value, prefetchTarget);
+                                    }
                                     var readTarget = this.GetOrAdd(readEvent.ReadTarget);
-                                    effects.ProcessReadResult(readEvent, readTarget);
+                                    effects.ProcessReadResult(readEvent, readEvent.ReadTarget, readTarget);
                                     break;
 
                                 case PartitionQueryEvent queryEvent:

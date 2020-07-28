@@ -131,7 +131,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void ProcessReadResult(PartitionReadEvent readEvent, TrackedObject target)
+        public void ProcessReadResult(PartitionReadEvent readEvent, TrackedObjectKey key, TrackedObject target)
         {
             if (readEvent == null)
             {
@@ -143,35 +143,39 @@ namespace DurableTask.EventSourced
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
             double startedTimestamp = this.Partition.CurrentTimeMs;
-            TrackedObjectKey key = readEvent.ReadTarget;
 
             using (EventTraceContext.MakeContext(commitLogPosition, readEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
+                    readEvent.Deliver(key, target, out var isReady);
 
-                    // trace read accesses to instance and history
-                    switch (key.ObjectType)
+                    if (isReady)
                     {
-                        case TrackedObjectKey.TrackedObjectType.Instance:
-                            string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
-                            this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
-                            break;
+                        this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
 
-                        case TrackedObjectKey.TrackedObjectType.History:
-                            HistoryState historyState = (HistoryState)target;
-                            string historyExecutionId = historyState?.ExecutionId;
-                            int eventCount = historyState?.History?.Count ?? 0;
-                            int episode = historyState?.Episode ?? 0;
-                            this.Partition.EventTraceHelper.TraceFetchedInstanceHistory(readEvent, key.InstanceId, historyExecutionId, eventCount, episode, startedTimestamp - readEvent.IssuedTimestamp);
-                            break;
+                        // trace read accesses to instance and history
+                        switch (key.ObjectType)
+                        {
+                            case TrackedObjectKey.TrackedObjectType.Instance:
+                                string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
+                                this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
+                                break;
 
-                        default:
-                            break;
+                            case TrackedObjectKey.TrackedObjectType.History:
+                                HistoryState historyState = (HistoryState)target;
+                                string historyExecutionId = historyState?.ExecutionId;
+                                int eventCount = historyState?.History?.Count ?? 0;
+                                int episode = historyState?.Episode ?? 0;
+                                this.Partition.EventTraceHelper.TraceFetchedInstanceHistory(readEvent, key.InstanceId, historyExecutionId, eventCount, episode, startedTimestamp - readEvent.IssuedTimestamp);
+                                break;
+
+                            default:
+                                break;
+                        }
+
+                        readEvent.Fire(this.Partition);
                     }
-
-                    readEvent.OnReadComplete(target, this.Partition);
                 }
                 catch (OperationCanceledException)
                 {

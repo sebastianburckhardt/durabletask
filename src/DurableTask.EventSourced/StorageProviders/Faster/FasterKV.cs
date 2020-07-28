@@ -276,27 +276,34 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                Key key = readEvent.ReadTarget;
-                TrackedObject target = null;
-
-                // try to read directly (fast path)
-                var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
-
-                switch (status)
+                if (readEvent.Prefetch.HasValue)
                 {
-                    case Status.NOTFOUND:
-                    case Status.OK:
-                        this.hitCount++;
-                        effectTracker.ProcessReadResult(readEvent, target);
-                        break;
+                    TryRead(readEvent.Prefetch.Value);
+                }
 
-                    case Status.PENDING:
-                        // read continuation will be called when complete
-                        this.missCount++;
-                        break;
+                TryRead(readEvent.ReadTarget);
 
-                    case Status.ERROR:
-                        throw new Exception("Faster"); //TODO
+                void TryRead(Key key)
+                {
+                    TrackedObject target = null;
+                    var status = this.mainSession.Read(ref key, ref effectTracker, ref target, readEvent, 0);
+                    switch (status)
+                    {
+                        case Status.NOTFOUND:
+                        case Status.OK:
+                            // fast path: we hit in the cache and complete the read
+                            this.StoreStats.HitCount++;
+                            effectTracker.ProcessReadResult(readEvent, key, target);
+                            break;
+
+                        case Status.PENDING:
+                            // slow path: read continuation will be called when complete
+                            this.StoreStats.MissCount++;
+                            break;
+
+                        case Status.ERROR:
+                            throw new Exception("Faster"); //TODO
+                    }
                 }
             }
             catch (Exception exception)
@@ -642,11 +649,11 @@ namespace DurableTask.EventSourced.Faster
                 switch (status)
                 {
                     case Status.NOTFOUND:
-                        tracker.ProcessReadResult(evt, null);
+                        tracker.ProcessReadResult(evt, key, null);
                         break;
 
                     case Status.OK:
-                        tracker.ProcessReadResult(evt, output);
+                        tracker.ProcessReadResult(evt, key, output);
                         break;
 
                     case Status.PENDING:
