@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
         public override void OnRecoveryCompleted()
         {
             // resend all pending
-            foreach (var kvp in Outbox)
+            foreach (var kvp in this.Outbox)
             {
                 // recover non-persisted fields
                 kvp.Value.Position = kvp.Key;
@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced
 
         public override string ToString()
         {
-            return $"Outbox ({Outbox.Count} pending)";
+            return $"Outbox ({this.Outbox.Count} pending)";
         }
 
         private void SendBatchOnceEventIsPersisted(PartitionUpdateEvent evt, EffectTracker effects, Batch batch)
@@ -92,7 +92,7 @@ namespace DurableTask.EventSourced
         private void Send(Batch batch)
         {
             // now that we know the sending event is persisted, we can send the messages
-            foreach (var outmessage in batch)
+            foreach (var outmessage in batch.OutgoingMessages)
             {
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
@@ -103,8 +103,11 @@ namespace DurableTask.EventSourced
         }
 
         [DataContract]
-        public class Batch : List<PartitionMessageEvent>, TransportAbstraction.IDurabilityListener
+        public class Batch : TransportAbstraction.IDurabilityListener
         {
+            [DataMember]
+            public List<PartitionMessageEvent> OutgoingMessages { get; set; } = new List<PartitionMessageEvent>();
+
             [IgnoreDataMember]
             public long Position { get; set; }
 
@@ -118,9 +121,9 @@ namespace DurableTask.EventSourced
             {
                 this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Transport has confirmed event {evt} id={evt.EventIdString}");
 
-                if (++numAcks == Count)
+                if (++numAcks == this.OutgoingMessages.Count)
                 {
-                    Partition.SubmitInternalEvent(new SendConfirmed()
+                    this.Partition.SubmitInternalEvent(new SendConfirmed()
                     {
                         PartitionId = this.Partition.PartitionId,
                         Position = Position,
@@ -140,7 +143,7 @@ namespace DurableTask.EventSourced
         public void Process(ActivityCompleted evt, EffectTracker effects)
         {
             var batch = new Batch();
-            batch.Add(new RemoteActivityResultReceived()
+            batch.OutgoingMessages.Add(new RemoteActivityResultReceived()
             {
                 PartitionId = evt.OriginPartitionId,
                 Result = evt.Response,
@@ -175,14 +178,14 @@ namespace DurableTask.EventSourced
                 }
             }
             var batch = new Batch();
-            batch.AddRange(sorted.Values);
+            batch.OutgoingMessages.AddRange(sorted.Values);
             this.SendBatchOnceEventIsPersisted(evt, effects, batch);
         }
 
         public void Process(OffloadDecision evt, EffectTracker effects)
         {
             var batch = new Batch();
-            batch.Add(new ActivityOffloadReceived()
+            batch.OutgoingMessages.Add(new ActivityOffloadReceived()
             {
                 PartitionId = evt.DestinationPartitionId,
                 OffloadedActivities = evt.OffloadedActivities,
