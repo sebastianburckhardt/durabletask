@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class StoreWorker : BatchWorker<PartitionEvent>
     {
-        private readonly FasterKV store;
+        private readonly TrackedObjectStore store;
         private readonly Partition partition;
         private readonly FasterTraceHelper traceHelper;
         private readonly BlobManager blobManager;
@@ -67,7 +67,7 @@ namespace DurableTask.EventSourced.Faster
             this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * new Random().NextDouble());
 
 
-        public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
+        public StoreWorker(TrackedObjectStore store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
         {
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
@@ -105,10 +105,10 @@ namespace DurableTask.EventSourced.Faster
             this.numberEventsSinceLastCheckpoint = initialCommitLogPosition;
         }
 
-        public void ReadCheckpointPositions(BlobManager blobManager)
+        public void SetCheckpointPositionsAfterRecovery(long commitLogPosition, long inputQueuePosition)
         {
-            this.InputQueuePosition = blobManager.CheckpointInfo.InputQueuePosition;
-            this.CommitLogPosition = blobManager.CheckpointInfo.CommitLogPosition;
+            this.CommitLogPosition = commitLogPosition;
+            this.InputQueuePosition = inputQueuePosition;
 
             this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
             this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
@@ -126,9 +126,9 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.traceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.store.StoreStats.Get(), this.CommitLogPosition, this.InputQueuePosition);
 
-                // do the faster full checkpoint and then write the checkpoint info file
+                // do the faster full checkpoint and then finalize it
                 await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
-                await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
+                await this.store.FinalizeCheckpointCompletedAsync(checkpointGuid).ConfigureAwait(false);
 
                 this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
                 this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
@@ -174,7 +174,7 @@ namespace DurableTask.EventSourced.Faster
                 InputQueuePosition = this.InputQueuePosition,
                 WorkerId = this.partition.Settings.WorkerId,
                 LatencyTrend = this.lastPublishedLatencyTrend,
-                MissRate = this.store.ReadAndResetCacheStats(),
+                MissRate = this.store.StoreStats.GetMissRate(),
             };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
@@ -424,7 +424,7 @@ namespace DurableTask.EventSourced.Faster
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // finally we write the checkpoint info file
-                await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
+                await this.store.FinalizeCheckpointCompletedAsync(checkpointToken).ConfigureAwait(false);
             }
  
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);

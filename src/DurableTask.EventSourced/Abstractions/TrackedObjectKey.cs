@@ -75,6 +75,16 @@ namespace DurableTask.EventSourced
             public int Compare(TrackedObjectKey x, TrackedObjectKey y) => TrackedObjectKey.Compare(ref x, ref y); 
         }
 
+        public override int GetHashCode()
+        {
+            return (this.InstanceId?.GetHashCode() ?? 0) + (int) this.ObjectType;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return (obj is TrackedObjectKey other && this.ObjectType == other.ObjectType && this.InstanceId == other.InstanceId);
+        }
+
         // convenient constructors for singletons
 
         public static TrackedObjectKey Activities = new TrackedObjectKey() { ObjectType = TrackedObjectType.Activities };

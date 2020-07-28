@@ -64,6 +64,8 @@ namespace DurableTask.EventSourced.Faster
 
         public string ContainerName { get; }
 
+        public CloudBlobContainer BlobContainer => this.blobContainer;
+
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
         internal static SemaphoreSlim AsynchronousStorageReadMaxConcurrency = new SemaphoreSlim(Environment.ProcessorCount * 25);
@@ -933,7 +935,7 @@ namespace DurableTask.EventSourced.Faster
 
         #endregion
 
-        internal async Task WriteCheckpointCompletedAsync()
+        internal async Task FinalizeCheckpointCompletedAsync()
         {
             // write the final file that has all the checkpoint info
             void writeLocal(string path, string text)

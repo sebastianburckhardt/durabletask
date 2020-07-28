@@ -99,6 +99,11 @@ namespace DurableTask.EventSourced
         public bool UsePSFQueries { get; set; } = true;
 
         /// <summary>
+        /// Whether to use the alternate object store implementation.
+        /// </summary>
+        public bool UseAlternateObjectStore { get; set; } = true;
+
+        /// <summary>
         /// A lower limit on the severity level of trace events emitted by the transport layer.
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>

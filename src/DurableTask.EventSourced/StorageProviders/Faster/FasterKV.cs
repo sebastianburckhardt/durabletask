@@ -22,7 +22,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterKV
+    internal class FasterKV : TrackedObjectStore
     {
         private FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> fht;
 
@@ -40,13 +40,10 @@ namespace DurableTask.EventSourced.Faster
         internal IPSF CreatedTimePsf;
         internal IPSF InstanceIdPrefixPsf;
 
-        public StoreStatistics StoreStats { get; }
-
         public FasterKV(Partition partition, BlobManager blobManager)
         {
             this.partition = partition;
             this.blobManager = blobManager;
-            this.StoreStats = new StoreStatistics();
 
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
@@ -102,17 +99,19 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
 
-        public void InitMainSession()
+        public override void InitMainSession()
         {
             this.mainSession = fht.NewSession();
         }
 
-        public void Recover()
+        public override void Recover(out long commitLogPosition, out long inputQueuePosition)
         {
             try
             {
                 this.fht.Recover();
                 this.mainSession = fht.NewSession();
+                commitLogPosition = this.blobManager.CheckpointInfo.CommitLogPosition;
+                inputQueuePosition = this.blobManager.CheckpointInfo.InputQueuePosition;
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -121,7 +120,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void CompletePending()
+        public override void CompletePending()
         {
             try
             {
@@ -134,12 +133,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public ValueTask ReadyToCompletePendingAsync()
+        public override ValueTask ReadyToCompletePendingAsync()
         {
             return this.mainSession.ReadyToCompletePendingAsync(this.terminationToken);
         }
 
-        public bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
+        public override bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
             try
             {
@@ -154,7 +153,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public async ValueTask CompleteCheckpointAsync()
+        public override async ValueTask CompleteCheckpointAsync()
         {
             try
             {
@@ -167,7 +166,12 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public Guid StartIndexCheckpoint()
+        public override Task FinalizeCheckpointCompletedAsync(Guid guid)
+        {
+            return this.blobManager.FinalizeCheckpointCompletedAsync();
+        }
+
+        public override Guid StartIndexCheckpoint()
         {
             try
             {
@@ -182,7 +186,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
+        public override Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
             try
             {
@@ -205,20 +209,8 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public EffectTracker NoInput = null;
-
-        private long missCount;
-        private long hitCount;
-
-        public double ReadAndResetCacheStats()
-        {
-            double ratio = (missCount > 0) ? ((double)missCount / (missCount + hitCount)) : 0.0;
-            hitCount = missCount = 0;
-            return ratio;
-        }
-
         // perform a query
-        public async Task QueryAsync(PartitionQueryEvent queryEvent, EffectTracker effectTracker)
+        public override async Task QueryAsync(PartitionQueryEvent queryEvent, EffectTracker effectTracker)
         {
             try
             {
@@ -272,7 +264,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // kick off a read of a tracked object, completing asynchronously if necessary
-        public void ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
+        public override void ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
             try
             {
@@ -314,7 +306,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // read a tracked object on the main session and wait for the response (only one of these is executing at a time)
-        public async ValueTask<TrackedObject> ReadAsync(Key key, EffectTracker effectTracker)
+        public override async ValueTask<TrackedObject> ReadAsync(Key key, EffectTracker effectTracker)
         {
             try
             {
@@ -330,7 +322,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // create a tracked object on the main session (only one of these is executing at a time)
-        public async ValueTask<TrackedObject> CreateAsync(Key key)
+        public override async ValueTask<TrackedObject> CreateAsync(Key key)
         {
             try
             {              
@@ -347,7 +339,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public ValueTask ProcessEffectOnTrackedObject(Key k, EffectTracker tracker)
+        public override ValueTask ProcessEffectOnTrackedObject(Key k, EffectTracker tracker)
         {
             try
             {
@@ -360,7 +352,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        private async Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        public override async Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
         {
             // TODOperf: Performance of getting all tracked objects
             var results = new SortedDictionary<TrackedObjectKey, TrackedObject>(new TrackedObjectKey.Comparer());
@@ -517,49 +509,6 @@ namespace DurableTask.EventSourced.Faster
                         writer.Write(trackedObject.SerializationCache);
                     }
                 }
-            }
-        }
-
-        public class StoreStatistics
-        {
-            public long Create;
-            public long Modify;
-            public long Read;
-            public long Copy;
-            public long Serialize;
-            public long Deserialize;
-
-            public long LastCreate;
-            public long LastModify;
-            public long LastRead;
-            public long LastCopy;
-            public long LastSerialize;
-            public long LastDeserialize;
-
-            //public long A;
-            //public long B;
-            //public long C;
-            //public long D;
-            //public long E;
-            //public long F;
-
-            public HashSet<string> U = new HashSet<string>();
-            public HashSet<string> UU = new HashSet<string>();
-
-            public string Get()
-            {
-  //              var result = $"(A={A},B={B},C={C},D={D},E={E},F={F},U={U.Count},UU={UU.Count} Cr={Create - LastCreate} Mod={Modify - LastModify} Rd={Read - LastRead} Cpy={Copy - LastCopy} Ser={Serialize - LastSerialize} Des={Deserialize - LastDeserialize})";
-                var result = $"(Cr={Create - LastCreate} Mod={Modify - LastModify} Rd={Read - LastRead} Cpy={Copy - LastCopy} Ser={Serialize - LastSerialize} Des={Deserialize - LastDeserialize})";
-
-                this.LastCreate = Create;
-                this.LastModify = Modify;
-                this.LastRead = Read;
-                this.LastCopy = Copy;
-                this.LastCopy = Copy;
-                this.LastSerialize = Serialize;
-                this.LastDeserialize = Deserialize;
-
-                return result;
             }
         }
 

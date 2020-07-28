@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Faster
         private LogWorker logWorker;
         private StoreWorker storeWorker;
         private FasterLog log;
-        private FasterKV store;
+        private TrackedObjectStore store;
 
         private CancellationToken terminationToken;
 
@@ -76,8 +76,16 @@ namespace DurableTask.EventSourced.Faster
             this.TraceHelper.FasterProgress("Creating FasterLog");
             this.log = new FasterLog(this.blobManager);
 
-            this.TraceHelper.FasterProgress("Creating FasterKV");
-            this.store = new FasterKV(this.partition, this.blobManager);
+            if (partition.Settings.UseAlternateObjectStore)
+            {
+                this.TraceHelper.FasterProgress("Creating FasterAlt");
+                this.store = new FasterAlt(this.partition, this.blobManager);
+            }
+            else
+            {
+                this.TraceHelper.FasterProgress("Creating FasterKV");
+                this.store = new FasterKV(this.partition, this.blobManager);
+            }
 
             this.TraceHelper.FasterProgress("Creating StoreWorker");
             this.storeWorker = new StoreWorker(store, this.partition, this.TraceHelper, this.blobManager, this.terminationToken);
@@ -113,8 +121,8 @@ namespace DurableTask.EventSourced.Faster
                 try
                 {
                     // we are recovering the last checkpoint of the store
-                    this.store.Recover();
-                    storeWorker.ReadCheckpointPositions(this.blobManager);
+                    this.store.Recover(out long commitLogPosition, out long inputQueuePosition);
+                    storeWorker.SetCheckpointPositionsAfterRecovery(commitLogPosition, inputQueuePosition);
 
                     this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, store.StoreStats.Get(), stopwatch.ElapsedMilliseconds);
                 }
