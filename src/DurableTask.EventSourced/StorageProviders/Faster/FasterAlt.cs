@@ -52,25 +52,25 @@ namespace DurableTask.EventSourced.Faster
             public bool Modified;
         }
 
-        public struct ToWrite
+        private struct ToWrite
         {
             public TrackedObjectKey Key;
             public byte[] PreviousValue;
             public byte[] NewValue;
         }
 
-        public struct ToRead
+        private struct ToRead
         {
             public byte[] PreviousValue;
             public byte[] NewValue;
             public Guid Guid;
         }
 
-        public struct CompletedRead
+        private class PendingLoad
         {
-            public PartitionReadEvent ReadEvent;
+            public Task<ToRead> LoadTask;
             public EffectTracker EffectTracker;
-            public TrackedObject TrackedObject;
+            public List<PartitionReadEvent> ReadEvents;
         }
 
         public FasterAlt(Partition partition, BlobManager blobManager)
@@ -296,13 +296,6 @@ namespace DurableTask.EventSourced.Faster
             {
                 throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
             }
-        }
-
-        public class PendingLoad
-        {
-            public Task<ToRead> LoadTask;
-            public EffectTracker EffectTracker;
-            public List<PartitionReadEvent> ReadEvents;
         }
 
         // kick off a read of a tracked object, completing asynchronously if necessary
