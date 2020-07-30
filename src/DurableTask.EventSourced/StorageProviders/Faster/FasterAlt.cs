@@ -23,12 +23,16 @@ using System.Data;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
+    /// <summary>
+    /// An alternative implementation of the persistent cache
+    /// </summary>
     internal class FasterAlt : TrackedObjectStore
     {
         private readonly Partition partition;
@@ -38,11 +42,19 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterTraceHelper traceHelper;
         private readonly FasterTraceHelper detailTracer;
 
+        // the cache containing all the TrackedObjects currently in memory
         private readonly Dictionary<TrackedObjectKey, CacheEntry> cache = new Dictionary<TrackedObjectKey, CacheEntry>();
+
+        // the cache entries that are in the process of being loaded into memory
         private Dictionary<TrackedObjectKey, PendingLoad> pendingLoads = new Dictionary<TrackedObjectKey, PendingLoad>();
+
+        // the cache entries that have been modified relative to storage
         private List<CacheEntry> modified = new List<CacheEntry>();
+
+        // the list of checkpoints whose writes should be ignored when loading objects
         private HashSet<Guid> failedCheckpoints = new HashSet<Guid>();
 
+        // the checkpoint currently in progress
         private Task checkpointTask;
 
         private class CacheEntry
@@ -98,57 +110,41 @@ namespace DurableTask.EventSourced.Faster
 
         public override void Recover(out long commitLogPosition, out long inputQueuePosition)
         {
-            try
+            foreach (var guid in this.ReadCheckpointIntentions())
             {
-                foreach (var guid in this.ReadCheckpointIntentions())
-                {
-                    this.failedCheckpoints.Add(guid);
-                }
-
-                var tasks = new List<Task>();
-
-                // kick off loads for all singletons
-                foreach (var key in TrackedObjectKey.GetSingletons())
-                {
-                    var loadTask = this.LoadAsync(key);
-                    this.pendingLoads.Add(key, new PendingLoad()
-                    {
-                        EffectTracker = null,
-                        ReadEvents = new List<PartitionReadEvent>(),
-                        LoadTask = loadTask,
-                    });
-                    tasks.Add(loadTask);
-                }
-
-                Task.WhenAll(tasks).GetAwaiter().GetResult();
-
-                this.CompletePending();
-
-                var dedupState = (DedupState) this.cache[TrackedObjectKey.Dedup].TrackedObject;
-                (commitLogPosition,inputQueuePosition) = dedupState.Positions;
+                this.failedCheckpoints.Add(guid);
             }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+
+            var tasks = new List<Task>();
+
+            // kick off loads for all singletons
+            foreach (var key in TrackedObjectKey.GetSingletons())
             {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+                var loadTask = this.LoadAsync(key);
+                this.pendingLoads.Add(key, new PendingLoad()
+                {
+                    EffectTracker = null,
+                    ReadEvents = new List<PartitionReadEvent>(),
+                    LoadTask = loadTask,
+                });
+                tasks.Add(loadTask);
             }
+
+            Task.WhenAll(tasks).GetAwaiter().GetResult();
+
+            this.CompletePending();
+
+            var dedupState = (DedupState)this.cache[TrackedObjectKey.Dedup].TrackedObject;
+            (commitLogPosition, inputQueuePosition) = dedupState.Positions;
         }
 
         public override void CompletePending()
         {
-            try
-            {
-                var completed = this.pendingLoads.Where(p => p.Value.LoadTask.IsCompleted).ToList();
+            var completed = this.pendingLoads.Where(p => p.Value.LoadTask.IsCompleted).ToList();
 
-                foreach (var kvp in completed)
-                {
-                    this.ProcessCompletedLoad(kvp.Key, kvp.Value);
-                }
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            foreach (var kvp in completed)
             {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+                this.ProcessCompletedLoad(kvp.Key, kvp.Value);
             }
         }
 
@@ -166,50 +162,24 @@ namespace DurableTask.EventSourced.Faster
 
         public override bool TakeFullCheckpoint(long commitLogPosition, long inputQueuePosition, out Guid checkpointGuid)
         {
-            try
-            {
-                checkpointGuid = Guid.NewGuid();
-                StartStoreCheckpoint(commitLogPosition, inputQueuePosition, checkpointGuid);
-                return true;
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
+            checkpointGuid = Guid.NewGuid();
+            this.StartStoreCheckpoint(commitLogPosition, inputQueuePosition, checkpointGuid);
+            return true;
         }
 
         public async override ValueTask CompleteCheckpointAsync()
         {
-            try
-            {
-                await this.checkpointTask.ConfigureAwait(false);
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
+            await this.checkpointTask.ConfigureAwait(false);
         }
 
         public override Guid StartIndexCheckpoint()
         {
-            try
-            {
-                this.traceHelper.FasterProgress("FasterAlt.StartIndexCheckpoint Called");
-                this.checkpointTask = Task.CompletedTask;
-                return default;
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
+            this.checkpointTask = Task.CompletedTask; // this implementation does not contain an index (yet).
+            return default;
         }
 
         public override Guid StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition)
         {
-            this.traceHelper.FasterProgress("FasterAlt.StartStoreCheckpoint Called");
             var guid = Guid.NewGuid();
             this.StartStoreCheckpoint(commitLogPosition, inputQueuePosition, guid);
             return guid;
@@ -217,64 +187,48 @@ namespace DurableTask.EventSourced.Faster
 
         internal void StartStoreCheckpoint(long commitLogPosition, long inputQueuePosition, Guid guid)
         {
-            try
+            // update the positions
+            var dedupState = cache[TrackedObjectKey.Dedup];
+            dedupState.TrackedObject.SerializationCache = null;
+            ((DedupState)dedupState.TrackedObject).Positions = (commitLogPosition, inputQueuePosition);
+            if (!dedupState.Modified)
             {
-                // update the positions
-                var dedupState = cache[TrackedObjectKey.Dedup];
-                dedupState.TrackedObject.SerializationCache = null;
-                ((DedupState)dedupState.TrackedObject).Positions = (commitLogPosition, inputQueuePosition);
-                if (!dedupState.Modified)
-                {
-                    dedupState.Modified = true;
-                    this.modified.Add(dedupState);
-                }
-
-                // figure out which objects need to be written back
-                var toWrite = new List<ToWrite>();
-                foreach (var cacheEntry in this.modified)
-                {
-                    Serializer.SerializeTrackedObject(cacheEntry.TrackedObject);
-                    toWrite.Add(new ToWrite()
-                    {
-                        Key = cacheEntry.TrackedObject.Key,
-                        PreviousValue = cacheEntry.LastCheckpointed,
-                        NewValue = cacheEntry.TrackedObject.SerializationCache,
-                    });
-                    cacheEntry.LastCheckpointed = cacheEntry.TrackedObject.SerializationCache;
-                    cacheEntry.Modified = false;
-                }
-                this.modified.Clear();
-
-                this.checkpointTask = Task.Run(() => WriteCheckpointAsync(toWrite, guid));
+                dedupState.Modified = true;
+                this.modified.Add(dedupState);
             }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+
+            // figure out which objects need to be written back
+            var toWrite = new List<ToWrite>();
+            foreach (var cacheEntry in this.modified)
             {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+                Serializer.SerializeTrackedObject(cacheEntry.TrackedObject);
+                toWrite.Add(new ToWrite()
+                {
+                    Key = cacheEntry.TrackedObject.Key,
+                    PreviousValue = cacheEntry.LastCheckpointed,
+                    NewValue = cacheEntry.TrackedObject.SerializationCache,
+                });
+                cacheEntry.LastCheckpointed = cacheEntry.TrackedObject.SerializationCache;
+                cacheEntry.Modified = false;
             }
+            this.modified.Clear();
+
+            this.checkpointTask = Task.Run(() => WriteCheckpointAsync(toWrite, guid));
         }
 
         private async Task WriteCheckpointAsync(List<ToWrite> toWrite, Guid guid)
         {
-            try
-            {
-                // the intention file instructs subsequent recoveries to ignore updates should we fail in the middle
-                await this.WriteCheckpointIntention(guid).ConfigureAwait(false);
+            // the intention file instructs subsequent recoveries to ignore updates should we fail in the middle
+            await this.WriteCheckpointIntention(guid).ConfigureAwait(false);
 
-                var guidbytes = guid.ToByteArray();
-                var tasks = new List<Task>();
-                foreach (var entry in toWrite)
-                {      
-                    tasks.Add(this.StoreAsync(guidbytes, entry));
-                }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
-            }
-            catch (Exception e) when (!Utils.IsFatal(e))
+            var guidbytes = guid.ToByteArray();
+            var tasks = new List<Task>();
+            foreach (var entry in toWrite)
             {
-                this.blobManager.PartitionErrorHandler.HandleError(nameof(WriteCheckpointAsync), "Failed to write checkpoint", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
-                throw;
+                tasks.Add(this.StoreAsync(guidbytes, entry));
             }
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
         }
 
         public override Task FinalizeCheckpointCompletedAsync(Guid guid)
@@ -286,59 +240,43 @@ namespace DurableTask.EventSourced.Faster
         // perform a query
         public override Task QueryAsync(PartitionQueryEvent queryEvent, EffectTracker effectTracker)
         {
-            try
-            {
-                // TODO
-                throw new NotImplementedException();
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
+            // TODO
+            throw new NotImplementedException();
         }
 
         // kick off a read of a tracked object, completing asynchronously if necessary
         public override void ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker)
         {
-            try
+            if (readEvent.Prefetch.HasValue)
             {
-                if (readEvent.Prefetch.HasValue)
-                {
-                    TryRead(readEvent.Prefetch.Value);
-                }
-
-                TryRead(readEvent.ReadTarget);
-
-                void TryRead(TrackedObjectKey key)
-                {
-                    if (this.cache.TryGetValue(key, out var entry))
-                    {
-                        this.StoreStats.HitCount++;
-                        effectTracker.ProcessReadResult(readEvent, key, entry.TrackedObject);
-                    }
-                    else if (this.pendingLoads.TryGetValue(key, out var pendingLoad))
-                    {
-                        this.StoreStats.HitCount++;
-                        pendingLoad.EffectTracker = effectTracker;
-                        pendingLoad.ReadEvents.Add(readEvent);
-                    }
-                    else
-                    {
-                        this.StoreStats.MissCount++;
-                        this.pendingLoads.Add(key, new PendingLoad()
-                        {
-                            EffectTracker = effectTracker,
-                            ReadEvents = new List<PartitionReadEvent>() { readEvent },
-                            LoadTask = this.LoadAsync(key),
-                        });
-                    }
-                }
+                TryRead(readEvent.Prefetch.Value);
             }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+
+            TryRead(readEvent.ReadTarget);
+
+            void TryRead(TrackedObjectKey key)
             {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+                if (this.cache.TryGetValue(key, out var entry))
+                {
+                    this.StoreStats.HitCount++;
+                    effectTracker.ProcessReadResult(readEvent, key, entry.TrackedObject);
+                }
+                else if (this.pendingLoads.TryGetValue(key, out var pendingLoad))
+                {
+                    this.StoreStats.HitCount++;
+                    pendingLoad.EffectTracker = effectTracker;
+                    pendingLoad.ReadEvents.Add(readEvent);
+                }
+                else
+                {
+                    this.StoreStats.MissCount++;
+                    this.pendingLoads.Add(key, new PendingLoad()
+                    {
+                        EffectTracker = effectTracker,
+                        ReadEvents = new List<PartitionReadEvent>() { readEvent },
+                        LoadTask = this.LoadAsync(key),
+                    });
+                }
             }
         }
 
@@ -413,51 +351,35 @@ namespace DurableTask.EventSourced.Faster
         // create a tracked object on the main session (only one of these is executing at a time)
         public override ValueTask<TrackedObject> CreateAsync(FasterKV.Key key)
         {
-            try
+            var trackedObject = TrackedObjectKey.Factory(key.Val);
+            trackedObject.Partition = this.partition;
+            var cacheEntry = new CacheEntry()
             {
-                var trackedObject = TrackedObjectKey.Factory(key.Val);
-                trackedObject.Partition = this.partition;
-                var cacheEntry = new CacheEntry()
-                {
-                    LastCheckpointed = null,
-                    Modified = true,
-                    TrackedObject = trackedObject,
-                };
-                this.cache.Add(key, cacheEntry);
-                this.modified.Add(cacheEntry);
-                return new ValueTask<TrackedObject>(trackedObject);
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
+                LastCheckpointed = null,
+                Modified = true,
+                TrackedObject = trackedObject,
+            };
+            this.cache.Add(key, cacheEntry);
+            this.modified.Add(cacheEntry);
+            return new ValueTask<TrackedObject>(trackedObject);
         }
 
         public override async ValueTask ProcessEffectOnTrackedObject(FasterKV.Key key, EffectTracker effectTracker)
         {
-            try
+            if (!this.cache.TryGetValue(key, out var cacheEntry))
             {
-                if (!this.cache.TryGetValue(key, out var cacheEntry))
-                {
-                    this.partition.Assert(!this.pendingLoads.ContainsKey(key));
-                    var storageRecord = await this.LoadAsync(key);
-                    cacheEntry = this.ProcessStorageRecord(key, storageRecord);
-                    this.cache.Add(key, cacheEntry);
-                }
-                var trackedObject = cacheEntry.TrackedObject;
-                trackedObject.SerializationCache = null;
-                effectTracker.ProcessEffectOn(trackedObject);
-                if (!cacheEntry.Modified)
-                {
-                    cacheEntry.Modified = true;
-                    this.modified.Add(cacheEntry);
-                }
+                this.partition.Assert(!this.pendingLoads.ContainsKey(key));
+                var storageRecord = await this.LoadAsync(key);
+                cacheEntry = this.ProcessStorageRecord(key, storageRecord);
+                this.cache.Add(key, cacheEntry);
             }
-            catch (Exception exception)
-               when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            var trackedObject = cacheEntry.TrackedObject;
+            trackedObject.SerializationCache = null;
+            effectTracker.ProcessEffectOn(trackedObject);
+            if (!cacheEntry.Modified)
             {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+                cacheEntry.Modified = true;
+                this.modified.Add(cacheEntry);
             }
         }
 
@@ -476,81 +398,155 @@ namespace DurableTask.EventSourced.Faster
             if (!key.IsSingleton)
             {
                 blobName.Append('/');
-                blobName.Append(WebUtility.UrlEncode(key.InstanceId));
+                blobName.Append(key.InstanceId);
             }
+            // TODO validate blob name and handle problems (too long, too many slashes)
             return this.blobManager.BlobContainer.GetBlockBlobReference(blobName.ToString());
         }
 
         private async Task<ToRead> LoadAsync(TrackedObjectKey key)
         {
+            this.detailTracer?.FasterStorageProgress($"FasterAlt.LoadAsync Called key={key}");
+
             try
             {
-                this.detailTracer?.FasterProgress($"FasterAlt.LoadAsync Called {key}");
+                await BlobManager.AsynchronousStorageReadMaxConcurrency.WaitAsync();
+
+                int numAttempts = 0;
                 var blob = GetBlob(key);
-                using var stream = new MemoryStream();
-                await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
-                await blob.DownloadRangeToStreamAsync(stream, null, null, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
-                stream.Seek(0, SeekOrigin.Begin);
-                using var reader = new BinaryReader(stream, Encoding.UTF8);
-                var toRead = new ToRead();
-                var previousLength = reader.ReadInt32();
-                toRead.PreviousValue = previousLength > 0 ? reader.ReadBytes(previousLength) : null;
-                var newLength = reader.ReadInt32();
-                toRead.NewValue = newLength > 0 ? reader.ReadBytes(newLength) : null;
-                toRead.Guid = new Guid(reader.ReadBytes(16));
-                this.detailTracer?.FasterProgress($"FasterAlt.LoadAsync Returned {key}");
-                return toRead;
+
+                while (true) // retry loop
+                {
+                    numAttempts++;
+                    try
+                    {
+                        await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+
+                        using var stream = new MemoryStream();
+                        this.detailTracer?.FasterStorageProgress($"starting download target={blob.Name} attempt={numAttempts}");
+                        await blob.DownloadRangeToStreamAsync(stream, null, null, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
+                        this.detailTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={stream.Position}");
+
+                        // parse the content and return it
+                        stream.Seek(0, SeekOrigin.Begin);
+                        using var reader = new BinaryReader(stream, Encoding.UTF8);
+                        var toRead = new ToRead();
+                        var previousLength = reader.ReadInt32();
+                        toRead.PreviousValue = previousLength > 0 ? reader.ReadBytes(previousLength) : null;
+                        var newLength = reader.ReadInt32();
+                        toRead.NewValue = newLength > 0 ? reader.ReadBytes(newLength) : null;
+                        toRead.Guid = new Guid(reader.ReadBytes(16));
+
+                        this.detailTracer?.FasterStorageProgress($"FasterAlt.LoadAsync Returned key={key}");
+                        return toRead;
+                    }
+                    catch (StorageException) when (this.terminationToken.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException("Partition was terminated.", this.terminationToken);
+                    }
+                    catch (StorageException ex) when (BlobUtils.BlobDoesNotExist(ex))
+                    {
+                        this.detailTracer?.FasterStorageProgress($"FasterAlt.LoadAsync Returned 404 key={key}");
+                        return default;
+                    }
+                    catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
+                    {
+                        TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
+                        this.blobManager?.HandleBlobError(nameof(LoadAsync), $"Could not read object from storage, will retry in {nextRetryIn}s", blob.Name, e, false, true);
+                        await Task.Delay(nextRetryIn);
+                        continue;
+                    }
+                    catch (Exception exception) when (!Utils.IsFatal(exception))
+                    {
+                        this.blobManager.PartitionErrorHandler.HandleError(nameof(LoadAsync), "Could not read object from storage", exception, true, this.blobManager.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
+                };
             }
-            catch (StorageException ex) when (BlobUtils.BlobDoesNotExist(ex))
+            finally
             {
-                this.detailTracer?.FasterProgress($"FasterAlt.LoadAsync Returned {key} 404");
-                return default;
-            }
-            catch (Exception e) when (!Utils.IsFatal(e))
-            {
-                this.blobManager.PartitionErrorHandler.HandleError(nameof(LoadAsync), "Failed to read object from storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
-                throw;
+                BlobManager.AsynchronousStorageReadMaxConcurrency.Release();
             }
         }
 
         private async Task StoreAsync(byte[] guid, ToWrite entry)
         {
+            this.detailTracer?.FasterStorageProgress($"FasterAlt.LoadAsync Called {entry.Key}");
+
+            // assemble the bytes to write
+            using var stream = new MemoryStream();
+            using var writer = new BinaryWriter(stream, Encoding.UTF8);
+            if (entry.PreviousValue == null)
+            {
+                writer.Write(0);
+            }
+            else
+            {
+                writer.Write(entry.PreviousValue.Length);
+                writer.Write(entry.PreviousValue);
+            }
+            if (entry.NewValue == null)
+            {
+                writer.Write(0);
+            }
+            else
+            {
+                writer.Write(entry.NewValue.Length);
+                writer.Write(entry.NewValue);
+            }
+            writer.Write(guid);
+            writer.Flush();
+            long length = stream.Position;
+            stream.Seek(0, SeekOrigin.Begin);
+
             try
             {
-                this.detailTracer?.FasterProgress($"FasterAlt.LoadAsync Called {entry.Key}");
-                var blob = GetBlob(entry.Key);
-                using var stream = new MemoryStream();
-                using var writer = new BinaryWriter(stream, Encoding.UTF8);
-                if (entry.PreviousValue == null)
+                await BlobManager.AsynchronousStorageWriteMaxConcurrency.WaitAsync();
+
+                int numAttempts = 0;
+                var blob = this.GetBlob(entry.Key);
+
+                while (true) // retry loop
                 {
-                    writer.Write(0);
+                    numAttempts++;
+                    try
+                    {
+                        await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+
+
+                        this.detailTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} attempt={numAttempts}");
+
+                        await blob.UploadFromStreamAsync(stream, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
+
+                        this.detailTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length}");
+                        return;
+                    }
+                    catch (StorageException) when (this.terminationToken.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException("Partition was terminated.", this.terminationToken);
+                    }
+                    catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
+                    {
+                        TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
+                        this.blobManager?.HandleBlobError(nameof(StoreAsync), $"could not write object to storage, will retry in {nextRetryIn}s", blob.Name, e, false, true);
+                        await Task.Delay(nextRetryIn);
+                        continue;
+                    }
+                    catch (Exception exception) when (!Utils.IsFatal(exception))
+                    {
+                        this.blobManager?.HandleBlobError(nameof(StoreAsync), "could not write object to storage", blob?.Name, exception, true, this.blobManager.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
+                    catch (Exception e) when (!Utils.IsFatal(e))
+                    {
+                        this.blobManager.PartitionErrorHandler.HandleError(nameof(StoreAsync), "Failed to write object to storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
                 }
-                else
-                {
-                    writer.Write(entry.PreviousValue.Length);
-                    writer.Write(entry.PreviousValue);
-                }
-                if (entry.NewValue == null)
-                {
-                    writer.Write(0);
-                }
-                else
-                {
-                    writer.Write(entry.NewValue.Length);
-                    writer.Write(entry.NewValue);
-                }
-                writer.Write(guid);
-                writer.Flush();
-                long length = stream.Position;
-                stream.Seek(0, SeekOrigin.Begin);
-                await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
-                await blob.UploadFromStreamAsync(stream, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
-                this.detailTracer?.FasterProgress($"FasterAlt.LoadAsync Done {entry.Key} ({length} bytes)");
             }
-            catch (Exception e) when (!Utils.IsFatal(e))
+            finally
             {
-                this.blobManager.PartitionErrorHandler.HandleError(nameof(StoreAsync), "Failed to write object to storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
-                throw;
+                BlobManager.AsynchronousStorageWriteMaxConcurrency.Release();
             }
         }
 
@@ -561,6 +557,10 @@ namespace DurableTask.EventSourced.Faster
                 var blob = this.blobManager.BlobContainer.GetBlockBlobReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/{guid}");
                 await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 await blob.UploadTextAsync("", this.blobManager.PartitionErrorHandler.Token);
+            }
+            catch (StorageException) when (this.terminationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("Partition was terminated.", this.terminationToken);
             }
             catch (Exception e) when (!Utils.IsFatal(e))
             {
@@ -577,9 +577,13 @@ namespace DurableTask.EventSourced.Faster
                 await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 await blob.DeleteAsync(this.blobManager.PartitionErrorHandler.Token);
             }
+            catch (StorageException) when (this.terminationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("Partition was terminated.", this.terminationToken);
+            }
             catch (Exception e) when (!Utils.IsFatal(e))
             {
-                this.blobManager.PartitionErrorHandler.HandleError(nameof(RemoveCheckpointIntention), "Failed to remove checkpoint intention from storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
+                this.blobManager.PartitionErrorHandler.HandleError(nameof(RemoveCheckpointIntention), "Failed to remove checkpoint intention from storage", e, true, false);
                 throw;
             }
         }
@@ -598,9 +602,13 @@ namespace DurableTask.EventSourced.Faster
                     return guid;
                 });
             }
+            catch (StorageException) when (this.terminationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("Partition was terminated.", this.terminationToken);
+            }
             catch (Exception e) when (!Utils.IsFatal(e))
             {
-                this.blobManager.PartitionErrorHandler.HandleError(nameof(ReadCheckpointIntentions), "Failed to read checkpoint intentions from storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
+                this.blobManager.PartitionErrorHandler.HandleError(nameof(ReadCheckpointIntentions), "Failed to read checkpoint intentions from storage", e, true, false);
                 throw;
             }
         }

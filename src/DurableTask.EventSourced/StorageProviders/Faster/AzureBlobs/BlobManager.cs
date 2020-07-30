@@ -146,9 +146,11 @@ namespace DurableTask.EventSourced.Faster
             };
         }
 
+        public const int MaxRetries = 5;
+
         public BlobRequestOptions BlobRequestOptionsUnderLease => new BlobRequestOptions()
         {
-            RetryPolicy = new LinearRetry(TimeSpan.FromSeconds(2), 2),
+            RetryPolicy = default, // we handle retries explicitly so we can ensure successful lease renewal between retries
             NetworkTimeout = TimeSpan.FromSeconds(30),
             ServerTimeout = TimeSpan.FromSeconds(20), 
             MaximumExecutionTime = TimeSpan.FromSeconds(30),
@@ -156,10 +158,10 @@ namespace DurableTask.EventSourced.Faster
 
         public BlobRequestOptions BlobRequestOptionsNotUnderLease => new BlobRequestOptions()
         {
-            RetryPolicy = new ExponentialRetry(TimeSpan.FromSeconds(4), 4),
-            NetworkTimeout = TimeSpan.FromSeconds(60),
-            ServerTimeout = TimeSpan.FromSeconds(30),
-            MaximumExecutionTime = TimeSpan.FromSeconds(60),
+            RetryPolicy = new ExponentialRetry(TimeSpan.FromSeconds(2), MaxRetries),
+            NetworkTimeout = TimeSpan.FromSeconds(120),
+            ServerTimeout = TimeSpan.FromSeconds(120),
+            MaximumExecutionTime = TimeSpan.FromSeconds(120),
         };
 
         // For tests only; TODO consider adding PSFs
