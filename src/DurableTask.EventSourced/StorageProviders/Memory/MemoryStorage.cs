@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            base.SubmitIncomingBatch(entries);
+            base.SubmitBatch(entries);
         }
 
         public Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, long initialInputQueuePosition)

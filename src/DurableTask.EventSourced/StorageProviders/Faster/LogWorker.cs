@@ -33,6 +33,8 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterTraceHelper traceHelper;
         private bool isShuttingDown;
 
+        private readonly IntakeWorker intakeWorker;
+
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
@@ -43,6 +45,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
+            this.intakeWorker = new IntakeWorker(cancellationToken, this);
 
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
@@ -55,39 +58,57 @@ namespace DurableTask.EventSourced.Faster
 
         public long LastCommittedInputQueuePosition { get; private set; }
 
-        public override void Submit(PartitionUpdateEvent evt)
+        private class IntakeWorker : BatchWorker<PartitionEvent>
         {
-            byte[] bytes = Serializer.SerializeEvent(evt, first | last);
+            private readonly LogWorker logWorker;
+            private readonly List<PartitionUpdateEvent> updateEvents;
 
-            if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested)
+            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(token)
             {
-                lock (this.thisLock)
+                this.logWorker = logWorker;
+                this.updateEvents = new List<PartitionUpdateEvent>();
+            }
+
+            protected override Task Process(IList<PartitionEvent> batch)
+            {
+                if (batch.Count > 0 && !this.logWorker.isShuttingDown)
                 {
-                    Enqueue(bytes);
+                    // before processing any update events they need to be serialized
+                    // and assigned a commit log position
+                    foreach (var evt in batch)
+                    {
+                        if (evt is PartitionUpdateEvent partitionUpdateEvent)
+                        {
+                            var bytes = Serializer.SerializeEvent(evt, first | last);
+                            this.logWorker.AddToFasterLog(bytes);
+                            partitionUpdateEvent.NextCommitLogPosition = this.logWorker.log.TailAddress;
+                            updateEvents.Add(partitionUpdateEvent);
+                        }
+                    }
 
-                    evt.NextCommitLogPosition = this.log.TailAddress;
+                    // the store worker and the log worker can now process these events in parallel
+                    this.logWorker.storeWorker.SubmitBatch(batch);
+                    this.logWorker.SubmitBatch(updateEvents);
 
-                    base.Submit(evt);
-
-                    // add to store worker (under lock for consistent ordering)
-                    this.storeWorker.Submit(evt);
-
+                    this.updateEvents.Clear();
                 }
 
-                this.LastCommittedInputQueuePosition = evt.NextInputQueuePosition;
+                return Task.CompletedTask;
             }
         }
 
-        public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
+        public void SubmitInternalEvent(PartitionEvent evt)
         {
-            // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
-            foreach (var evt in events)
-            {
-                this.Submit(evt);
-            }
+            this.intakeWorker.Submit(evt);
         }
 
-        private void Enqueue(byte[] bytes)
+        public void SubmitExternalEvents(IEnumerable<PartitionEvent> events)
+        {
+            this.intakeWorker.SubmitBatch(events);
+        }
+
+      
+        private void AddToFasterLog(byte[] bytes)
         {
             if (bytes.Length <= maxFragmentSize)
             {
@@ -114,6 +135,8 @@ namespace DurableTask.EventSourced.Faster
 
             this.isShuttingDown = true;
 
+            await this.intakeWorker.WaitForCompletionAsync().ConfigureAwait(false);
+
             await this.WaitForCompletionAsync().ConfigureAwait(false);
 
             this.traceHelper.FasterProgress($"Stopped LogWorker");
@@ -131,6 +154,8 @@ namespace DurableTask.EventSourced.Faster
                     long previous = log.CommittedUntilAddress;
 
                     await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+                    this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
 
                     this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
 

@@ -185,20 +185,12 @@ namespace DurableTask.EventSourced.Faster
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
         {
-            this.logWorker.SubmitIncomingBatch(evts.Select(e => e as PartitionUpdateEvent).Where(e => e != null));
-            this.storeWorker.SubmitIncomingBatch(evts.Where(e => ! (e is PartitionUpdateEvent)));
+            this.logWorker.SubmitExternalEvents(evts);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
-            if (evt is PartitionUpdateEvent partitionUpdateEvent)
-            {
-                this.logWorker.Submit(partitionUpdateEvent);
-            }
-            else
-            {
-                this.storeWorker.Submit(evt);
-            }
+            this.logWorker.SubmitInternalEvent(evt);
         }
 
         private async Task IdleLoop()
