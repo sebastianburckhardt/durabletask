@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced
     /// </summary>
     internal abstract class BatchWorker<T>
     {
-        protected readonly object thisLock = new object();
+        private readonly object thisLock = new object();
         protected readonly CancellationToken cancellationToken;
 
         private List<T> batch = new List<T>();
@@ -40,8 +40,7 @@ namespace DurableTask.EventSourced
         // Flag is set to indicate that more work has arrived during execution of the task
         private bool moreWork;
 
-        private Action<Task> checkForMoreWorkAction;
-
+        // while suspended, work is not getting processed
         private bool suspended;
 
         /// <summary>Implement this member in derived classes to process a batch</summary>
@@ -52,17 +51,7 @@ namespace DurableTask.EventSourced
             lock (this.thisLock)
             {
                 this.queue.Add(entry);
-                this.Notify();
-            }
-        }
-
-        public void Submit(T entry1, T entry2)
-        {
-            lock (this.thisLock)
-            {
-                this.queue.Add(entry1);
-                this.queue.Add(entry2);
-                this.Notify();
+                this.NotifyInternal();
             }
         }
 
@@ -71,7 +60,7 @@ namespace DurableTask.EventSourced
             lock (this.thisLock)
             {
                 this.queue.AddRange(entries);
-                this.Notify();
+                this.NotifyInternal();
             }
         }
 
@@ -80,7 +69,7 @@ namespace DurableTask.EventSourced
             lock (this.thisLock)
             {
                 this.queue.InsertRange(0, entries);
-                this.Notify();
+                this.NotifyInternal();
             }
         }
 
@@ -93,9 +82,9 @@ namespace DurableTask.EventSourced
                   this.waiters = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                }
 
-               this.Notify();
+                this.NotifyInternal();
 
-               return this.waiters.Task;
+                return this.waiters.Task;
             }
         }
 
@@ -118,10 +107,13 @@ namespace DurableTask.EventSourced
 
             try
             {
+                // check for cancellation right before doing work
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // do the work, calling the virtual method
                 await this.Process(batch).ConfigureAwait(false);
 
+                // notify anyone who is waiting for completion
                 waiters?.SetResult(true);
             }
             catch (Exception e)
@@ -131,6 +123,9 @@ namespace DurableTask.EventSourced
             finally
             {
                 this.batch.Clear();
+
+                // we always check for more work since there may be someone waiting for completion
+                this.CheckForMoreWork();
             }
         }
 
@@ -148,8 +143,6 @@ namespace DurableTask.EventSourced
         {
             this.cancellationToken = cancellationToken;
             this.suspended = suspended;
-            // store delegate so it does not get newly allocated on each call
-            this.checkForMoreWorkAction = (t) => this.CheckForMoreWork();
         }
 
         public void Suspend()
@@ -165,7 +158,7 @@ namespace DurableTask.EventSourced
             lock (this.thisLock)
             {
                 this.suspended = false;
-                this.Notify();
+                this.NotifyInternal();
             }
         }
 
@@ -176,33 +169,24 @@ namespace DurableTask.EventSourced
         {
             lock (this.thisLock)
             {
-                if (!this.suspended) // while suspended, the worker is remains unaware of new work
-                {
-                    if (this.currentWorkCycle != null)
-                    {
-                        // lets the current work cycle know that there is more work
-                        this.moreWork = true;
-                    }
-                    else
-                    {
-                        // start a work cycle
-                        this.Start();
-                    }
-                }
+                this.NotifyInternal();
             }
         }
 
-        private void Start()
+        private void NotifyInternal()
         {
-            try
+            if (!this.suspended) // while suspended, the worker is remains unaware of new work
             {
-                // Start the task that is doing the work, on the threadpool
-                this.currentWorkCycle = Task.Run(this.Work);
-            }
-            finally
-            {
-                // chain a continuation that checks for more work
-                this.currentWorkCycle.ContinueWith(this.checkForMoreWorkAction);
+                if (this.currentWorkCycle != null)
+                {
+                    // lets the current work cycle know that there is more work
+                    this.moreWork = true;
+                }
+                else
+                {
+                    // Start the task that is doing the work, on the threadpool
+                    this.currentWorkCycle = Task.Run(this.Work);
+                }
             }
         }
 
@@ -217,8 +201,8 @@ namespace DurableTask.EventSourced
                 {
                     this.moreWork = false;
 
-                    // start the next work cycle
-                    this.Start();
+                    // Start the task that is doing the work, on the threadpool
+                    this.currentWorkCycle = Task.Run(this.Work);
                 }
                 else
                 {
