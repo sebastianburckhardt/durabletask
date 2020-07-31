@@ -209,11 +209,8 @@ namespace DurableTask.EventSourced
                 }
             }
             var batch = new Batch();
-            batch.AddRange(sorted.Values);
+            batch.OutgoingMessages.AddRange(sorted.Values);
             this.SendBatchAndSetupConfirmation(evt, effects, batch);
-            // TODO: Figure out if incoming merge changes are necessary
-            // batch.OutgoingMessages.AddRange(sorted.Values);
-            // this.SendBatchOnceEventIsPersisted(evt, effects, batch);
         }
 
         public void Process(OffloadDecision evt, EffectTracker effects)

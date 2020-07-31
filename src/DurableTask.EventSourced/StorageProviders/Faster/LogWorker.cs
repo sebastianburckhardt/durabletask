@@ -33,9 +33,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly FasterTraceHelper traceHelper;
         private bool isShuttingDown;
 
-        // I assume that this list contains pointers to the events
-        public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
-
+        private readonly IntakeWorker intakeWorker;
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
@@ -65,6 +63,9 @@ namespace DurableTask.EventSourced.Faster
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
 
+            // I assume that this list contains pointers to the events
+            public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
+
             public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(token)
             {
                 this.logWorker = logWorker;
@@ -79,17 +80,51 @@ namespace DurableTask.EventSourced.Faster
                     // and assigned a commit log position
                     foreach (var evt in batch)
                     {
-                        if (evt is PartitionUpdateEvent partitionUpdateEvent)
+
+                        // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
+                        // Commiting the events implies that persistence of their dependencies was confirmed.
+                        if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
                         {
+                            //// PersistenceConfirmationEvents have no dependencies
+                            //// TODO: This is probably unnecessary since we don't submit them
+                            //persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
+                            this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
+                        }
+                        else if (evt is PartitionUpdateEvent partitionUpdateEvent)
+                        {
+                            // Is there a reason we deleted this? Shouldn't we drop events if we are shutting down?
+                            // if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
+                            // else
+                            // {
+                            //     this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
+                            // }
+
+                            // Before submitting external update events, we need to 
+                            // configure them to wait for external dependency confirmation
+                            partitionUpdateEvent.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+                            if (partitionUpdateEvent is PartitionMessageEvent partitionMessageEvent)
+                            {
+                                // It is actually fine keeping the dependencies of events in the internal worker, since
+                                // if the partition crashes, all uncommited messages (that are the only ones that have unconfirmed dependencies)
+                                // will be re-received and re-submitted. Since every event will be followed by its confirmation, this cannot lead
+                                // to a deadlock.
+                                SetConfirmationWaiter(partitionMessageEvent);
+                            }
+                            else
+                            {
+                                partitionUpdateEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
+                            }
                             var bytes = Serializer.SerializeEvent(evt, first | last);
                             this.logWorker.AddToFasterLog(bytes);
                             partitionUpdateEvent.NextCommitLogPosition = this.logWorker.log.TailAddress;
+
                             updateEvents.Add(partitionUpdateEvent);
                         }
                     }
 
                     // the store worker and the log worker can now process these events in parallel
-                    this.logWorker.storeWorker.SubmitBatch(batch);
+                    // Persistence Confirmation events are not submitted to any of the workers.
+                    this.logWorker.storeWorker.SubmitBatch(batch.Where(e => !(e is PersistenceConfirmationEvent)));
                     this.logWorker.SubmitBatch(updateEvents);
 
                     this.updateEvents.Clear();
@@ -99,98 +134,97 @@ namespace DurableTask.EventSourced.Faster
             }
 
 
-            // TODO: Figure out where does this fit in the picture (exp-faster-consistent-recovery changes)                        
-            // if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
-            // else
-            // {
-            //     this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
-            // }
-        }
 
-        public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
 
-        private void SetConfirmationWaiter(PartitionMessageEvent evt)
-        {
-            var originPartition = evt.OriginPartition;
-            var originPosition = evt.OriginPosition;
-            var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
-            if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
+            private void SetConfirmationWaiter(PartitionMessageEvent evt)
             {
-                var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
-                waitingList.Add(tuple);
-                WaitingForConfirmation[originPartition] = waitingList;
-            }
-            else
-            {
-                oldWaitingList.Add(tuple);
-                WaitingForConfirmation[originPartition] = oldWaitingList;
-            }
-        }
+                var originPartition = evt.OriginPartition;
+                var originPosition = evt.OriginPosition;
+                var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
-        // TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
-        public void ConfirmDependencyPersistence(PersistenceConfirmationEvent evt)
-        {
-            var originPartition = evt.OriginPartition;
-            var originPosition = evt.OriginPosition;
-            this.traceHelper.FasterProgress($"Received PersistenceConfirmation message: (partition: {originPartition}, position: {originPosition})");
-
-            // It must be the case that there exists an entry for this partition (except if we failed)
-            if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
-            {
-                // TODO: Do this in a more elegant way. (Using filter?)
-                // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
-                //       cost is amortized.
-                for (int i = waitingList.Count - 1; i >= 0; --i)
+                if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
                 {
-                    var tuple = waitingList[i];
-                    if (tuple.Item1 <= originPosition)
-                    {
-                        tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
-                        waitingList.RemoveAt(i);
-                    }
-                }
-            }
-        }
-
-
-        // TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
-        public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
-        {
-            // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
-            foreach (var evt in events)
-            {
-                // Before submitting external update events, we need to 
-                // configure them to wait for external dependency confirmation
-                evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
-                // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
-                // Commiting the events implies that persistence of their dependencies was confirmed.
-                if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
-                {
-                    // PersistenceConfirmationEvents have no dependencies
-                    // TODO: This might actually be unnecessary since we don't submit them
-                    persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
-
-                    this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
+                    var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
+                    waitingList.Add(tuple);
+                    WaitingForConfirmation[originPartition] = waitingList;
                 }
                 else
                 {
-                    if (evt is PartitionMessageEvent partitionMessageEvent)
-                    {
-                        // It is actually fine keeping the dependencies of events in the log worker, since
-                        // if the partition crashes, all uncommited messages (that are the only ones that have unconfirmed dependencies)
-                        // will be re-received and re-submitted. Since every event will be followed by its confirmation, this cannot lead
-                        // to a deadlock.
-                        SetConfirmationWaiter(partitionMessageEvent);
-                    }
-                    else
-                    {
-                        evt.EventHasNoUnconfirmeDependencies.SetResult(null);
-                    }
-                    this.Submit(evt);
-                }                
+                    oldWaitingList.Add(tuple);
+                    WaitingForConfirmation[originPartition] = oldWaitingList;
+                }
             }
+
+            public void ConfirmDependencyPersistence(PersistenceConfirmationEvent evt)
+            {
+                var originPartition = evt.OriginPartition;
+                var originPosition = evt.OriginPosition;
+                this.logWorker.traceHelper.FasterProgress($"Received PersistenceConfirmation message: (partition: {originPartition}, position: {originPosition})");
+
+                // It must be the case that there exists an entry for this partition (except if we failed)
+                if (this.WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
+                {
+                    // TODO: Do this in a more elegant way. (Using filter?)
+                    // TODO: If we do this with a forward pass and break early (assuming that list is increasing,
+                    //       cost is amortized.
+                    for (int i = waitingList.Count - 1; i >= 0; --i)
+                    {
+                        var tuple = waitingList[i];
+                        if (tuple.Item1 <= originPosition)
+                        {
+                            tuple.Item2.EventHasNoUnconfirmeDependencies.SetResult(null);
+                            waitingList.RemoveAt(i);
+                        }
+                    }
+                }
+            }
+
+
         }
+
+        //public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
+
+
+
+
+        //// TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
+        //public override void SubmitBatch(IEnumerable<PartitionUpdateEvent> events)
+        //{
+        //    // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
+        //    foreach (var evt in events)
+        //    {
+        //        // Before submitting external update events, we need to 
+        //        // configure them to wait for external dependency confirmation
+        //        evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
+        //        // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
+        //        // Commiting the events implies that persistence of their dependencies was confirmed.
+        //        if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
+        //        {
+        //            // PersistenceConfirmationEvents have no dependencies
+        //            // TODO: This might actually be unnecessary since we don't submit them
+        //            persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
+
+        //            this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
+        //        }
+        //        else
+        //        {
+        //            if (evt is PartitionMessageEvent partitionMessageEvent)
+        //            {
+        //                // It is actually fine keeping the dependencies of events in the log worker, since
+        //                // if the partition crashes, all uncommited messages (that are the only ones that have unconfirmed dependencies)
+        //                // will be re-received and re-submitted. Since every event will be followed by its confirmation, this cannot lead
+        //                // to a deadlock.
+        //                SetConfirmationWaiter(partitionMessageEvent);
+        //            }
+        //            else
+        //            {
+        //                evt.EventHasNoUnconfirmeDependencies.SetResult(null);
+        //            }
+        //            this.Submit(evt);
+        //        }                
+        //    }
+        //}
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
@@ -278,16 +312,20 @@ namespace DurableTask.EventSourced.Faster
                 //       This could relieve the pressure on sending/receiving from Eventhubs
                 for (var j = from; j < to; j++)
                 {
-                    var currEvt = batch[j];
-                    try
+                    // Q: Is this the right place to check for that, or should we do it earlier?
+                    if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
                     {
-                        DurabilityListeners.ConfirmDurable(currEvt);
-                        // Possible optimization: Move persistence confirmation logic to the lower level and out of the application layer
-                    }
-                    catch (Exception exception) when (!(exception is OutOfMemoryException))
-                    {
-                        // for robustness, swallow exceptions, but report them
-                        this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {currEvt} id={currEvt.EventIdString}", exception, false, false);
+                        var currEvt = batch[j];
+                        try
+                        {
+                            DurabilityListeners.ConfirmDurable(currEvt);
+                            // Possible optimization: Move persistence confirmation logic to the lower level and out of the application layer
+                        }
+                        catch (Exception exception) when (!(exception is OutOfMemoryException))
+                        {
+                            // for robustness, swallow exceptions, but report them
+                            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {currEvt} id={currEvt.EventIdString}", exception, false, false);
+                        }
                     }
                 }
             }
@@ -297,63 +335,60 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                // TODO: Figure out how to merge this exp-faster-consistent-recovery change
-                // // Q: Could this be a problem that this here takes a long time possibly blocking
-
-                // // Iteratively
-                // // - Find the next event that has a dependency (by checking if their Task is set)
-                // // - The ones before it can be safely commited.
-                // // - For event that is commited we also inform its durability listener
-                // // - Wait until the waiting for dependence is complete.
-                // // - go back to step 1
-                // var lastEnqueuedCommited = 0;
-                // for (var i=0; i < batch.Count; i++)
-                // {
-                //     var evt = batch[i];
-                //     // TODO: Optimize by not allocating an object
-                //     if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
-                //     {
-                //         await CommitUntil(batch, lastEnqueuedCommited, i);
-
-                //         // Progress the last commited index
-                //         lastEnqueuedCommited = i;
-                //         // Before continuing, wait for the dependencies of this update to be done, so that we can continue
-                //         await evt.EventHasNoUnconfirmeDependencies.Task;
-                //     }
-                // }
                 if (batch.Count > 0)
                 {
-                    //  checkpoint the log
-                    var stopwatch = new System.Diagnostics.Stopwatch();
-                    stopwatch.Start();
-                    long previous = log.CommittedUntilAddress;
+                    // Non speculation code
+                    ////  checkpoint the log
+                    //var stopwatch = new System.Diagnostics.Stopwatch();
+                    //stopwatch.Start();
+                    //long previous = log.CommittedUntilAddress;
 
-                    await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+                    //await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+                    //this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
+                    //this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+                    //foreach (var evt in batch)
+                    //{
+                    //    if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+                    //    {
+                    //        try
+                    //        {
+                    //            DurabilityListeners.ConfirmDurable(evt);
+                    //        }
+                    //        catch (Exception exception) when (!(exception is OutOfMemoryException))
+                    //        {
+                    //            // for robustness, swallow exceptions, but report them
+                    //            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                    //        }
+                    //    }
+                    //}
 
-                    this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
 
-                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+                    // Q: Could this be a problem that this here takes a long time possibly blocking
 
-                    foreach (var evt in batch)
+                    // Iteratively
+                    // - Find the next event that has a dependency (by checking if their Task is set)
+                    // - The ones before it can be safely commited.
+                    // - For event that is commited we also inform its durability listener
+                    // - Wait until the waiting for dependence is complete.
+                    // - go back to step 1
+                    var lastEnqueuedCommited = 0;
+                    for (var i = 0; i < batch.Count; i++)
                     {
-                        if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+                        var evt = batch[i];
+                        // TODO: Optimize by not allocating an object
+                        if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
                         {
-                            try
-                            {
-                                DurabilityListeners.ConfirmDurable(evt);
-                            }
-                            catch (Exception exception) when (!(exception is OutOfMemoryException))
-                            {
-                                // for robustness, swallow exceptions, but report them
-                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-                            }
+                            await CommitUntil(batch, lastEnqueuedCommited, i);
+
+                            // Progress the last commited index
+                            lastEnqueuedCommited = i;
+                            // Before continuing, wait for the dependencies of this update to be done, so that we can continue
+                            await evt.EventHasNoUnconfirmeDependencies.Task;
                         }
                     }
+                    // exp-faster-consistent-recovery change
+                    await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
                 }
-
-                // // exp-faster-consistent-recovery change
-                // await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
-
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {

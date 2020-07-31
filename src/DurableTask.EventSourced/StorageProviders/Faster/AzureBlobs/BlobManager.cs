@@ -565,11 +565,6 @@ namespace DurableTask.EventSourced.Faster
                         this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
                         this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
                         return;
-
-                        // TODO: Figure out if these old exp-faster-consistent-recovery changes are needed
-                        // this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
-                        // this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
-                        // return;
                     }
                     catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
                     {
@@ -592,10 +587,10 @@ namespace DurableTask.EventSourced.Faster
                         this.TraceHelper.FasterBlobStorageError(nameof(ILogCommitManager.Commit), this.eventLogCommitBlob.Name, e);
                         throw;
                     }
-                }
-                finally
-                {
-                    SynchronousStorageAccessMaxConcurrency.Release();
+                    finally
+                    {
+                        SynchronousStorageAccessMaxConcurrency.Release();
+                    }
                 }
             }
         }

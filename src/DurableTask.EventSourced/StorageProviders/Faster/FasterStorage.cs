@@ -125,7 +125,7 @@ namespace DurableTask.EventSourced.Faster
                     this.store.Recover(out long commitLogPosition, out long inputQueuePosition);
                     storeWorker.SetCheckpointPositionsAfterRecovery(commitLogPosition, inputQueuePosition);
 
-                    // TODO: Figure out if these exp-faster-consistent-recovery changes are necessary
+                    // TODO: Figure out if these exp-faster-consistent-recovery changes make any sense
                     // this.store.Recover();
                     // storeWorker.ReadCheckpointPositions(this.blobManager);
 
