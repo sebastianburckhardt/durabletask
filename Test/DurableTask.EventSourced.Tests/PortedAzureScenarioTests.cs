@@ -49,12 +49,18 @@ namespace DurableTask.EventSourced.Tests
             this.host = fixture.Host;
             fixture.LoggerProvider.Output = outputHelper;
             this.traceListener = new TestTraceListener(outputHelper);
-            Trace.Listeners.Add(this.traceListener);
+            lock (fixture.LoggerProvider)
+            {
+                Trace.Listeners.Add(this.traceListener);
+            }
         }
 
         public void Dispose()
         {
-            Trace.Listeners.Remove(this.traceListener);
+            lock (fixture.LoggerProvider)
+            {
+                Trace.Listeners.Remove(this.traceListener);
+            }
         }
 
         internal class TestTraceListener : TraceListener
@@ -272,6 +278,29 @@ namespace DurableTask.EventSourced.Tests
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
             Assert.Equal("Two", JToken.Parse(status?.Input));
             Assert.Equal("Hello, Two!", JToken.Parse(status?.Output));
+        }
+
+        /// <summary>
+        /// End-to-end test which validates that a completed orchestration with suborchestration can be recreated.
+        /// </summary>
+        [Fact]
+        public async Task RecreateCompletedInstanceWithSuborchestration()
+        {
+            string instanceId = $"Factorial{Guid.NewGuid():N}";
+
+            var client = await host.StartOrchestrationAsync(typeof(Orchestrations.ParentOfFactorial), 10, instanceId);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal(10, JToken.Parse(status?.Input));
+            Assert.Equal(3628800, JToken.Parse(status?.Output));
+
+            client = await host.StartOrchestrationAsync(typeof(Orchestrations.ParentOfFactorial), 10, instanceId);
+            status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal(10, JToken.Parse(status?.Input));
+            Assert.Equal(3628800, JToken.Parse(status?.Output));
         }
 
         /// <summary>

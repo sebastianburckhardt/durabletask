@@ -40,12 +40,12 @@ namespace DurableTask.EventSourced.Faster
                 this.etwLogInformation?.FasterStoreCreated(this.account, this.taskHub, partitionId, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
             }
         }
-        public void FasterCheckpointStarted(Guid checkpointId, string reason, long commitLogPosition, long inputQueuePosition)
+        public void FasterCheckpointStarted(Guid checkpointId, string reason, string storeStats, long commitLogPosition, long inputQueuePosition)
         {
             if (this.logLevelLimit <= LogLevel.Information)
             {
-                logger.LogInformation("Part{partition:D2} Started Checkpoint {checkpointId}, reason={reason}, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}", partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition);
-                this.etwLogInformation?.FasterCheckpointStarted(this.account, this.taskHub, partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, TraceUtils.ExtensionVersion);
+                logger.LogInformation("Part{partition:D2} Started Checkpoint {checkpointId}, reason={reason}, storeStats={storeStats}, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}", partitionId, checkpointId, reason, storeStats, commitLogPosition, inputQueuePosition);
+                this.etwLogInformation?.FasterCheckpointStarted(this.account, this.taskHub, partitionId, checkpointId, reason, storeStats, commitLogPosition, inputQueuePosition, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -67,21 +67,21 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public void FasterCheckpointLoaded(long commitLogPosition, long inputQueuePosition, long latencyMs)
+        public void FasterCheckpointLoaded(long commitLogPosition, long inputQueuePosition, string storeStats, long latencyMs)
         {
             if (this.logLevelLimit <= LogLevel.Information)
             {
-                logger.LogInformation("Part{partition:D2} Loaded Checkpoint, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, latencyMs);
-                this.etwLogInformation?.FasterCheckpointLoaded(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
+                logger.LogInformation("Part{partition:D2} Loaded Checkpoint, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}  storeStats={storeStats} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, storeStats, latencyMs);
+                this.etwLogInformation?.FasterCheckpointLoaded(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, storeStats, latencyMs, TraceUtils.ExtensionVersion);
             }
         }
 
-        public void FasterLogReplayed(long commitLogPosition, long inputQueuePosition, long numberEvents, long sizeInBytes, long latencyMs)
+        public void FasterLogReplayed(long commitLogPosition, long inputQueuePosition, long numberEvents, long sizeInBytes, string storeStats, long latencyMs)
         {
             if (this.logLevelLimit <= LogLevel.Information)
             {
-                logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, latencyMs);
-                this.etwLogInformation?.FasterLogReplayed(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
+                logger.LogInformation("Part{partition:D2} Replayed CommitLog, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} storeStats={storeStats} latencyMs={latencyMs}", partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, storeStats, latencyMs);
+                this.etwLogInformation?.FasterLogReplayed(this.account, this.taskHub, partitionId, commitLogPosition, inputQueuePosition, numberEvents, sizeInBytes, storeStats, latencyMs, TraceUtils.ExtensionVersion);
             }
         }
 

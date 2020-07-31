@@ -19,7 +19,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
-using Microsoft.Azure.Storage.Blob.Protocol;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
@@ -52,8 +51,8 @@ namespace DurableTask.EventSourced.EventHubs
 
         private CloudBlobContainer cloudBlobContainer;
         private CloudBlockBlob taskhubParameters;
-        private CustomConstantEventProcessorHost customEventProcessorHost;
-        private Task customEventProcessorHostTask;
+        private CloudBlockBlob partitionScript;
+        private ScriptedEventProcessorHost customEventProcessorHost;
         private const int MaxReceiveBatchSize = 10000; // actual batches will always be much smaller
 
         public Guid ClientId { get; private set; }
@@ -71,6 +70,7 @@ namespace DurableTask.EventSourced.EventHubs
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
+            this.partitionScript = cloudBlobContainer.GetBlockBlobReference("partitionscript.json");
         }
 
         private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
@@ -156,7 +156,7 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 throw new InvalidOperationException("Only one taskhub is allowed per EventHub");
             }
-
+     
             this.host.NumberPartitions = (uint) this.parameters.StartPositions.Length;
 
             this.client = host.AddClient(this.ClientId, this);
@@ -181,10 +181,10 @@ namespace DurableTask.EventSourced.EventHubs
 
                 await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
             }
-            else if (this.settings.EventProcessorManagement == "Custom")
+            else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
             {
                 this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
-                this.customEventProcessorHost = new CustomConstantEventProcessorHost(
+                this.customEventProcessorHost = new ScriptedEventProcessorHost(
                         EventHubsConnections.PartitionsPath,
                         EventHubsConnections.PartitionsConsumerGroup,
                         settings.EventHubsConnectionString,
@@ -194,23 +194,12 @@ namespace DurableTask.EventSourced.EventHubs
                         this, 
                         this.connections,
                         this.parameters, 
-                        this.traceHelper);
+                        this.traceHelper,
+                        settings.WorkerId);
 
-                // TODO: Make this automatic
-                // TODO: Make this be a string(or json) here, and the parsing to happen in the custom host
-                var timesteps = new List<Tuple<long, List<Tuple<uint, string>>>>();
-                var startingEvents = new List<Tuple<uint, string>>();
-                var partitionNumber = this.parameters.StartPositions.Length;
-                for (var partitionIndex = 0; partitionIndex < partitionNumber; partitionIndex ++)
-                {
-                    startingEvents.Add(new Tuple<uint, string>(Convert.ToUInt32(partitionIndex), "start"));
-                }
-                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(0, startingEvents));
-                var restartingEvent = new List<Tuple<uint, string>>();
-                restartingEvent.Add(new Tuple<uint, string>(0, "restart"));
-                timesteps.Add(new Tuple<long, List<Tuple<uint, string>>>(10000, restartingEvent));
-
-                this.customEventProcessorHostTask = Task.Run(() => this.customEventProcessorHost.StartEventProcessing(timesteps));
+                var thread = new Thread(() => this.customEventProcessorHost.StartEventProcessing(settings, this.partitionScript));
+                thread.Name = "ScriptedEventProcessorHost";
+                thread.Start();
             }
             else
             {
@@ -228,8 +217,8 @@ namespace DurableTask.EventSourced.EventHubs
             this.traceHelper.LogDebug("Unregistering event processor");
             if (this.settings.EventProcessorManagement == "EventHubs")
                 await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
-            else if (this.settings.EventProcessorManagement == "Custom")
-                throw new NotImplementedException("Custom eventhubs not yet implemented");
+            else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
+                throw new NotImplementedException("Custom eventhubs stopping not yet implemented");
             else
                 throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
             this.traceHelper.LogDebug("Closing connections");

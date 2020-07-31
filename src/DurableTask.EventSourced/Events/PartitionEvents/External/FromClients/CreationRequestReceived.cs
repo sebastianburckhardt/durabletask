@@ -45,7 +45,7 @@ namespace DurableTask.EventSourced
         public override void DetermineEffects(EffectTracker effects)
         {
             // the creation request is first buffered in the prefetch state while the instance info is loaded
-            effects.Add(TrackedObjectKey.Prefetch);
+            effects.Add(TrackedObjectKey.Creation);
         }
     }
 

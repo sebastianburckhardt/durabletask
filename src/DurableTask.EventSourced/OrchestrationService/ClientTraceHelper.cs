@@ -54,6 +54,21 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public void TraceTimerProgress(string details)
+        {
+            if (this.logLevelLimit <= LogLevel.Debug)
+            {
+                if (this.logger.IsEnabled(LogLevel.Debug))
+                {
+                    this.logger.LogInformation("{client} {details}", this.tracePrefix, details);
+                }
+                if (EtwSource.Log.IsEnabled())
+                {
+                    EtwSource.Log.ClientTimerProgress(this.account, this.taskHub, this.clientId, details, TraceUtils.ExtensionVersion);
+                }
+            }
+        }
+
         public void TraceSend(Event @event)
         {
             if (this.logLevelLimit <= LogLevel.Debug)

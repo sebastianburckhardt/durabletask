@@ -25,18 +25,20 @@ namespace DurableTask.EventSourced
         private readonly object thisLock = new object();
         private readonly CancellationToken cancellationToken;
         private readonly Action<List<T>> handler;
-        private readonly SortedList<(DateTime when, int id), T> schedule;
+        private readonly SortedList<(DateTime due, int id), T> schedule;
         private readonly SemaphoreSlim notify;
+        private readonly Action<string> tracer;
 
         private volatile int sequenceNumber;
 
         //TODO consider using a min heap for more efficient removal of entries
 
-        public BatchTimer(CancellationToken token, Action<List<T>> handler)
+        public BatchTimer(CancellationToken token, Action<List<T>> handler, Action<string> tracer = null)
         {
             this.cancellationToken = token;
             this.handler = handler;
-            this.schedule = new SortedList<(DateTime when, int id), T>();
+            this.tracer = tracer;
+            this.schedule = new SortedList<(DateTime due, int id), T>();
             this.notify = new SemaphoreSlim(0, int.MaxValue);
 
             token.Register(() => this.notify.Release());
@@ -61,9 +63,11 @@ namespace DurableTask.EventSourced
         {
             lock (this.thisLock)
             {
-                 var key = (due, id.HasValue ? id.Value : sequenceNumber++);
+                var key = (due, id ?? sequenceNumber++);
 
                 this.schedule.Add(key, what);
+
+                tracer?.Invoke($"scheduled ({key.Item1:o},{key.Item2})");
 
                 // notify the expiration check loop
                 if (key == this.schedule.First().Key)
@@ -73,24 +77,36 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public bool TryRemove((DateTime when, int id) key)
+        public bool TryCancel((DateTime due, int id) key)
         {
             lock (this.thisLock)
             {
-                return this.schedule.Remove(key);
+                if (this.schedule.Remove(key))
+                {
+                    tracer?.Invoke($"canceled ({key.due:o},{key.id})");
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
             }
         }
 
         private void ExpirationCheckLoop()
         {
             List<T> batch = new List<T>();
+            (DateTime due, int id) firstInBatch = default;
+            (DateTime due, int id) nextAfterBatch = default;
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 // wait for the next expiration time or cleanup, but cut the wait short if notified
-                if (this.RequiresDelay(out var delay))
+                if (this.RequiresDelay(out var delay, out var due))
                 {
-                    this.notify.Wait(delay); // blocks thread until delay is over, or until notified
+                    var startWait = DateTime.UtcNow;
+                    this.notify.Wait(delay); // blocks thread until delay is over, or until notified                 
+                    tracer?.Invoke($"awakening at {(DateTime.UtcNow - due).TotalSeconds}s");
                 }
 
                 lock (this.thisLock)
@@ -98,46 +114,60 @@ namespace DurableTask.EventSourced
                     var next = this.schedule.FirstOrDefault();
 
                     while (this.schedule.Count > 0
-                        && next.Key.when <= DateTime.UtcNow
+                        && next.Key.due <= DateTime.UtcNow
                         && !this.cancellationToken.IsCancellationRequested)
                     {
                         this.schedule.RemoveAt(0);
                         batch.Add(next.Value);
 
+                        if (batch.Count == 1)
+                        {
+                            firstInBatch = next.Key;
+                        }
+
                         next = this.schedule.FirstOrDefault();
                     }
+
+                    nextAfterBatch = next.Key;
                 }
 
                 if (batch.Count > 0)
                 {
+                    tracer?.Invoke($"starting timer batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
+
                     // it is expected that the handler catches 
                     // all exceptions, since it has more meaningful ways to report errors
                     handler(batch);
                     batch.Clear();
+                    
+                    tracer?.Invoke($"completed timer batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
                 }
             }
         }
 
-        private bool RequiresDelay(out TimeSpan delay)
+        private bool RequiresDelay(out TimeSpan delay, out DateTime due)
         {
             lock (this.thisLock)
             {
                 if (this.schedule.Count == 0)
                 {
                     delay = TimeSpan.FromMilliseconds(-1); // represents infinite delay
+                    due = DateTime.MaxValue;
                     return true;
                 }
 
                 var next = this.schedule.First();
                 var now = DateTime.UtcNow;
 
-                if (next.Key.when > now)
+                if (next.Key.due > now)
                 {
-                    delay = next.Key.when - now;
+                    due = next.Key.due;
+                    delay = due - now;
                     return true;
                 }
                 else
                 {
+                    due = now;
                     delay = default;
                     return false;
                 }

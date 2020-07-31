@@ -20,16 +20,8 @@ namespace DurableTask.EventSourced
     internal class QueryResponseReceived : ClientEvent
     {
         [DataMember]
-        public int ExpectedCount { get; set; }
+        public IList<OrchestrationState> OrchestrationStates { get; set; }
 
-        [DataMember]
-        public IList<OrchestrationState> OrchestrationStates { get; set; } = new List<OrchestrationState>();
-
-        internal bool IsDone => this.OrchestrationStates.Count == ExpectedCount;
-
-        public override string ToString() 
-            => $"ExpectedCount: {this.ExpectedCount}, ActualCount: {this.OrchestrationStates.Count}";
-
-        public void DiscardState() => --this.ExpectedCount;
+        public override string ToString() => $"Count: {this.OrchestrationStates.Count}";
     }
 }

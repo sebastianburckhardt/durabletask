@@ -32,6 +32,12 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
 
+        protected override void ExtraTraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.InstanceId);
+        }
+
         public override void OnReadComplete(TrackedObject target, Partition partition)
         {
             var orchestrationState = ((InstanceState)target)?.OrchestrationState;

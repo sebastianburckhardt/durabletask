@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            base.SubmitIncomingBatch(entries);
+            base.SubmitBatch(entries);
         }
 
         public Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, long initialInputQueuePosition)
@@ -101,6 +101,14 @@ namespace DurableTask.EventSourced
             return result;
         }
 
+        private IEnumerable<InstanceState> GetAllInstances()
+        {
+            return trackedObjects
+                .Values
+                .Select(trackedObject => (trackedObject as InstanceState))
+                .Where(instanceState => instanceState != null).ToList();
+        }
+
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -108,8 +116,7 @@ namespace DurableTask.EventSourced
                 var effects = new EffectTracker(
                     this.partition,
                     this.ApplyToStore,
-                    () => (this.commitPosition, this.inputQueuePosition),
-                    (c, i) => { this.commitPosition = c; this.inputQueuePosition = i; }
+                    () => (this.commitPosition, this.inputQueuePosition)
                 );
 
                 if (batch.Count != 0)
@@ -123,20 +130,40 @@ namespace DurableTask.EventSourced
                         {
                             switch (partitionEvent)
                             {
-                                case PartitionReadEvent readEvent:
-                                    readEvent.OnReadIssued(this.partition);
-                                    var readTarget = this.GetOrAdd(readEvent.ReadTarget);
-                                    effects.ProcessReadResult(readEvent, readTarget);
-                                    break;
-
                                 case PartitionUpdateEvent updateEvent:
                                     updateEvent.NextCommitLogPosition = commitPosition + 1;
                                     await effects.ProcessUpdate(updateEvent).ConfigureAwait(false);
                                     DurabilityListeners.ConfirmDurable(updateEvent);
+                                    if (updateEvent.NextCommitLogPosition > 0)
+                                    {
+                                        this.partition.Assert(updateEvent.NextCommitLogPosition > this.commitPosition);
+                                        this.commitPosition = updateEvent.NextCommitLogPosition;
+                                    }
+                                    break;
+
+                                case PartitionReadEvent readEvent:
+                                    readEvent.OnReadIssued(this.partition);
+                                    if (readEvent.Prefetch.HasValue)
+                                    {
+                                        var prefetchTarget = this.GetOrAdd(readEvent.Prefetch.Value);
+                                        effects.ProcessReadResult(readEvent, readEvent.Prefetch.Value, prefetchTarget);
+                                    }
+                                    var readTarget = this.GetOrAdd(readEvent.ReadTarget);
+                                    effects.ProcessReadResult(readEvent, readEvent.ReadTarget, readTarget);
+                                    break;
+
+                                case PartitionQueryEvent queryEvent:
+                                    effects.ProcessQueryResult(queryEvent, this.GetAllInstances());
                                     break;
 
                                 default:
                                     throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                            }
+
+                            if (partitionEvent.NextInputQueuePosition > 0)
+                            {
+                                this.partition.Assert(partitionEvent.NextInputQueuePosition > this.inputQueuePosition);
+                                this.inputQueuePosition = partitionEvent.NextInputQueuePosition;
                             }
                         }
                         catch (Exception e)

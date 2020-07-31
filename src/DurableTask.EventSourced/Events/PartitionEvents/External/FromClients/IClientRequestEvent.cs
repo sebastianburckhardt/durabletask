@@ -22,7 +22,7 @@ namespace DurableTask.EventSourced
 
         long RequestId { get; set; }
 
-        TimeSpan Timeout { get; set; }
+        DateTime TimeoutUtc { get; set; }
 
         EventId EventId { get; }
     }

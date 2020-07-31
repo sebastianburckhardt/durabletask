@@ -50,6 +50,9 @@ namespace DurableTask.EventSourced.Faster
         private const long MAX_BLOB_SIZE = (long)(2 * 10e8);
         // Azure Page Blobs have a fixed sector size of 512 bytes.
         private const uint PAGE_BLOB_SECTOR_SIZE = 512;
+        // Max upload size must be at most 4MB
+        // we use an even smaller value to improve retry/timeout behavior in highly contended situations
+        private const uint MAX_UPLOAD_SIZE = 1024 * 1024;
 
         /// <summary>
         /// Constructs a new AzureStorageDevice instance, backed by Azure Page Blobs
@@ -73,12 +76,10 @@ namespace DurableTask.EventSourced.Faster
         public async Task StartAsync()
         {
             // list all the blobs representing the segments
-
             int prevSegmentId = -1;
             var prefix = $"{blobDirectory.Prefix}{blobName}.";
 
             BlobContinuationToken continuationToken = null;
-            List<IListBlobItem> results = new List<IListBlobItem>();
             do
             {
                 if (this.underLease)
@@ -179,26 +180,53 @@ namespace DurableTask.EventSourced.Faster
 
         private async Task WritePortionToBlobAsync(UnmanagedMemoryStream stream, CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, long offset, uint length)
         {
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.WritePortionToBlobAsync Called target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+
             try
             {
-                if (this.underLease)
-                {
-                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
-                }
+                await BlobManager.AsynchronousStorageWriteMaxConcurrency.WaitAsync();
 
-                await blob.WritePagesAsync(stream, destinationAddress + offset,
-                    contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
-                throw;
+                int numAttempts = 0;
+
+                while(true) // retry loop
+                {
+                    numAttempts++;
+                    try
+                    {
+                        if (this.underLease)
+                        {
+                            await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+                        }
+
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} attempt={numAttempts}");
+
+                        await blob.WritePagesAsync(stream, destinationAddress + offset,
+                            contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                        break;
+                    }
+                    catch (StorageException e) when (this.underLease && BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
+                    {
+                        TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
+                        this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
+                        await Task.Delay(nextRetryIn);
+                        continue;
+                    }
+                    catch (Exception exception) when (!Utils.IsFatal(exception))
+                    {
+                        this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
+                };
             }
             finally
             {
+                BlobManager.AsynchronousStorageWriteMaxConcurrency.Release();
                 stream.Dispose();
             }
         }
+
 
         private unsafe Task ReadFromBlobUnsafeAsync(CloudPageBlob blob, long sourceAddress, long destinationAddress, uint readLength)
         {
@@ -207,36 +235,54 @@ namespace DurableTask.EventSourced.Faster
 
         private async Task ReadFromBlobAsync(UnmanagedMemoryStream stream, CloudPageBlob blob, long sourceAddress, long destinationAddress, uint readLength)
         {
-            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.ReadFromBlobAsync Called target={blob.Name}");
-
+            this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.ReadFromBlobAsync Called target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+        
             try
             {
-                if (this.underLease)
+                await BlobManager.AsynchronousStorageReadMaxConcurrency.WaitAsync();
+
+                int numAttempts = 0;
+
+                while (true) // retry loop
                 {
-                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease");
-                    await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
-                    this.BlobManager?.StorageTracer?.FasterStorageProgress($"confirm lease done");
+                    numAttempts++;         
+                    try
+                    {
+                        if (this.underLease)
+                        {
+                            await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
+                        }
+
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={numAttempts}");
+
+                        await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
+                                 accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+
+                        if (stream.Position != readLength)
+                        {
+                            throw new InvalidDataException($"wrong amount of data received from page blob, expected={readLength}, actual={stream.Position}");
+                        }
+                        break;
+                    }
+                    catch (StorageException e) when (this.underLease && BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
+                    {
+                        TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
+                        this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
+                        await Task.Delay(nextRetryIn);
+                        continue;
+                    }
+                    catch (Exception exception) when (!Utils.IsFatal(exception))
+                    {
+                        this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), "could not read from page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
                 }
-
-                this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
-
-                await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                         accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
-
-                this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
-
-                if (stream.Position != readLength)
-                {
-                    throw new InvalidDataException($"wrong amount of data received from page blob, expected={readLength}, actual={stream.Position}");
-                }
-            }
-            catch (Exception exception)
-            {
-                this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), "could not read from page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
-                throw;
             }
             finally
             {
+                BlobManager.AsynchronousStorageReadMaxConcurrency.Release();
                 stream.Dispose();
             }
         }
@@ -342,14 +388,12 @@ namespace DurableTask.EventSourced.Faster
                     });
         }
 
-        const int maxPortionSizeForPageBlobWrites = 4 * 1024 * 1024; // 4 MB is a limit on page blob write portions, apparently
-
         private async Task WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, uint numBytesToWrite)
         {
             long offset = 0;
             while (numBytesToWrite > 0)
             {
-                var length = Math.Min(numBytesToWrite, maxPortionSizeForPageBlobWrites);
+                var length = Math.Min(numBytesToWrite, MAX_UPLOAD_SIZE);
                 await this.WritePortionToBlobUnsafeAsync(blob, sourceAddress, destinationAddress, offset, length).ConfigureAwait(false);
                 numBytesToWrite -= length;
                 offset += length;

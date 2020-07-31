@@ -19,9 +19,12 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class CancellableCompletionSource<T> : CompletionSourceWithCleanup<T>
+    internal class CancellableCompletionSource<T> 
     {
         private readonly CancellationTokenRegistration CancellationRegistration;
+        private readonly TaskCompletionSource<T> inner = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<T> Task => inner.Task;
 
         public CancellableCompletionSource(CancellationToken token1)
         {
@@ -29,9 +32,41 @@ namespace DurableTask.EventSourced
             this.CancellationRegistration = token1.Register(this.TrySetCanceled);
         }
 
-        protected override void Cleanup()
+        public virtual void TrySetCanceled()
         {
-            CancellationRegistration.Dispose();
+            if (this.inner.TrySetCanceled())
+            {
+                this.CancellationRegistration.Dispose();
+            }
+        }
+
+        public virtual void TrySetTimeoutException()
+        {
+            if (this.inner.TrySetException(new TimeoutException()))
+            {
+                this.CancellationRegistration.Dispose();
+            }
+        }
+
+        public virtual void TrySetException(Exception e)
+        {
+            if (this.inner.TrySetException(e))
+            {
+                this.CancellationRegistration.Dispose();
+            }
+        }
+
+        public bool TrySetResult(T result)
+        {
+            if (this.inner.TrySetResult(result))
+            {
+                this.CancellationRegistration.Dispose();
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
     }
 }

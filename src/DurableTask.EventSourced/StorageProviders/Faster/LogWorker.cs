@@ -40,11 +40,14 @@ namespace DurableTask.EventSourced.Faster
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
             : base(cancellationToken)
         {
+            partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.blobManager = blobManager;
             this.log = log;
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
+            this.intakeWorker = new IntakeWorker(cancellationToken, this);
 
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
@@ -55,28 +58,53 @@ namespace DurableTask.EventSourced.Faster
 
         private int maxFragmentSize;
 
-        public override void Submit(PartitionUpdateEvent evt)
+        public long LastCommittedInputQueuePosition { get; private set; }
+
+        private class IntakeWorker : BatchWorker<PartitionEvent>
         {
-            byte[] bytes = Serializer.SerializeEvent(evt, first | last);
+            private readonly LogWorker logWorker;
+            private readonly List<PartitionUpdateEvent> updateEvents;
 
-            if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
+            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(token)
             {
-                lock (this.thisLock)
+                this.logWorker = logWorker;
+                this.updateEvents = new List<PartitionUpdateEvent>();
+            }
+
+            protected override Task Process(IList<PartitionEvent> batch)
+            {
+                if (batch.Count > 0 && !this.logWorker.isShuttingDown)
                 {
-                    Enqueue(bytes);
+                    // before processing any update events they need to be serialized
+                    // and assigned a commit log position
+                    foreach (var evt in batch)
+                    {
+                        if (evt is PartitionUpdateEvent partitionUpdateEvent)
+                        {
+                            var bytes = Serializer.SerializeEvent(evt, first | last);
+                            this.logWorker.AddToFasterLog(bytes);
+                            partitionUpdateEvent.NextCommitLogPosition = this.logWorker.log.TailAddress;
+                            updateEvents.Add(partitionUpdateEvent);
+                        }
+                    }
 
-                    evt.NextCommitLogPosition = this.log.TailAddress;
+                    // the store worker and the log worker can now process these events in parallel
+                    this.logWorker.storeWorker.SubmitBatch(batch);
+                    this.logWorker.SubmitBatch(updateEvents);
 
-                    base.Submit(evt);
-
-                    // add to store worker (under lock for consistent ordering)
-                    this.storeWorker.Submit(evt);
+                    this.updateEvents.Clear();
                 }
+
+                return Task.CompletedTask;
             }
-            else
-            {
-                this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
-            }
+
+
+            // TODO: Figure out where does this fit in the picture (exp-faster-consistent-recovery changes)                        
+            // if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
+            // else
+            // {
+            //     this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
+            // }
         }
 
         public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
@@ -100,6 +128,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        // TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
         public void ConfirmDependencyPersistence(PersistenceConfirmationEvent evt)
         {
             var originPartition = evt.OriginPartition;
@@ -125,6 +154,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
+        // TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
         public override void SubmitIncomingBatch(IEnumerable<PartitionUpdateEvent> events)
         {
             // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
@@ -162,7 +192,18 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        private void Enqueue(byte[] bytes)
+        public void SubmitInternalEvent(PartitionEvent evt)
+        {
+            this.intakeWorker.Submit(evt);
+        }
+
+        public void SubmitExternalEvents(IEnumerable<PartitionEvent> events)
+        {
+            this.intakeWorker.SubmitBatch(events);
+        }
+
+      
+        private void AddToFasterLog(byte[] bytes)
         {
             if (bytes.Length <= maxFragmentSize)
             {
@@ -193,6 +234,8 @@ namespace DurableTask.EventSourced.Faster
             // The latest PersistenceConfirmation events will be sent once the 
             // partition recovers.
             this.isShuttingDown = true;
+
+            await this.intakeWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
             await this.WaitForCompletionAsync().ConfigureAwait(false);
 
@@ -254,30 +297,62 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                // Q: Could this be a problem that this here takes a long time possibly blocking
+                // TODO: Figure out how to merge this exp-faster-consistent-recovery change
+                // // Q: Could this be a problem that this here takes a long time possibly blocking
 
-                // Iteratively
-                // - Find the next event that has a dependency (by checking if their Task is set)
-                // - The ones before it can be safely commited.
-                // - For event that is commited we also inform its durability listener
-                // - Wait until the waiting for dependence is complete.
-                // - go back to step 1
-                var lastEnqueuedCommited = 0;
-                for (var i=0; i < batch.Count; i++)
+                // // Iteratively
+                // // - Find the next event that has a dependency (by checking if their Task is set)
+                // // - The ones before it can be safely commited.
+                // // - For event that is commited we also inform its durability listener
+                // // - Wait until the waiting for dependence is complete.
+                // // - go back to step 1
+                // var lastEnqueuedCommited = 0;
+                // for (var i=0; i < batch.Count; i++)
+                // {
+                //     var evt = batch[i];
+                //     // TODO: Optimize by not allocating an object
+                //     if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
+                //     {
+                //         await CommitUntil(batch, lastEnqueuedCommited, i);
+
+                //         // Progress the last commited index
+                //         lastEnqueuedCommited = i;
+                //         // Before continuing, wait for the dependencies of this update to be done, so that we can continue
+                //         await evt.EventHasNoUnconfirmeDependencies.Task;
+                //     }
+                // }
+                if (batch.Count > 0)
                 {
-                    var evt = batch[i];
-                    // TODO: Optimize by not allocating an object
-                    if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
-                    {
-                        await CommitUntil(batch, lastEnqueuedCommited, i);
+                    //  checkpoint the log
+                    var stopwatch = new System.Diagnostics.Stopwatch();
+                    stopwatch.Start();
+                    long previous = log.CommittedUntilAddress;
 
-                        // Progress the last commited index
-                        lastEnqueuedCommited = i;
-                        // Before continuing, wait for the dependencies of this update to be done, so that we can continue
-                        await evt.EventHasNoUnconfirmeDependencies.Task;
+                    await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
+
+                    this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
+
+                    this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
+
+                    foreach (var evt in batch)
+                    {
+                        if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
+                        {
+                            try
+                            {
+                                DurabilityListeners.ConfirmDurable(evt);
+                            }
+                            catch (Exception exception) when (!(exception is OutOfMemoryException))
+                            {
+                                // for robustness, swallow exceptions, but report them
+                                this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
+                            }
+                        }
                     }
                 }
-                await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
+
+                // // exp-faster-consistent-recovery change
+                // await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
 
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)

@@ -14,6 +14,7 @@
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;
+using DurableTask.EventSourced.Faster;
 using DurableTask.EventSourced.Scaling;
 using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
@@ -79,10 +80,12 @@ namespace DurableTask.EventSourced
             TransportConnectionString.Parse(this.Settings.EventHubsConnectionString, out this.configuredStorage, out this.configuredTransport, out _);
             this.Logger = loggerFactory.CreateLogger(LoggerCategoryName);
             this.LoggerFactory = loggerFactory;
-            this.StorageAccountName = CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
+            this.StorageAccountName = this.configuredTransport == TransportConnectionString.TransportChoices.Memory
+                ? this.Settings.StorageConnectionString
+                : CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
             EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
-            this.Logger.LogInformation("EventSourcedOrchestrationService created, serviceInstanceId={serviceInstanceId}, transport={transport}, storage={storage}", this.ServiceInstanceId, this.configuredTransport, this.configuredStorage);
+            this.Logger.LogInformation("EventSourcedOrchestrationService created, workerId={workerId}, transport={transport}, storage={storage}", this.Settings.WorkerId, this.configuredTransport, this.configuredStorage);
 
             switch (this.configuredTransport)
             {
@@ -102,10 +105,11 @@ namespace DurableTask.EventSourced
                     throw new NotImplementedException("no such transport choice");
             }
 
-            this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
+            if (this.configuredTransport != TransportConnectionString.TransportChoices.Memory)
+                this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
 
             this.Logger.LogInformation(
-                "trace level limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
+                "trace generation limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
                 settings.LogLevelLimit,
                 settings.TransportLogLevelLimit,
                 settings.StorageLogLevelLimit,
@@ -145,7 +149,8 @@ namespace DurableTask.EventSourced
 
         async Task StorageAbstraction.IStorageProvider.DeleteAllPartitionStatesAsync()
         {
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
 
             switch (this.configuredStorage)
             {
@@ -185,7 +190,8 @@ namespace DurableTask.EventSourced
                 await this.taskHub.CreateAsync().ConfigureAwait(false);
             }
 
-            await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.CreateIfNotExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -196,7 +202,8 @@ namespace DurableTask.EventSourced
         {
             await this.taskHub.DeleteAsync().ConfigureAwait(false);
 
-            await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!(this.LoadMonitorService is null))
+                await this.LoadMonitorService.DeleteIfExistsAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -211,14 +218,18 @@ namespace DurableTask.EventSourced
                 return;
             }
 
-            this.Logger.LogInformation("EventSourcedOrchestrationService is starting, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            this.Logger.LogInformation("EventSourcedOrchestrationService is starting on workerId={workerId}", this.Settings.WorkerId);
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
             this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
             this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(this.serviceShutdownSource.Token, SendNullResponses);
 
-            this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
+            LeaseTimer.Instance.DelayWarning = (int delay) =>
+                this.Logger.LogWarning("EventSourcedOrchestrationService lease timer on workerId={workerId} is running {delay}s behind schedule", this.Settings.WorkerId, delay);
+
+            if (!(this.LoadMonitorService is null))
+                this.LoadPublisher = new LoadPublisher(this.LoadMonitorService, this.Logger);
 
             await taskHub.StartAsync().ConfigureAwait(false);
 
@@ -238,7 +249,7 @@ namespace DurableTask.EventSourced
         /// <inheritdoc />
         public async Task StopAsync(bool isForced)
         {
-            this.Logger.LogInformation("EventSourcedOrchestrationService stopping, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+            this.Logger.LogInformation("EventSourcedOrchestrationService stopping, workerId={workerId}", this.Settings.WorkerId);
 
             if (!this.Settings.KeepServiceRunning && this.serviceShutdownSource != null)
             {
@@ -248,7 +259,7 @@ namespace DurableTask.EventSourced
 
                 await this.taskHub.StopAsync().ConfigureAwait(false);
 
-                this.Logger.LogInformation("EventSourcedOrchestrationService stopped, serviceInstanceId={serviceInstanceId}", this.ServiceInstanceId);
+                this.Logger.LogInformation("EventSourcedOrchestrationService stopped, workerId={workerId}", this.Settings.WorkerId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
@@ -266,11 +277,13 @@ namespace DurableTask.EventSourced
         /// <returns>The partition id.</returns>
         public uint GetPartitionId(string instanceId)
         {
-            if (instanceId.Contains("-manual-partition-"))
+            // if the instance id ends with !nn, where nn is a two-digit number, it indicates explicit partition placement
+            if (instanceId.Length >= 3 
+                && instanceId[instanceId.Length - 3] == '!'
+                && uint.TryParse(instanceId.Substring(instanceId.Length - 2), out uint nn))
             {
-                var i = instanceId.LastIndexOf("-");
-                var partitionId = uint.Parse(instanceId.Substring(i + 1)) % this.NumberPartitions;
-                this.Logger.LogTrace($"Instance: {instanceId} was manually hashed to partition: {partitionId}");
+                var partitionId = nn % this.NumberPartitions;
+                this.Logger.LogTrace($"Instance: {instanceId} was explicitly placed on partition: {partitionId}");
                 return partitionId;
             }
             else
@@ -473,7 +486,7 @@ namespace DurableTask.EventSourced
             }
 
             // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
-            bool cacheWorkItemForReuse = state.OrchestrationStatus != OrchestrationStatus.Running;           
+            bool cacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;           
 
             try
             {

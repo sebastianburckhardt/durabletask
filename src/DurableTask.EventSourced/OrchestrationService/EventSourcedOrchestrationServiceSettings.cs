@@ -89,6 +89,21 @@ namespace DurableTask.EventSourced
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
         /// <summary>
+        /// A limit on how long to wait between state checkpoints, in milliseconds.
+        /// </summary>
+        public long MaxTimeMsBetweenCheckpoints { get; set; } = 10 * 1000;
+
+        /// <summary>
+        /// Whether to use the Faster PSF support for handling queries.
+        /// </summary>
+        public bool UsePSFQueries { get; set; } = true;
+
+        /// <summary>
+        /// Whether to use the alternate object store implementation.
+        /// </summary>
+        public bool UseAlternateObjectStore { get; set; } = true;
+
+        /// <summary>
         /// A lower limit on the severity level of trace events emitted by the transport layer.
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>

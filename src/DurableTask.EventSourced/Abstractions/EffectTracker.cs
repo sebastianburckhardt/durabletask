@@ -31,15 +31,13 @@ namespace DurableTask.EventSourced
     {
         private readonly Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore;
         private readonly Func<(long, long)> getPositions;
-        private readonly Action<long, long> setPositions;
         private readonly System.Diagnostics.Stopwatch stopWatch;
 
-        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions, Action<long, long> setPositions)
+        public EffectTracker(Partition partition, Func<TrackedObjectKey, EffectTracker, ValueTask> applyToStore, Func<(long, long)> getPositions)
         {
             this.Partition = partition;
             this.applyToStore = applyToStore;
             this.getPositions = getPositions;
-            this.setPositions = setPositions;
             this.stopWatch = new System.Diagnostics.Stopwatch();
             this.stopWatch.Start();
         }
@@ -114,19 +112,6 @@ namespace DurableTask.EventSourced
                         this.RemoveAt(startPos);
                     }
 
-                    // update the commit log and input queue positions
-                    if (updateEvent.NextCommitLogPosition > 0)
-                    {
-                        this.Partition.Assert(updateEvent.NextCommitLogPosition > commitLogPosition);
-                        commitLogPosition = updateEvent.NextCommitLogPosition;
-                    }
-                    if (updateEvent.NextInputQueuePosition > 0)
-                    {
-                        this.Partition.Assert(updateEvent.NextInputQueuePosition > inputQueuePosition);
-                        inputQueuePosition = updateEvent.NextInputQueuePosition;
-                    }
-                    this.setPositions(commitLogPosition, inputQueuePosition);
-
                     this.Effect = null;
                 }
                 catch (OperationCanceledException)
@@ -146,7 +131,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void ProcessReadResult(PartitionReadEvent readEvent, TrackedObject target)
+        public void ProcessReadResult(PartitionReadEvent readEvent, TrackedObjectKey key, TrackedObject target)
         {
             if (readEvent == null)
             {
@@ -158,35 +143,39 @@ namespace DurableTask.EventSourced
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // read events are never part of the replay
             double startedTimestamp = this.Partition.CurrentTimeMs;
-            TrackedObjectKey key = readEvent.ReadTarget;
 
             using (EventTraceContext.MakeContext(commitLogPosition, readEvent.EventIdString))
             {
                 try
                 {
-                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
+                    readEvent.Deliver(key, target, out var isReady);
 
-                    // trace read accesses to instance and history
-                    switch (key.ObjectType)
+                    if (isReady)
                     {
-                        case TrackedObjectKey.TrackedObjectType.Instance:
-                            string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
-                            this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
-                            break;
+                        this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, readEvent, false);
 
-                        case TrackedObjectKey.TrackedObjectType.History:
-                            HistoryState historyState = (HistoryState)target;
-                            string historyExecutionId = historyState?.ExecutionId;
-                            int eventCount = historyState?.History?.Count ?? 0;
-                            int episode = historyState?.Episode ?? 0;
-                            this.Partition.EventTraceHelper.TraceFetchedInstanceHistory(readEvent, key.InstanceId, historyExecutionId, eventCount, episode, startedTimestamp - readEvent.IssuedTimestamp);
-                            break;
+                        // trace read accesses to instance and history
+                        switch (key.ObjectType)
+                        {
+                            case TrackedObjectKey.TrackedObjectType.Instance:
+                                string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
+                                this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
+                                break;
 
-                        default:
-                            break;
+                            case TrackedObjectKey.TrackedObjectType.History:
+                                HistoryState historyState = (HistoryState)target;
+                                string historyExecutionId = historyState?.ExecutionId;
+                                int eventCount = historyState?.History?.Count ?? 0;
+                                int episode = historyState?.Episode ?? 0;
+                                this.Partition.EventTraceHelper.TraceFetchedInstanceHistory(readEvent, key.InstanceId, historyExecutionId, eventCount, episode, startedTimestamp - readEvent.IssuedTimestamp);
+                                break;
+
+                            default:
+                                break;
+                        }
+
+                        readEvent.Fire(this.Partition);
                     }
-
-                    readEvent.OnReadComplete(target, this.Partition);
                 }
                 catch (OperationCanceledException)
                 {
@@ -201,6 +190,36 @@ namespace DurableTask.EventSourced
                 {
                     double finishedTimestamp = this.Partition.CurrentTimeMs;
                     this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, readEvent, startedTimestamp, finishedTimestamp, false);
+                }
+            }
+        }
+        
+        public void ProcessQueryResult(PartitionQueryEvent queryEvent, IEnumerable<TrackedObject> instances)
+        {
+            (long commitLogPosition, long inputQueuePosition) = this.getPositions();
+            this.Partition.Assert(!this.IsReplaying); // query events are never part of the replay
+            double startedTimestamp = this.Partition.CurrentTimeMs;
+
+            using (EventTraceContext.MakeContext(commitLogPosition, queryEvent.EventIdString))
+            {
+                try
+                {
+                    this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, queryEvent, false);
+                    queryEvent.OnQueryComplete(instances, this.Partition);
+                }
+                catch (OperationCanceledException)
+                {
+                    // o.k. during termination
+                }
+                catch (Exception exception) when (!Utils.IsFatal(exception))
+                {
+                    // for robustness, swallow exceptions, but report them
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessQueryResult), $"Encountered exception while processing query event {queryEvent}", exception, false, false);
+                }
+                finally
+                {
+                    double finishedTimestamp = this.Partition.CurrentTimeMs;
+                    this.Partition.EventTraceHelper.TraceEventProcessed(commitLogPosition, queryEvent, startedTimestamp, finishedTimestamp, false);
                 }
             }
         }

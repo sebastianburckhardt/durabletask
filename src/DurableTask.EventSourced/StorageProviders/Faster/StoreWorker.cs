@@ -27,7 +27,7 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class StoreWorker : BatchWorker<PartitionEvent>
     {
-        private readonly FasterKV store;
+        private readonly TrackedObjectStore store;
         private readonly Partition partition;
         private readonly FasterTraceHelper traceHelper;
         private readonly BlobManager blobManager;
@@ -42,10 +42,14 @@ namespace DurableTask.EventSourced.Faster
         public LogWorker LogWorker { get; set; }
 
         // periodic index and store checkpointing
+        private CheckpointTrigger pendingCheckpointTrigger;
         private Task pendingIndexCheckpoint;
-        private Task<long> pendingStoreCheckpoint;
-        private long lastCheckpointedPosition;
+        private Task<(long,long)> pendingStoreCheckpoint;
+        private long lastCheckpointedInputQueuePosition;
+        private long lastCheckpointedCommitLogPosition;
         private long numberEventsSinceLastCheckpoint;
+        private double timeOfLastCheckpoint;
+        private double maxTimeOfNextCheckpoint;
 
         // periodic load publishing
         private long lastPublishedCommitLogPosition = 0;
@@ -53,10 +57,21 @@ namespace DurableTask.EventSourced.Faster
         private string lastPublishedLatencyTrend = "";
         private DateTime lastPublishedTime = DateTime.MinValue;
         public static TimeSpan PublishInterval = TimeSpan.FromSeconds(10);
+        public static TimeSpan IdlingPeriod = TimeSpan.FromSeconds(2);
 
-        public StoreWorker(FasterKV store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
+        private bool isInputQueuePositionPersisted => 
+            this.InputQueuePosition <= Math.Max(this.lastCheckpointedInputQueuePosition, this.LogWorker.LastCommittedInputQueuePosition);
+
+        private double ComputeMaxTimeOfNextCheckpoint => 
+            // we randomize this so that partitions don't all decide to checkpoint at the exact same time
+            this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * new Random().NextDouble());
+
+
+        public StoreWorker(TrackedObjectStore store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
             : base(cancellationToken)
         {
+            partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.store = store;
             this.partition = partition;
             this.traceHelper = traceHelper;
@@ -66,13 +81,14 @@ namespace DurableTask.EventSourced.Faster
             this.effectTracker = new EffectTracker(
                 this.partition,
                 (key, tracker) => store.ProcessEffectOnTrackedObject(key, tracker),
-                () => (this.CommitLogPosition, this.InputQueuePosition),
-                (c, i) => { this.CommitLogPosition = c; this.InputQueuePosition = i; }
+                () => (this.CommitLogPosition, this.InputQueuePosition)
             );
         }
 
         public async Task Initialize(long initialCommitLogPosition, long initialInputQueuePosition)
         {
+            this.partition.ErrorHandler.Token.ThrowIfCancellationRequested();
+
             this.InputQueuePosition = initialInputQueuePosition;
             this.CommitLogPosition = initialCommitLogPosition;
            
@@ -84,18 +100,50 @@ namespace DurableTask.EventSourced.Faster
                 target.OnFirstInitialization();
             }
 
-            this.lastCheckpointedPosition = this.CommitLogPosition;
+            this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+            this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = initialCommitLogPosition;
         }
 
-        public void ReadCheckpointPositions(BlobManager blobManager)
+        public void SetCheckpointPositionsAfterRecovery(long commitLogPosition, long inputQueuePosition)
         {
-            this.InputQueuePosition = blobManager.CheckpointInfo.InputQueuePosition;
-            this.CommitLogPosition = blobManager.CheckpointInfo.CommitLogPosition;
+            this.CommitLogPosition = commitLogPosition;
+            this.InputQueuePosition = inputQueuePosition;
 
-            this.lastCheckpointedPosition = this.CommitLogPosition;
+            this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+            this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = 0;
-        }    
+            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+        }
+
+        internal async ValueTask TakeFullCheckpointAsync(string reason)
+        {
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+
+            if (this.store.TakeFullCheckpoint(this.CommitLogPosition, this.InputQueuePosition, out var checkpointGuid))
+            {
+                this.traceHelper.FasterCheckpointStarted(checkpointGuid, reason, this.store.StoreStats.Get(), this.CommitLogPosition, this.InputQueuePosition);
+
+                // do the faster full checkpoint and then finalize it
+                await this.store.CompleteCheckpointAsync().ConfigureAwait(false);
+                await this.store.FinalizeCheckpointCompletedAsync(checkpointGuid).ConfigureAwait(false);
+
+                this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
+                this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
+                this.numberEventsSinceLastCheckpoint = 0;
+
+                this.traceHelper.FasterCheckpointPersisted(checkpointGuid, reason, this.CommitLogPosition, this.InputQueuePosition, stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                this.traceHelper.FasterProgress($"Checkpoint skipped: {reason}");
+            }
+
+            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+        }
 
         public async Task CancelAndShutdown()
         {
@@ -115,9 +163,6 @@ namespace DurableTask.EventSourced.Faster
                 await this.pendingStoreCheckpoint.ConfigureAwait(false);
             }
 
-            // always publish the final load since it indicates whether there is unprocessed work
-            await this.PublishPartitionLoad().ConfigureAwait(false);
-
             this.traceHelper.FasterProgress("Stopped StoreWorker");
         }
        
@@ -129,7 +174,7 @@ namespace DurableTask.EventSourced.Faster
                 InputQueuePosition = this.InputQueuePosition,
                 WorkerId = this.partition.Settings.WorkerId,
                 LatencyTrend = this.lastPublishedLatencyTrend,
-                MissRate = this.store.ReadAndResetCacheStats(),
+                MissRate = this.store.StoreStats.GetMissRate(),
             };
             foreach (var k in TrackedObjectKey.GetSingletons())
             {
@@ -147,7 +192,11 @@ namespace DurableTask.EventSourced.Faster
                 return;
             }
 
-            partition.LoadPublisher.Submit((this.partition.PartitionId, info));
+            // to avoid publishing not-yet committed state, publish
+            // only after the current log is persisted.
+            var task = this.LogWorker.WaitForCompletionAsync()
+                .ContinueWith((t) => partition.LoadPublisher?.Submit((this.partition.PartitionId, info)));
+
             this.lastPublishedCommitLogPosition = this.CommitLogPosition;
             this.lastPublishedInputQueuePosition = this.InputQueuePosition;
             this.lastPublishedLatencyTrend = info.LatencyTrend;
@@ -205,6 +254,35 @@ namespace DurableTask.EventSourced.Faster
                 + PartitionLoadInfo.LatencyCategories[Math.Max(activityLatencyCategory, workItemLatencyCategory)];         
         }
 
+        private enum CheckpointTrigger
+        {
+            None,
+            CommitLogBytes,
+            EventCount,
+            TimeElapsed
+        }
+
+        private bool CheckpointDue(out CheckpointTrigger trigger)
+        {
+            trigger = CheckpointTrigger.None;
+
+            if (this.lastCheckpointedCommitLogPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition)
+            {
+                trigger = CheckpointTrigger.CommitLogBytes;
+            }
+            else if (this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
+            {
+                trigger = CheckpointTrigger.EventCount;
+            }
+            else if ((this.numberEventsSinceLastCheckpoint > 0 || !this.isInputQueuePositionPersisted)
+                && this.partition.CurrentTimeMs > this.maxTimeOfNextCheckpoint)
+            {
+                trigger = CheckpointTrigger.TimeElapsed;
+            }
+             
+            return trigger != CheckpointTrigger.None;
+        }
+
         protected override async Task Process(IList<PartitionEvent> batch)
         {
             try
@@ -225,18 +303,35 @@ namespace DurableTask.EventSourced.Faster
                     // now process the read or update
                     switch (partitionEvent)
                     {
-                        case PartitionReadEvent readEvent:
-                            readEvent.OnReadIssued(this.partition);
-                            this.store.Read(readEvent, this.effectTracker);
-                            // we don't await async reads, they complete when CompletePending() is called
-                            break;
-
                         case PartitionUpdateEvent updateEvent:
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
+
+                            if (updateEvent.NextCommitLogPosition > 0)
+                            {
+                                this.partition.Assert(updateEvent.NextCommitLogPosition > this.CommitLogPosition);
+                                this.CommitLogPosition = updateEvent.NextCommitLogPosition;
+                            }
+                            break;
+
+                        case PartitionReadEvent readEvent:
+                            readEvent.OnReadIssued(this.partition);
+                            // async reads may either complete immediately (on cache hit) or later (on cache miss) when CompletePending() is called
+                            this.store.ReadAsync(readEvent, this.effectTracker);
+                            break;
+
+                        case PartitionQueryEvent queryEvent:
+                            // async queries execute on their own task and their own session
+                            Task ignored = Task.Run(() => this.store.QueryAsync(queryEvent, this.effectTracker));
                             break;
 
                         default:
                             throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
+                    }
+                    
+                    if (partitionEvent.NextInputQueuePosition > 0)
+                    {
+                        this.partition.Assert(partitionEvent.NextInputQueuePosition > this.InputQueuePosition);
+                        this.InputQueuePosition = partitionEvent.NextInputQueuePosition;
                     }
                 }
 
@@ -250,8 +345,12 @@ namespace DurableTask.EventSourced.Faster
                 {
                     if (this.pendingStoreCheckpoint.IsCompleted == true)
                     {
-                        this.lastCheckpointedPosition = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
+                        (this.lastCheckpointedCommitLogPosition, this.lastCheckpointedInputQueuePosition)
+                            = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingStoreCheckpoint = null;
+                        this.pendingCheckpointTrigger = CheckpointTrigger.None;
+                        this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
+                        this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
                     }
                 }
                 else if (this.pendingIndexCheckpoint != null)
@@ -265,16 +364,24 @@ namespace DurableTask.EventSourced.Faster
                         this.numberEventsSinceLastCheckpoint = 0;
                     }
                 }
-                else if (this.lastCheckpointedPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition
-                    || this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
+                else if (this.CheckpointDue(out var trigger))
                 {
                     var token = this.store.StartIndexCheckpoint();
+                    this.pendingCheckpointTrigger = trigger;
                     this.pendingIndexCheckpoint = this.WaitForCheckpointAsync(true, token);
                 }
-
+                
                 if (this.lastPublishedTime + PublishInterval < DateTime.UtcNow)
                 {
                     await this.PublishPartitionLoad().ConfigureAwait(false);
+                }
+
+                if (this.lastCheckpointedCommitLogPosition == this.CommitLogPosition 
+                    && this.lastCheckpointedInputQueuePosition == this.InputQueuePosition
+                    && this.LogWorker.LastCommittedInputQueuePosition <= this.InputQueuePosition)
+                {
+                    this.timeOfLastCheckpoint = this.partition.CurrentTimeMs; // nothing has changed since the last checkpoint
+                    this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
                 }
 
                 // make sure to complete ready read requests, or notify this worker
@@ -299,14 +406,14 @@ namespace DurableTask.EventSourced.Faster
             }
         }     
 
-        public async Task<long> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
+        public async Task<(long,long)> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
         {
             var stopwatch = new System.Diagnostics.Stopwatch();
             stopwatch.Start();
             var commitLogPosition = this.CommitLogPosition;
             var inputQueuePosition = this.InputQueuePosition;
-            string description = isIndexCheckpoint ? "index checkpoint" : "store checkpoint";
-            this.traceHelper.FasterCheckpointStarted(checkpointToken, description, commitLogPosition, inputQueuePosition);
+            string description = $"{(isIndexCheckpoint ? "index" : "store")} checkpoint triggered by {this.pendingCheckpointTrigger}";
+            this.traceHelper.FasterCheckpointStarted(checkpointToken, description, this.store.StoreStats.Get(), commitLogPosition, inputQueuePosition);
 
             // first do the faster checkpoint
             await store.CompleteCheckpointAsync().ConfigureAwait(false);
@@ -325,13 +432,13 @@ namespace DurableTask.EventSourced.Faster
                 await this.LogWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
                 // finally we write the checkpoint info file
-                await this.blobManager.WriteCheckpointCompletedAsync().ConfigureAwait(false);
+                await this.store.FinalizeCheckpointCompletedAsync(checkpointToken).ConfigureAwait(false);
             }
 
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
 
             this.Notify();
-            return commitLogPosition;
+            return (commitLogPosition, inputQueuePosition);
         }
 
         public async Task ReplayCommitLog(LogWorker logWorker)
@@ -347,7 +454,7 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Stop();
             this.effectTracker.IsReplaying = false;
 
-            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, stopwatch.ElapsedMilliseconds);
+            this.traceHelper.FasterLogReplayed(this.CommitLogPosition, this.InputQueuePosition, this.numberEventsSinceLastCheckpoint, this.CommitLogPosition - startPosition, this.store.StoreStats.Get(), stopwatch.ElapsedMilliseconds);
         }
 
         public async Task RestartThingsAtEndOfRecovery()
@@ -365,7 +472,7 @@ namespace DurableTask.EventSourced.Faster
         public async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
         {
             // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
-            // (note that it may not be the very next in the sequence since readonly events are not persisted in the store)
+            // (note that it may not be the very next in the sequence since readonly events are not persisted in the log)
             if (partitionEvent.NextInputQueuePosition > 0 && partitionEvent.NextInputQueuePosition <= this.InputQueuePosition)
             {
                 this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate event detected", null, false, false);

@@ -52,7 +52,6 @@ namespace DurableTask.EventSourced
         public LoadPublisher LoadPublisher { get; private set; }
 
         public BatchTimer<PartitionEvent> PendingTimers { get; private set; }
-        public PubSub<string, OrchestrationState> InstanceStatePubSub { get; private set; }
 
         public EventTraceHelper EventTraceHelper { get; }
 
@@ -60,6 +59,8 @@ namespace DurableTask.EventSourced
 
         // A little helper property that allows us to conventiently check the condition for low-level event tracing
         public EventTraceHelper EventDetailTracer => this.EventTraceHelper.IsTracingAtMostDetailedLevel ? this.EventTraceHelper : null;
+
+        private static SemaphoreSlim MaxConcurrentStarts = new SemaphoreSlim(5);
 
         public Partition(
             EventSourcedOrchestrationService host,
@@ -95,15 +96,16 @@ namespace DurableTask.EventSourced
             this.ErrorHandler = errorHandler;
             this.TraceHelper.TraceProgress("Starting partition");
 
+            await MaxConcurrentStarts.WaitAsync();
+
             // create or restore partition state from last snapshot
             try
             {
                 // create the state
                 this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
 
-                // initialize collections for pending work
+                // initialize timer for this partition
                 this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);
-                this.InstanceStatePubSub = new PubSub<string, OrchestrationState>();
 
                 // goes to storage to create or restore the partition state
                 this.TraceHelper.TraceProgress("Loading partition state");
@@ -120,6 +122,10 @@ namespace DurableTask.EventSourced
             {
                 this.ErrorHandler.HandleError(nameof(CreateOrRestoreAsync), "Could not start partition", e, true, false);
                 throw;
+            }
+            finally
+            {
+                MaxConcurrentStarts.Release();
             }
         }
 
@@ -164,7 +170,7 @@ namespace DurableTask.EventSourced
             this.Assert(this.ErrorHandler.IsTerminated);
 
             // tell the load publisher to send all buffered info
-            this.LoadPublisher.Flush();
+            this.LoadPublisher?.Flush();
 
             this.TraceHelper.TraceProgress("Stopped partition");
         }
@@ -182,6 +188,9 @@ namespace DurableTask.EventSourced
                             break;
                         case PartitionReadEvent readEvent:
                             this.SubmitInternalEvent(readEvent);
+                            break;
+                        case PartitionQueryEvent queryEvent:
+                            this.SubmitInternalEvent(queryEvent);
                             break;
                         default:
                             throw new InvalidCastException("Could not cast to neither PartitionUpdateEvent nor PartitionReadEvent");
@@ -242,6 +251,12 @@ namespace DurableTask.EventSourced
         {
             readEvent.ReceivedTimestamp = this.CurrentTimeMs;
             this.State.SubmitInternalEvent(readEvent);
+        }
+
+        public void SubmitInternalEvent(PartitionQueryEvent queryEvent)
+        {
+            queryEvent.ReceivedTimestamp = this.CurrentTimeMs;
+            this.State.SubmitInternalEvent(queryEvent);
         }
 
         public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)

@@ -1,8 +1,4 @@
-﻿//  ----------------------------------------------------------------------------------
-//  Copyright Microsoft Corporation
-//  Licensed under the Apache License, Version 2.0 (the "License");
-//  you may not use this file except in compliance with the License.
-//  You may obtain a copy of the License at
+﻿//  You may obtain a copy of the License at
 //  http://www.apache.org/licenses/LICENSE-2.0
 //  Unless required by applicable law or agreed to in writing, software
 //  distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,17 +7,17 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
-using DurableTask.Core;
-using DurableTask.Core.History;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class CreationRequestProcessed : PartitionUpdateEvent
+    internal class WaitRequestProcessed : PartitionUpdateEvent
     {
         [DataMember]
         public Guid ClientId { get; set; }
@@ -30,22 +26,13 @@ namespace DurableTask.EventSourced
         public long RequestId { get; set; }
 
         [DataMember]
-        public string CreationRequestEventId { get; set; }
+        public DateTime TimeoutUtc { get; set; }
 
         [DataMember]
-        public TaskMessage TaskMessage { get; set; }
+        public string InstanceId { get; set; }
 
         [DataMember]
-        public DateTime Timestamp { get; set; }
-
-        [DataMember]
-        public bool FilteredDuplicate { get; set; }
-
-        [IgnoreDataMember]
-        public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
-
-        [IgnoreDataMember]
-        public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
+        public string ExecutionId { get; set; }
 
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakeSubEventId(EventId.MakeClientRequestEventId(this.ClientId, this.RequestId), 1);
@@ -56,9 +43,23 @@ namespace DurableTask.EventSourced
             s.Append(this.InstanceId);
         }
 
+        public static bool SatisfiesWaitCondition(OrchestrationState value)
+            => (value != null &&
+                value.OrchestrationStatus != OrchestrationStatus.Running &&
+                value.OrchestrationStatus != OrchestrationStatus.Pending &&
+                value.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew);
+
+        public WaitResponseReceived CreateResponse(OrchestrationState value)
+            => new WaitResponseReceived()
+            {
+                ClientId = this.ClientId,
+                RequestId = this.RequestId,
+                OrchestrationState = value
+            };
+
         public override void DetermineEffects(EffectTracker effects)
         {
-            effects.Add(TrackedObjectKey.Creation);
+            effects.Add(TrackedObjectKey.Instance(this.InstanceId));
         }
     }
 }

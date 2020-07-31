@@ -167,7 +167,10 @@ namespace DurableTask.EventSourced.Emulated
             {
                 if (evt is ClientEvent clientEvent)
                 {
-                    this.clientQueues[clientEvent.ClientId].Send(clientEvent);
+                    if (this.clientQueues.TryGetValue(clientEvent.ClientId, out var queue))
+                    {
+                        queue.Send(clientEvent);
+                    }
                 }
                 else if (evt is PartitionEvent partitionEvent)
                 {

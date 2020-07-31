@@ -28,6 +28,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public Dictionary<uint, long> LastProcessed { get; set; } = new Dictionary<uint, long>();
 
+        [DataMember]
+        public (long, long) Positions; // used by FasterAlt to persist positions
+
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Dedup);
 
