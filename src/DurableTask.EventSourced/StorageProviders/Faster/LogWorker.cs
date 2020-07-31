@@ -85,8 +85,9 @@ namespace DurableTask.EventSourced.Faster
                         // Commiting the events implies that persistence of their dependencies was confirmed.
                         if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
                         {
-                            //// PersistenceConfirmationEvents have no dependencies
-                            //// TODO: This is probably unnecessary since we don't submit them
+                            // PersistenceConfirmationEvents have no dependencies
+                            // This is probably unnecessary since we don't submit them
+                            // TODO: Delete if that is the case
                             //persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
                             this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
                         }
@@ -182,49 +183,6 @@ namespace DurableTask.EventSourced.Faster
 
 
         }
-
-        //public Task PersistenceInProgress { get; private set; } = Task.CompletedTask;
-
-
-
-
-        //// TODO: Check if anything needs to change after the merge (these are the exp-faster-consistent-recovery changes)
-        //public override void SubmitBatch(IEnumerable<PartitionUpdateEvent> events)
-        //{
-        //    // TODO optimization: use batching and reference data in EH queue instead of duplicating it          
-        //    foreach (var evt in events)
-        //    {
-        //        // Before submitting external update events, we need to 
-        //        // configure them to wait for external dependency confirmation
-        //        evt.EventHasNoUnconfirmeDependencies = new TaskCompletionSource<object>();
-        //        // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
-        //        // Commiting the events implies that persistence of their dependencies was confirmed.
-        //        if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)
-        //        {
-        //            // PersistenceConfirmationEvents have no dependencies
-        //            // TODO: This might actually be unnecessary since we don't submit them
-        //            persistenceConfirmationEvent.EventHasNoUnconfirmeDependencies.SetResult(null);
-
-        //            this.ConfirmDependencyPersistence(persistenceConfirmationEvent);
-        //        }
-        //        else
-        //        {
-        //            if (evt is PartitionMessageEvent partitionMessageEvent)
-        //            {
-        //                // It is actually fine keeping the dependencies of events in the log worker, since
-        //                // if the partition crashes, all uncommited messages (that are the only ones that have unconfirmed dependencies)
-        //                // will be re-received and re-submitted. Since every event will be followed by its confirmation, this cannot lead
-        //                // to a deadlock.
-        //                SetConfirmationWaiter(partitionMessageEvent);
-        //            }
-        //            else
-        //            {
-        //                evt.EventHasNoUnconfirmeDependencies.SetResult(null);
-        //            }
-        //            this.Submit(evt);
-        //        }                
-        //    }
-        //}
 
         public void SubmitInternalEvent(PartitionEvent evt)
         {
@@ -337,32 +295,6 @@ namespace DurableTask.EventSourced.Faster
             {
                 if (batch.Count > 0)
                 {
-                    // Non speculation code
-                    ////  checkpoint the log
-                    //var stopwatch = new System.Diagnostics.Stopwatch();
-                    //stopwatch.Start();
-                    //long previous = log.CommittedUntilAddress;
-
-                    //await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
-                    //this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
-                    //this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
-                    //foreach (var evt in batch)
-                    //{
-                    //    if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
-                    //    {
-                    //        try
-                    //        {
-                    //            DurabilityListeners.ConfirmDurable(evt);
-                    //        }
-                    //        catch (Exception exception) when (!(exception is OutOfMemoryException))
-                    //        {
-                    //            // for robustness, swallow exceptions, but report them
-                    //            this.partition.ErrorHandler.HandleError("LogWorker.Process", $"Encountered exception while notifying persistence listeners for event {evt} id={evt.EventIdString}", exception, false, false);
-                    //        }
-                    //    }
-                    //}
-
-
                     // Q: Could this be a problem that this here takes a long time possibly blocking
 
                     // Iteratively
@@ -386,7 +318,6 @@ namespace DurableTask.EventSourced.Faster
                             await evt.EventHasNoUnconfirmeDependencies.Task;
                         }
                     }
-                    // exp-faster-consistent-recovery change
                     await CommitUntil(batch, lastEnqueuedCommited, batch.Count);
                 }
             }

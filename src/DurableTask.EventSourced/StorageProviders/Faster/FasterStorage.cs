@@ -124,8 +124,8 @@ namespace DurableTask.EventSourced.Faster
                     // happen after all log entries are committed, which can are commited in a causally consistent manner.
                     this.store.Recover(out long commitLogPosition, out long inputQueuePosition);
                     storeWorker.SetCheckpointPositionsAfterRecovery(commitLogPosition, inputQueuePosition);
-
-                    // TODO: Figure out if these exp-faster-consistent-recovery changes make any sense
+                    // This is old code before the exp-faster-consistent-recovery merge with latest exp-faster. 
+                    // TODO: Delete if obsolete.
                     // this.store.Recover();
                     // storeWorker.ReadCheckpointPositions(this.blobManager);
 
