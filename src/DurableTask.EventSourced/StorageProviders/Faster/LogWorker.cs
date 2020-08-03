@@ -138,27 +138,18 @@ namespace DurableTask.EventSourced.Faster
                 return Task.CompletedTask;
             }
 
-
-
-
-
             private void SetConfirmationWaiter(PartitionMessageEvent evt)
             {
                 var originPartition = evt.OriginPartition;
                 var originPosition = evt.OriginPosition;
                 var tuple = new Tuple<long, PartitionUpdateEvent>(originPosition, evt);
 
-                if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> oldWaitingList))
+                if (!WaitingForConfirmation.TryGetValue(originPartition, out List<Tuple<long, PartitionUpdateEvent>> waitingList))
                 {
-                    var waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
-                    waitingList.Add(tuple);
-                    WaitingForConfirmation[originPartition] = waitingList;
+                    WaitingForConfirmation[originPartition] = waitingList = new List<Tuple<long, PartitionUpdateEvent>>();
                 }
-                else
-                {
-                    oldWaitingList.Add(tuple);
-                    WaitingForConfirmation[originPartition] = oldWaitingList;
-                }
+                
+                waitingList.Add(tuple);
             }
 
             public void ConfirmDependencyPersistence(PersistenceConfirmationEvent evt)
@@ -244,7 +235,7 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Start();
             long previous = log.CommittedUntilAddress;
             
-            this.blobManager.latestCommitLogPosition = latestConsistentAddress;
+            this.blobManager.LatestConsistentCommitLogPosition = latestConsistentAddress;
             await log.CommitAndWaitUntil(latestConsistentAddress);
 
             // Since the commit not been called (if it was already flushed by FASTER in a previous call)
@@ -314,10 +305,13 @@ namespace DurableTask.EventSourced.Faster
                         // TODO: Optimize by not allocating an object
                         if (!evt.EventHasNoUnconfirmeDependencies.Task.IsCompleted)
                         {
+                            // we must commit our log (and send associated confirmations) BEFORE waiting for
+                            // dependencies, otherwise we can get stuck in a circular wait-for pattern
                             await CommitUntil(batch, lastEnqueuedCommited, i);
 
                             // Progress the last commited index
                             lastEnqueuedCommited = i;
+
                             // Before continuing, wait for the dependencies of this update to be done, so that we can continue
                             await evt.EventHasNoUnconfirmeDependencies.Task;
                         }

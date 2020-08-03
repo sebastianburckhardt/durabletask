@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced.Faster
 
         public IPartitionErrorHandler PartitionErrorHandler { get; private set; }
 
-        public long latestCommitLogPosition { get; set; }
+        public long LatestConsistentCommitLogPosition { get; set; }
 
         public byte[] latestRealLogCommitMetadata { get; set; }
         internal static SemaphoreSlim AsynchronousStorageReadMaxConcurrency = new SemaphoreSlim(Environment.ProcessorCount * 25);
@@ -607,11 +607,11 @@ namespace DurableTask.EventSourced.Faster
             // This way even though FASTER does perform the complete commit (batching and doing less storage accesses)
             // if we recover, we will only recover from the a consistent address
             var oldFlushedUntilAddress = info.FlushedUntilAddress;
-            info.FlushedUntilAddress = Math.Min(this.latestCommitLogPosition, info.FlushedUntilAddress);
+            info.FlushedUntilAddress = Math.Min(this.LatestConsistentCommitLogPosition, info.FlushedUntilAddress);
 
             // TODO: Do we have to update anything else too? (e.g. iterators)
 
-            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.latestCommitLogPosition}");
+            this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit -- Modified the commitUntilAddress from: {oldFlushedUntilAddress} to a consistent point: {this.LatestConsistentCommitLogPosition}");
 
             return info.ToByteArray();
         }
