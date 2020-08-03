@@ -93,8 +93,12 @@ namespace DurableTask.EventSourced.Faster
                         }
                         else if (evt is PartitionUpdateEvent partitionUpdateEvent)
                         {
-                            // Is there a reason we deleted this? Shouldn't we drop events if we are shutting down?
+                            // TODO: 
+                            // Q: Is there a reason we deleted this? Shouldn't we drop events if we are shutting down?
                             // if (!this.isShuttingDown || this.cancellationToken.IsCancellationRequested || (evt is PersistenceConfirmationEvent))
+                            // {
+                            //     ...
+                            // }
                             // else
                             // {
                             //     this.traceHelper.FasterProgress($"Dropped event: " + evt.ToString());
