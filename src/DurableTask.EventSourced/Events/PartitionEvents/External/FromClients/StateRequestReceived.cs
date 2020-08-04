@@ -49,7 +49,7 @@ namespace DurableTask.EventSourced
                 OrchestrationState = orchestrationState,
             };
 
-            target.Partition.Send(response);
+            partition.Send(response);
         }
     }
 }
