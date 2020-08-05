@@ -401,7 +401,12 @@ namespace DurableTask.EventSourced.Faster
             {
                 this.partition.ErrorHandler.HandleError("StoreWorker.Process", "Encountered exception while working on store", exception, true, false);
             }
-        }     
+        }
+
+        protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
+            this.traceHelper.FasterProgress($"StoreWorker completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+        }
 
         public async Task<(long,long)> WaitForCheckpointAsync(bool isIndexCheckpoint, Guid checkpointToken)
         {

@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,6 +28,7 @@ namespace DurableTask.EventSourced
     internal abstract class BatchWorker<T>
     {
         private readonly object thisLock = new object();
+        private readonly Stopwatch stopwatch;
         protected readonly CancellationToken cancellationToken;
 
         private List<T> batch = new List<T>();
@@ -110,6 +112,8 @@ namespace DurableTask.EventSourced
                 // check for cancellation right before doing work
                 cancellationToken.ThrowIfCancellationRequested();
 
+                this.stopwatch.Restart();
+
                 // do the work, calling the virtual method
                 await this.Process(batch).ConfigureAwait(false);
 
@@ -122,11 +126,26 @@ namespace DurableTask.EventSourced
             }
             finally
             {
+                stopwatch.Stop();
+                int batchsize = this.batch.Count;
+
                 this.batch.Clear();
 
                 // we always check for more work since there may be someone waiting for completion
-                this.CheckForMoreWork();
+                int? nextBatch = this.CheckForMoreWork();
+
+                this.WorkLoopCompleted(batchsize, this.stopwatch.Elapsed.TotalMilliseconds, nextBatch);
             }
+        }
+
+        /// <summary>
+        /// Can be overridden by subclasses to trace progress of the batch work loop
+        /// </summary>
+        /// <param name="batchSize">The size of the batch that was processed</param>
+        /// <param name="elapsedMilliseconds">The time in milliseconds it took to process</param>
+        /// <param name="nextBatch">If there is more work, the current queue size of the next batch, or null otherwise</param>
+        protected virtual void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
         }
 
         /// <summary>
@@ -143,6 +162,7 @@ namespace DurableTask.EventSourced
         {
             this.cancellationToken = cancellationToken;
             this.suspended = suspended;
+            this.stopwatch = new Stopwatch();
         }
 
         public void Suspend()
@@ -185,6 +205,8 @@ namespace DurableTask.EventSourced
                 else
                 {
                     // Start the task that is doing the work, on the threadpool
+                    // this is important for fairness, so that other workers or tasks get a chance to run
+                    // before the next batch is processed
                     this.currentWorkCycle = Task.Run(this.Work);
                 }
             }
@@ -193,20 +215,23 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Executes at the end of each work cycle.
         /// </summary>
-        private void CheckForMoreWork()
+        private int? CheckForMoreWork()
         {
             lock (this.thisLock)
             {
                 if (this.moreWork)
                 {
                     this.moreWork = false;
+                    int currentSize = this.queue.Count;
 
                     // Start the task that is doing the work, on the threadpool
                     this.currentWorkCycle = Task.Run(this.Work);
+                    return currentSize;
                 }
                 else
                 {
                     this.currentWorkCycle = null;
+                    return null;
                 }
             }
         }

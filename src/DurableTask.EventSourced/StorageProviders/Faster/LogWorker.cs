@@ -95,6 +95,11 @@ namespace DurableTask.EventSourced.Faster
 
                 return Task.CompletedTask;
             }
+
+            protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+            {
+                this.logWorker.traceHelper.FasterProgress($"IntakeWorker completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+            }
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
@@ -185,7 +190,11 @@ namespace DurableTask.EventSourced.Faster
                 this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
             }        
         }
-    
+
+        protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
+            this.traceHelper.FasterProgress($"LogWorker completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+        }
 
         public async Task ReplayCommitLog(long from, StoreWorker worker)
         {

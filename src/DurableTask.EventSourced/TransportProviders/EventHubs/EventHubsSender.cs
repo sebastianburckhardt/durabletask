@@ -46,7 +46,12 @@ namespace DurableTask.EventSourced.EventHubs
             this.eventHubName = this.sender.EventHubClient.EventHubName;
             this.eventHubPartition = this.sender.PartitionId;
         }
-   
+
+        protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
+            this.traceHelper.LogDebug($"EventHubsSender completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+        }
+
         protected override async Task Process(IList<Event> toSend)
         {
             if (toSend.Count == 0)
