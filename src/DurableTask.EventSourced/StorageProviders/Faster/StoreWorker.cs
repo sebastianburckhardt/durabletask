@@ -49,8 +49,7 @@ namespace DurableTask.EventSourced.Faster
         private long lastCheckpointedInputQueuePosition;
         private long lastCheckpointedCommitLogPosition;
         private long numberEventsSinceLastCheckpoint;
-        private double timeOfLastCheckpoint;
-        private double maxTimeOfNextCheckpoint;
+        private long timeOfNextCheckpoint;
 
         // periodic load publishing
         private long lastPublishedCommitLogPosition = 0;
@@ -108,8 +107,7 @@ namespace DurableTask.EventSourced.Faster
             this.lastCheckpointedCommitLogPosition = this.CommitLogPosition;
             this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = 0;
-            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(true);
+            this.ScheduleNextCheckpointTime();
         }
 
         internal async ValueTask TakeFullCheckpointAsync(string reason)
@@ -136,8 +134,7 @@ namespace DurableTask.EventSourced.Faster
                 this.traceHelper.FasterProgress($"Checkpoint skipped: {reason}");
             }
 
-            this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(true);
+            this.ScheduleNextCheckpointTime();
         }
 
         public async Task CancelAndShutdown()
@@ -275,7 +272,7 @@ namespace DurableTask.EventSourced.Faster
             }
             else if (
                 (this.numberEventsSinceLastCheckpoint > 0 || inputQueuePositionLag > 0)
-                && this.partition.CurrentTimeMs > this.maxTimeOfNextCheckpoint)
+                && DateTime.UtcNow.Ticks > this.timeOfNextCheckpoint)
             {
                 trigger = CheckpointTrigger.TimeElapsed;
             }
@@ -283,18 +280,13 @@ namespace DurableTask.EventSourced.Faster
             return trigger != CheckpointTrigger.None;
         }
 
-        private double ComputeMaxTimeOfNextCheckpoint(bool isFirst)
+        private void ScheduleNextCheckpointTime()
         {
-            if (isFirst)
-            {
-                // for the first time limit we use full randomization to make sure partitions don't do it all at the same time
-                return this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * this.random.NextDouble();
-            }
-            else
-            {
-                // for each of the following time limits we randomize within 20 percent
-                return this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * this.random.NextDouble());
-            }
+            // to avoid all partitions taking snapshots at the same time, align to a partition-based spot
+            var period = this.partition.Settings.MaxTimeMsBetweenCheckpoints * TimeSpan.TicksPerMillisecond;
+            var offset = (this.partition.PartitionId * period / this.partition.NumberPartitions());
+            var maxTime = DateTime.UtcNow.Ticks + period;
+            this.timeOfNextCheckpoint = (((maxTime - offset) / period) * period) + offset;
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -360,8 +352,7 @@ namespace DurableTask.EventSourced.Faster
                             = await this.pendingStoreCheckpoint.ConfigureAwait(false); // observe exceptions here
                         this.pendingStoreCheckpoint = null;
                         this.pendingCheckpointTrigger = CheckpointTrigger.None;
-                        this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-                        this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(false);
+                        this.ScheduleNextCheckpointTime();
                     }
                 }
                 else if (this.pendingIndexCheckpoint != null)
@@ -391,8 +382,9 @@ namespace DurableTask.EventSourced.Faster
                     && this.lastCheckpointedInputQueuePosition == this.InputQueuePosition
                     && this.LogWorker.LastCommittedInputQueuePosition <= this.InputQueuePosition)
                 {
-                    this.timeOfLastCheckpoint = this.partition.CurrentTimeMs; // nothing has changed since the last checkpoint
-                    this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(false);
+                    // since there were no changes since the last snapshot 
+                    // we can pretend that it was taken just now
+                    this.ScheduleNextCheckpointTime();
                 }
                 
                 // make sure to complete ready read requests, or notify this worker
