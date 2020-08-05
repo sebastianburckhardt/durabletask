@@ -155,12 +155,12 @@ namespace DurableTask.EventSourced.Faster
 
                     await log.CommitAsync().ConfigureAwait(false); // may commit more events than just the ones in the batch, but that is o.k.
 
-                    this.LastCommittedInputQueuePosition = batch[batch.Count-1].NextInputQueuePosition;
-
                     this.traceHelper.FasterLogPersisted(log.CommittedUntilAddress, batch.Count, (log.CommittedUntilAddress - previous), stopwatch.ElapsedMilliseconds);
 
                     foreach (var evt in batch)
                     {
+                        this.LastCommittedInputQueuePosition = Math.Max(this.LastCommittedInputQueuePosition, evt.NextInputQueuePosition);
+
                         if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
                         {
                             try
@@ -242,7 +242,7 @@ namespace DurableTask.EventSourced.Faster
                         if (partitionEvent != null)
                         {
                             partitionEvent.NextCommitLogPosition = iter.NextAddress;
-                            await worker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
+                            await worker.ReplayUpdate(partitionEvent).ConfigureAwait(false);
                         }
                     }
                 }

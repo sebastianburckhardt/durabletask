@@ -461,9 +461,20 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
+        public async ValueTask ReplayUpdate(PartitionUpdateEvent partitionUpdateEvent)
         {
-            // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
+            await this.ProcessUpdate(partitionUpdateEvent).ConfigureAwait(false);
+
+            if (partitionUpdateEvent.NextInputQueuePosition > 0)
+            {
+                this.partition.Assert(partitionUpdateEvent.NextInputQueuePosition > this.InputQueuePosition);
+                this.InputQueuePosition = partitionUpdateEvent.NextInputQueuePosition;
+            }
+        }
+
+        private async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
+        {
+            // the transport layer or log replay should always deliver a fresh event; if it repeats itself that's a bug
             // (note that it may not be the very next in the sequence since readonly events are not persisted in the log)
             if (partitionEvent.NextInputQueuePosition > 0 && partitionEvent.NextInputQueuePosition <= this.InputQueuePosition)
             {
