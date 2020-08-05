@@ -31,9 +31,10 @@ namespace DurableTask.EventSourced.Faster
         private readonly Partition partition;
         private readonly FasterTraceHelper traceHelper;
         private readonly BlobManager blobManager;
+        private readonly Random random;
 
         private readonly EffectTracker effectTracker;
-        
+
         private bool isShuttingDown;
 
         public long InputQueuePosition { get; private set; }
@@ -44,7 +45,7 @@ namespace DurableTask.EventSourced.Faster
         // periodic index and store checkpointing
         private CheckpointTrigger pendingCheckpointTrigger;
         private Task pendingIndexCheckpoint;
-        private Task<(long,long)> pendingStoreCheckpoint;
+        private Task<(long, long)> pendingStoreCheckpoint;
         private long lastCheckpointedInputQueuePosition;
         private long lastCheckpointedCommitLogPosition;
         private long numberEventsSinceLastCheckpoint;
@@ -57,14 +58,7 @@ namespace DurableTask.EventSourced.Faster
         private string lastPublishedLatencyTrend = "";
         private DateTime lastPublishedTime = DateTime.MinValue;
         public static TimeSpan PublishInterval = TimeSpan.FromSeconds(10);
-        public static TimeSpan IdlingPeriod = TimeSpan.FromSeconds(2);
-
-        private bool isInputQueuePositionPersisted => 
-            this.InputQueuePosition <= Math.Max(this.lastCheckpointedInputQueuePosition, this.LogWorker.LastCommittedInputQueuePosition);
-
-        private double ComputeMaxTimeOfNextCheckpoint => 
-            // we randomize this so that partitions don't all decide to checkpoint at the exact same time
-            this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * new Random().NextDouble());
+        public static TimeSpan IdlingPeriod = TimeSpan.FromSeconds(10.5);
 
 
         public StoreWorker(TrackedObjectStore store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
@@ -76,6 +70,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.traceHelper = traceHelper;
             this.blobManager = blobManager;
+            this.random = new Random();
 
             // construct an effect tracker that we use to apply effects to the store
             this.effectTracker = new EffectTracker(
@@ -114,7 +109,7 @@ namespace DurableTask.EventSourced.Faster
             this.lastCheckpointedInputQueuePosition = this.InputQueuePosition;
             this.numberEventsSinceLastCheckpoint = 0;
             this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(true);
         }
 
         internal async ValueTask TakeFullCheckpointAsync(string reason)
@@ -142,7 +137,7 @@ namespace DurableTask.EventSourced.Faster
             }
 
             this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+            this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(true);
         }
 
         public async Task CancelAndShutdown()
@@ -266,21 +261,40 @@ namespace DurableTask.EventSourced.Faster
         {
             trigger = CheckpointTrigger.None;
 
+            long inputQueuePositionLag =
+                this.InputQueuePosition - Math.Max(this.lastCheckpointedInputQueuePosition, this.LogWorker.LastCommittedInputQueuePosition);
+
             if (this.lastCheckpointedCommitLogPosition + this.partition.Settings.MaxNumberBytesBetweenCheckpoints <= this.CommitLogPosition)
             {
                 trigger = CheckpointTrigger.CommitLogBytes;
             }
-            else if (this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
+            else if (this.numberEventsSinceLastCheckpoint > this.partition.Settings.MaxNumberEventsBetweenCheckpoints
+                ||   inputQueuePositionLag > this.partition.Settings.MaxNumberEventsBetweenCheckpoints)
             {
                 trigger = CheckpointTrigger.EventCount;
             }
-            else if ((this.numberEventsSinceLastCheckpoint > 0 || !this.isInputQueuePositionPersisted)
+            else if (
+                (this.numberEventsSinceLastCheckpoint > 0 || inputQueuePositionLag > 0)
                 && this.partition.CurrentTimeMs > this.maxTimeOfNextCheckpoint)
             {
                 trigger = CheckpointTrigger.TimeElapsed;
             }
              
             return trigger != CheckpointTrigger.None;
+        }
+
+        private double ComputeMaxTimeOfNextCheckpoint(bool isFirst)
+        {
+            if (isFirst)
+            {
+                // for the first time limit we use full randomization to make sure partitions don't do it all at the same time
+                return this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * this.random.NextDouble();
+            }
+            else
+            {
+                // for each of the following time limits we randomize within 20 percent
+                return this.timeOfLastCheckpoint + this.partition.Settings.MaxTimeMsBetweenCheckpoints * (0.8 + 0.2 * this.random.NextDouble());
+            }
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -347,7 +361,7 @@ namespace DurableTask.EventSourced.Faster
                         this.pendingStoreCheckpoint = null;
                         this.pendingCheckpointTrigger = CheckpointTrigger.None;
                         this.timeOfLastCheckpoint = this.partition.CurrentTimeMs;
-                        this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+                        this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(false);
                     }
                 }
                 else if (this.pendingIndexCheckpoint != null)
@@ -378,9 +392,9 @@ namespace DurableTask.EventSourced.Faster
                     && this.LogWorker.LastCommittedInputQueuePosition <= this.InputQueuePosition)
                 {
                     this.timeOfLastCheckpoint = this.partition.CurrentTimeMs; // nothing has changed since the last checkpoint
-                    this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint;
+                    this.maxTimeOfNextCheckpoint = this.ComputeMaxTimeOfNextCheckpoint(false);
                 }
-
+                
                 // make sure to complete ready read requests, or notify this worker
                 // if any read requests become ready to process at some point
                 var t = this.store.ReadyToCompletePendingAsync();
