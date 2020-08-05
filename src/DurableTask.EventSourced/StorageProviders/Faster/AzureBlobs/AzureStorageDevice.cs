@@ -187,6 +187,7 @@ namespace DurableTask.EventSourced.Faster
                 await BlobManager.AsynchronousStorageWriteMaxConcurrency.WaitAsync();
 
                 int numAttempts = 0;
+                long streamPosition = stream.Position;
 
                 while(true) // retry loop
                 {
@@ -211,6 +212,7 @@ namespace DurableTask.EventSourced.Faster
                         TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
                         this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
+                        stream.Seek(streamPosition, SeekOrigin.Begin); // must go back to original position before retry
                         continue;
                     }
                     catch (Exception exception) when (!Utils.IsFatal(exception))
@@ -271,6 +273,7 @@ namespace DurableTask.EventSourced.Faster
                         TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
                         this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
+                        stream.Seek(0, SeekOrigin.Begin); // must go back to original position before retrying
                         continue;
                     }
                     catch (Exception exception) when (!Utils.IsFatal(exception))
