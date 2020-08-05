@@ -513,7 +513,6 @@ namespace DurableTask.EventSourced.Faster
                     {
                         await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
 
-
                         this.detailTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} attempt={numAttempts}");
 
                         await blob.UploadFromStreamAsync(stream, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
@@ -535,11 +534,6 @@ namespace DurableTask.EventSourced.Faster
                     catch (Exception exception) when (!Utils.IsFatal(exception))
                     {
                         this.blobManager?.HandleBlobError(nameof(StoreAsync), "could not write object to storage", blob?.Name, exception, true, this.blobManager.PartitionErrorHandler.IsTerminated);
-                        throw;
-                    }
-                    catch (Exception e) when (!Utils.IsFatal(e))
-                    {
-                        this.blobManager.PartitionErrorHandler.HandleError(nameof(StoreAsync), "Failed to write object to storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
                         throw;
                     }
                 }
