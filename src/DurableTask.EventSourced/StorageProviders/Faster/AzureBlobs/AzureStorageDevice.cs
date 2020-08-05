@@ -201,8 +201,11 @@ namespace DurableTask.EventSourced.Faster
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} attempt={numAttempts}");
 
-                        await blob.WritePagesAsync(stream, destinationAddress + offset,
-                            contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                        if (length > 0)
+                        {
+                            await blob.WritePagesAsync(stream, destinationAddress + offset,
+                                contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                        }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
                         break;
@@ -257,8 +260,11 @@ namespace DurableTask.EventSourced.Faster
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={numAttempts}");
 
-                        await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                                 accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                        if (readLength > 0)
+                        {
+                            await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
+                                     accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                        }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
 
