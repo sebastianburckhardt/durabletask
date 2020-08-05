@@ -305,12 +305,6 @@ namespace DurableTask.EventSourced.Faster
                     {
                         case PartitionUpdateEvent updateEvent:
                             await this.ProcessUpdate(updateEvent).ConfigureAwait(false);
-
-                            if (updateEvent.NextCommitLogPosition > 0)
-                            {
-                                this.partition.Assert(updateEvent.NextCommitLogPosition > this.CommitLogPosition);
-                                this.CommitLogPosition = updateEvent.NextCommitLogPosition;
-                            }
                             break;
 
                         case PartitionReadEvent readEvent:
@@ -328,6 +322,9 @@ namespace DurableTask.EventSourced.Faster
                             throw new InvalidCastException("could not cast to neither PartitionReadEvent nor PartitionUpdateEvent");
                     }
                     
+                    // we advance the input queue position for all events (even non-update)
+                    // this means it can move ahead of the actually persisted position, but it also means
+                    // we can persist it as part of a snapshot
                     if (partitionEvent.NextInputQueuePosition > 0)
                     {
                         this.partition.Assert(partitionEvent.NextInputQueuePosition > this.InputQueuePosition);
@@ -463,26 +460,44 @@ namespace DurableTask.EventSourced.Faster
 
         public async ValueTask ReplayUpdate(PartitionUpdateEvent partitionUpdateEvent)
         {
-            await this.ProcessUpdate(partitionUpdateEvent).ConfigureAwait(false);
+            await this.effectTracker.ProcessUpdate(partitionUpdateEvent).ConfigureAwait(false);
 
-            if (partitionUpdateEvent.NextInputQueuePosition > 0)
+            // update the input queue position if larger 
+            // it can be smaller since the checkpoint can store positions advanced by non-update events
+            if (partitionUpdateEvent.NextInputQueuePosition > this.InputQueuePosition)
             {
-                this.partition.Assert(partitionUpdateEvent.NextInputQueuePosition > this.InputQueuePosition);
                 this.InputQueuePosition = partitionUpdateEvent.NextInputQueuePosition;
             }
+
+            // update the commit log position
+            if (partitionUpdateEvent.NextCommitLogPosition > 0)
+            {
+                this.partition.Assert(partitionUpdateEvent.NextCommitLogPosition > this.CommitLogPosition);
+                this.CommitLogPosition = partitionUpdateEvent.NextCommitLogPosition;
+            }
+
+            this.numberEventsSinceLastCheckpoint++;
         }
 
-        private async ValueTask ProcessUpdate(PartitionUpdateEvent partitionEvent)
+        private async ValueTask ProcessUpdate(PartitionUpdateEvent partitionUpdateEvent)
         {
-            // the transport layer or log replay should always deliver a fresh event; if it repeats itself that's a bug
+            // the transport layer should always deliver a fresh event; if it repeats itself that's a bug
             // (note that it may not be the very next in the sequence since readonly events are not persisted in the log)
-            if (partitionEvent.NextInputQueuePosition > 0 && partitionEvent.NextInputQueuePosition <= this.InputQueuePosition)
+            if (partitionUpdateEvent.NextInputQueuePosition > 0 && partitionUpdateEvent.NextInputQueuePosition <= this.InputQueuePosition)
             {
                 this.partition.ErrorHandler.HandleError(nameof(ProcessUpdate), "Duplicate event detected", null, false, false);
                 return;
             }
 
-            await this.effectTracker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
+            await this.effectTracker.ProcessUpdate(partitionUpdateEvent).ConfigureAwait(false);
+
+            // update the commit log position
+            if (partitionUpdateEvent.NextCommitLogPosition > 0)
+            {
+                this.partition.Assert(partitionUpdateEvent.NextCommitLogPosition > this.CommitLogPosition);
+                this.CommitLogPosition = partitionUpdateEvent.NextCommitLogPosition;
+            }
+
             this.numberEventsSinceLastCheckpoint++;
         }
     }
