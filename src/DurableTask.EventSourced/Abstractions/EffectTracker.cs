@@ -194,7 +194,7 @@ namespace DurableTask.EventSourced
             }
         }
         
-        public void ProcessQueryResult(PartitionQueryEvent queryEvent, IEnumerable<TrackedObject> instances)
+        public async Task ProcessQueryResultAsync(PartitionQueryEvent queryEvent, IAsyncEnumerable<TrackedObject> instances)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // query events are never part of the replay
@@ -205,7 +205,7 @@ namespace DurableTask.EventSourced
                 try
                 {
                     this.Partition.EventDetailTracer?.TraceEventProcessingStarted(commitLogPosition, queryEvent, false);
-                    queryEvent.OnQueryComplete(instances, this.Partition);
+                    await queryEvent.OnQueryCompleteAsync(instances, this.Partition);
                 }
                 catch (OperationCanceledException)
                 {
@@ -214,7 +214,7 @@ namespace DurableTask.EventSourced
                 catch (Exception exception) when (!Utils.IsFatal(exception))
                 {
                     // for robustness, swallow exceptions, but report them
-                    this.Partition.ErrorHandler.HandleError(nameof(ProcessQueryResult), $"Encountered exception while processing query event {queryEvent}", exception, false, false);
+                    this.Partition.ErrorHandler.HandleError(nameof(ProcessQueryResultAsync), $"Encountered exception while processing query event {queryEvent}", exception, false, false);
                 }
                 finally
                 {

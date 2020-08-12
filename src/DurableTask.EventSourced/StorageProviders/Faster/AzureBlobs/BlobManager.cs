@@ -365,10 +365,10 @@ namespace DurableTask.EventSourced.Faster
                     {
                         this.leaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null,
                             accessCondition: null, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
-
-                        this.leaseTimer = newLeaseTimer;
                         this.TraceHelper.LeaseAcquired();
                     }
+
+                    this.leaseTimer = newLeaseTimer;
                     this.LeaseMaintenanceLoopTask = Task.Run(() => this.MaintenanceLoopAsync());
                     return;
                 }

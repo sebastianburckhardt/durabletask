@@ -101,12 +101,12 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        private IEnumerable<InstanceState> GetAllInstances()
+        private IAsyncEnumerable<InstanceState> GetAllInstances()
         {
             return trackedObjects
                 .Values
-                .Select(trackedObject => (trackedObject as InstanceState))
-                .Where(instanceState => instanceState != null).ToList();
+                .Select(trackedObject => trackedObject as InstanceState)
+                .Where(instanceState => instanceState != null).ToList().ToAsyncEnumerable();
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -153,7 +153,7 @@ namespace DurableTask.EventSourced
                                     break;
 
                                 case PartitionQueryEvent queryEvent:
-                                    effects.ProcessQueryResult(queryEvent, this.GetAllInstances());
+                                    await effects.ProcessQueryResultAsync(queryEvent, this.GetAllInstances());
                                     break;
 
                                 default:
