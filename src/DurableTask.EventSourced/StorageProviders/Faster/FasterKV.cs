@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterKV : TrackedObjectStore
     {
-        private FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> fht;
+        private FasterKV<Key, Value> fht;
 
         private readonly Partition partition;
         private readonly BlobManager blobManager;
@@ -47,9 +47,8 @@ namespace DurableTask.EventSourced.Faster
 
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
-            this.fht = new FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions>(
+            this.fht = new FasterKV<Key, Value>(
                 HashTableSize,
-                new Functions(partition, this.StoreStats),
                 blobManager.StoreLogSettings(partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
                 new SerializerSettings<Key, Value>
@@ -99,17 +98,18 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
 
-        public override void InitMainSession()
-        {
-            this.mainSession = fht.NewSession();
-        }
+        private ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> CreateASession()
+            => this.fht.NewSession<EffectTracker, TrackedObject, PartitionReadEvent, Functions>(new Functions(partition, this.StoreStats));
+
+        public override void InitMainSession() 
+            => this.mainSession = this.CreateASession();
 
         public override void Recover(out long commitLogPosition, out long inputQueuePosition)
         {
             try
             {
                 this.fht.Recover();
-                this.mainSession = fht.NewSession();
+                this.mainSession = this.CreateASession();
                 commitLogPosition = this.blobManager.CheckpointInfo.CommitLogPosition;
                 inputQueuePosition = this.blobManager.CheckpointInfo.InputQueuePosition;
             }
@@ -253,7 +253,7 @@ namespace DurableTask.EventSourced.Faster
 
                 // create a individual session for this query so the main session can be used
                 // while the query is progressing.
-                using var session = this.fht.NewSession();
+                using var session = this.CreateASession();
                 var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet)
                     ? queryPSFsAsync()
                     : this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true);
