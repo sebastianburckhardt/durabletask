@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced
         {
             stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
             stream.Seek(0, SeekOrigin.Begin);
-            Packet.Deserialize(stream, out var eventId, out TEvent evt);
+            Packet.Deserialize(stream, out TEvent evt);
             stream.Dispose();
             return evt;
         }
@@ -89,7 +89,7 @@ namespace DurableTask.EventSourced
                 }
                 stream.Write(lastFragment.Bytes, 0, lastFragment.Bytes.Length);
                 stream.Seek(0, SeekOrigin.Begin);
-                Packet.Deserialize(stream, out var eventId, out TEvent evt);
+                Packet.Deserialize(stream, out TEvent evt);
                 return evt;
             }
         }

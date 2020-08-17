@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.Emulated
         protected override byte[] Serialize(PartitionEvent evt)
         {
             var stream = new MemoryStream();
-            Packet.Serialize(evt, stream);
+            Packet.Serialize(evt, stream, false);
             DurabilityListeners.ConfirmDurable(evt);
             return stream.ToArray();
         }
@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             using (var stream = new MemoryStream(bytes, false))
             {
-                Packet.Deserialize(stream, out var eventId, out PartitionEvent partitionEvent);
+                Packet.Deserialize(stream, out PartitionEvent partitionEvent);
                 return partitionEvent;
             }
         }

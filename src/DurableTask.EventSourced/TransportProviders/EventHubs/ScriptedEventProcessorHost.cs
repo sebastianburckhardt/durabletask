@@ -311,18 +311,17 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                                 var seqno = eventDatum.SystemProperties.SequenceNumber;
                                 if (seqno == nextPacketToReceive)
                                 {
-                                    string eventId = null;
                                     PartitionEvent partitionEvent = null;
                                     try
                                     {
-                                        Packet.Deserialize(eventDatum.Body, out eventId, out partitionEvent);
+                                        Packet.Deserialize(eventDatum.Body, out partitionEvent);
                                     }
                                     catch (Exception)
                                     {
-                                        this.host.logger.LogError("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count, eventId);
+                                        this.host.logger.LogError("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) could not deserialize packet #{seqno} ({size} bytes)", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count);
                                         throw;
                                     }
-                                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) received packet #{seqno} ({size} bytes) {event} id={eventId}", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count, partitionEvent, eventId);
+                                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) received packet #{seqno} ({size} bytes) {event}", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count, partitionEvent);
                                     nextPacketToReceive = seqno + 1;
                                     partitionEvent.NextInputQueuePosition = nextPacketToReceive;
                                     batch.Add(partitionEvent);

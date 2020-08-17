@@ -283,18 +283,17 @@ namespace DurableTask.EventSourced.EventHubs
                         var seqno = eventData.SystemProperties.SequenceNumber;
                         if (seqno == current.NextPacketToReceive)
                         {
-                            string eventId = null;
                             PartitionEvent partitionEvent = null;
                             try
                             {
-                                Packet.Deserialize(eventData.Body, out eventId, out partitionEvent);
+                                Packet.Deserialize(eventData.Body, out partitionEvent);
                             }
                             catch (Exception)
                             {
-                                this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, eventId);
+                                this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} could not deserialize packet #{seqno} ({size} bytes)", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count);
                                 throw;
                             }
-                            this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {event} id={eventId}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, partitionEvent, eventId);
+                            this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {event}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, partitionEvent);
                             current.NextPacketToReceive = seqno + 1;
                             partitionEvent.NextInputQueuePosition = current.NextPacketToReceive;
                             batch.Add(partitionEvent);
@@ -307,7 +306,7 @@ namespace DurableTask.EventSourced.EventHubs
                             if (partitionEvent.SentTimestampUnixMs != 0)
                             {
                                 long duration = partitionEvent.ReceivedTimestampUnixMs - partitionEvent.SentTimestampUnixMs;
-                                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, eventId, duration);
+                                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, partitionEvent.EventIdString, duration);
                             }
                         }
                         else if (seqno > current.NextPacketToReceive)

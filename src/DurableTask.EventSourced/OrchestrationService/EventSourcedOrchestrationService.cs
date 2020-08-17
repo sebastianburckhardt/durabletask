@@ -283,7 +283,7 @@ namespace DurableTask.EventSourced
                 && uint.TryParse(instanceId.Substring(instanceId.Length - 2), out uint nn))
             {
                 var partitionId = nn % this.NumberPartitions;
-                this.Logger.LogTrace($"Instance: {instanceId} was explicitly placed on partition: {partitionId}");
+                //this.Logger.LogTrace($"Instance: {instanceId} was explicitly placed on partition: {partitionId}");
                 return partitionId;
             }
             else

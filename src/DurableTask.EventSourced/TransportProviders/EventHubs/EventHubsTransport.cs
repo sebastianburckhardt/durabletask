@@ -65,7 +65,7 @@ namespace DurableTask.EventSourced.EventHubs
             string namespaceName = TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString);
             this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportLogLevelLimit, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, namespaceName);
             this.ClientId = Guid.NewGuid();
-            this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper);
+            this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper, settings.UseJsonPackets);
             var blobContainerName = $"{namespaceName}-processors";
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
@@ -266,19 +266,18 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     foreach (var ed in eventData)
                     {
-                        string eventId = null;
                         ClientEvent clientEvent = null;
 
                         try
                         {
-                            Packet.Deserialize(ed.Body, out eventId, out clientEvent);
+                            Packet.Deserialize(ed.Body, out clientEvent);
                         }
                         catch (Exception)
                         {
-                            this.traceHelper.LogError("EventProcessor for Client{clientId} could not deserialize packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
+                            this.traceHelper.LogError("EventProcessor for Client{clientId} could not deserialize packet #{seqno} ({size} bytes)", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count);
                             throw;
                         }
-                        this.traceHelper.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes) eventId={eventId}", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count, eventId);
+                        this.traceHelper.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes)", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count);
 
                         if (clientEvent.ClientId == this.ClientId)
                         {

@@ -101,7 +101,12 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Whether to use the alternate object store implementation.
         /// </summary>
-        public bool UseAlternateObjectStore { get; set; } = true;
+        public bool UseAlternateObjectStore { get; set; } = false;
+
+        /// <summary>
+        /// Whether to use JSON serialization for eventhubs packets
+        /// </summary>
+        public bool UseJsonPackets { get; set; } = false;
 
         /// <summary>
         /// A lower limit on the severity level of trace events emitted by the transport layer.
@@ -122,14 +127,14 @@ namespace DurableTask.EventSourced
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
-        public LogLevel EventLogLevelLimit { get; set; } = LogLevel.Information;
+        public LogLevel EventLogLevelLimit { get; set; } = LogLevel.Warning;
 
         /// <summary>
         /// A lower limit on the severity level of all other trace events emitted.
         /// </summary>
         /// <remarks>This level applies to both ETW events and ILogger events.</remarks>
         [JsonConverter(typeof(StringEnumConverter))]
-        public LogLevel LogLevelLimit { get; set; } = LogLevel.Debug;
+        public LogLevel LogLevelLimit { get; set; } = LogLevel.Information;
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
