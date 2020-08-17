@@ -199,6 +199,11 @@ namespace DurableTask.EventSourced.Faster
             {
                 await Task.Delay(StoreWorker.IdlingPeriod).ConfigureAwait(false);
 
+                if (this.terminationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
                 this.storeWorker.Notify();
             }
