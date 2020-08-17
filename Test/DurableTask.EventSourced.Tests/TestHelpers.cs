@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced.Tests
                 StorageLogLevelLimit = LogLevel.Trace,
                 LogLevelLimit = LogLevel.Trace,
                 TakeStateCheckpointWhenStoppingPartition = true,  // set to false for testing recovery from log
-                UseAlternateObjectStore = true,                  // set to false to use FasterKV directly; default is true
+                UseAlternateObjectStore = false,                  // set to true to bypass FasterKV; default is false
                 //MaxNumberBytesBetweenCheckpoints = 10000000, // set this low for testing frequent checkpointing
                 //MaxNumberEventsBetweenCheckpoints = 10, // set this low for testing frequent checkpointing
             };
