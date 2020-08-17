@@ -243,7 +243,7 @@ namespace DurableTask.EventSourced.Faster
                     };
 
                     TrackedObject getValue(ref Value v)
-                        => (object)v is byte[] serialized
+                        => v.Val is byte[] serialized
                             ? Serializer.DeserializeTrackedObject(serialized)
                             : (TrackedObject)v;
 
