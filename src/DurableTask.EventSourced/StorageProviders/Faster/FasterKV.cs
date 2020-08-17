@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced.Faster
 {
     internal class FasterKV : TrackedObjectStore
     {
-        private FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> fht;
+        private FasterKV<Key, Value> fht;
 
         private readonly Partition partition;
         private readonly BlobManager blobManager;
@@ -47,9 +47,8 @@ namespace DurableTask.EventSourced.Faster
 
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
-            this.fht = new FasterKV<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions>(
+            this.fht = new FasterKV<Key, Value>(
                 HashTableSize,
-                new Functions(partition, this.StoreStats),
                 blobManager.StoreLogSettings(partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
                 new SerializerSettings<Key, Value>
@@ -99,17 +98,18 @@ namespace DurableTask.EventSourced.Faster
             this.blobManager.TraceHelper.FasterProgress("Constructed FasterKV");
         }
 
-        public override void InitMainSession()
-        {
-            this.mainSession = fht.NewSession();
-        }
+        private ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> CreateASession()
+            => this.fht.NewSession<EffectTracker, TrackedObject, PartitionReadEvent, Functions>(new Functions(partition, this.StoreStats));
+
+        public override void InitMainSession() 
+            => this.mainSession = this.CreateASession();
 
         public override void Recover(out long commitLogPosition, out long inputQueuePosition)
         {
             try
             {
                 this.fht.Recover();
-                this.mainSession = fht.NewSession();
+                this.mainSession = this.CreateASession();
                 commitLogPosition = this.blobManager.CheckpointInfo.CommitLogPosition;
                 inputQueuePosition = this.blobManager.CheckpointInfo.InputQueuePosition;
             }
@@ -217,7 +217,7 @@ namespace DurableTask.EventSourced.Faster
                 // TODO: Resolve issue with File storage => breaks Azure stuff in EventSourcedOrchestrationService
                 // TODO: Perf of EnumerateAllTrackedObjects
 
-                IEnumerable<TrackedObject> queryPSFs()
+                IAsyncEnumerable<TrackedObject> queryPSFsAsync()
                 {
                     // Issue the PSF query. Note that pending operations will be completed before this returns.
                     var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
@@ -241,20 +241,24 @@ namespace DurableTask.EventSourced.Faster
                         // This is a match-all-PSFs enumeration so do not continue after any PSF has hit EOS
                         OnStreamEnded = (unusedPsf, unusedIndex) => false
                     };
-                    return this.mainSession.QueryPSF(querySpec, matches => matches.All(b => b), querySettings)
-                                           .Select(providerData => (TrackedObject)providerData.GetValue());
+
+                    TrackedObject getValue(ref Value v)
+                        => (object)v is byte[] serialized
+                            ? Serializer.DeserializeTrackedObject(serialized)
+                            : (TrackedObject)v;
+
+                    return this.mainSession.QueryPSFAsync(querySpec, matches => matches.All(b => b), querySettings)
+                                           .Select(providerData => getValue(ref providerData.GetValue()));
                 }
 
                 // create a individual session for this query so the main session can be used
                 // while the query is progressing.
-                using (var session = this.fht.NewSession())
-                {
-                    var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet)
-                    ? queryPSFs()
-                    : (await this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true)).Values;
+                using var session = this.CreateASession();
+                var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet)
+                    ? queryPSFsAsync()
+                    : this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true);
 
-                    effectTracker.ProcessQueryResult(queryEvent, trackedObjects);
-                }
+                await effectTracker.ProcessQueryResultAsync(queryEvent, trackedObjects);
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -352,44 +356,36 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override async Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        public override async IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
         {
             // TODOperf: Performance of getting all tracked objects
-            var results = new SortedDictionary<TrackedObjectKey, TrackedObject>(new TrackedObjectKey.Comparer());
-            var keysToLookup = new HashSet<TrackedObjectKey>();
+            var keysSeen = new HashSet<TrackedObjectKey>();
 
-            // get the set of keys appearing in the log
-            using (var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress))
+            // get the unique set of keys appearing in the log and emit them
+            using var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress);
+            while (iter1.GetNext(out RecordInfo recordInfo) && !recordInfo.Tombstone)
             {
-                while (iter1.GetNext(out RecordInfo recordInfo) && !recordInfo.Tombstone)
-                {
-                    TrackedObjectKey key = iter1.GetKey().Val;
-                    if (!instanceOnly || key.ObjectType == TrackedObjectKey.TrackedObjectType.Instance)
-                        keysToLookup.Add(key);
-                }
-            }
+                TrackedObjectKey key = iter1.GetKey().Val;
+                if (instanceOnly && key.ObjectType != TrackedObjectKey.TrackedObjectType.Instance)
+                    continue;
+                if (keysSeen.Contains(key))
+                    continue;
+                keysSeen.Add(key);
 
-            // read the current value of each
-            foreach (var k in keysToLookup)
-            {
-                TrackedObject target = await this.ReadAsync(k, effectTracker).ConfigureAwait(false);
+                TrackedObject target = await this.ReadAsync(key, effectTracker).ConfigureAwait(false);
                 if (target != null)
                 {
-                    results.Add(k, target);
+                    yield return target;
                 }
             }
-
-            return results;
         }
 
         private async Task<string> DumpCurrentState(EffectTracker effectTracker)    // TODO unused
         {
             try
             {
-                SortedDictionary<TrackedObjectKey, TrackedObject> results = await EnumerateAllTrackedObjects(effectTracker).ConfigureAwait(false);
-
                 var stringBuilder = new StringBuilder();
-                foreach (var trackedObject in results.Values)
+                await foreach (var trackedObject in EnumerateAllTrackedObjects(effectTracker).OrderBy(obj => obj.Key, new TrackedObjectKey.Comparer()))
                 {
                     stringBuilder.Append(trackedObject.ToString());
                     stringBuilder.AppendLine();

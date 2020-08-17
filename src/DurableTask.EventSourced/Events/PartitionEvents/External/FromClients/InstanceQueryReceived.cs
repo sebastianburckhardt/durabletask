@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Threading.Tasks;
 using DurableTask.Core;
 
 namespace DurableTask.EventSourced
@@ -34,7 +35,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
 
-        public override void OnQueryComplete(IEnumerable<TrackedObject> instances, Partition partition)
+        public async override Task OnQueryCompleteAsync(IAsyncEnumerable<TrackedObject> instances, Partition partition)
         {
             var response = new QueryResponseReceived
             {
@@ -43,7 +44,7 @@ namespace DurableTask.EventSourced
                 OrchestrationStates = new List<OrchestrationState>()
             };
 
-            foreach (var trackedObject in instances)
+            await foreach (var trackedObject in instances)
             {
                 var instanceState = trackedObject as InstanceState;
                 partition.Assert(instanceState != null);

@@ -12,18 +12,12 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.Core.Common;
-using FASTER.core;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using System;
-using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Data;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -383,7 +377,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        public override IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
         {
             // TODO
             return default;
