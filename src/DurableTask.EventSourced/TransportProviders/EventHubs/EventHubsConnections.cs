@@ -28,7 +28,7 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly TransportAbstraction.IHost host;
         private readonly string connectionString;
         private readonly EventHubsTraceHelper traceHelper;
-        private readonly bool useJsonPackets;
+        private readonly EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets;
 
         private object thisLock = new object();
 
@@ -40,7 +40,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public PartitionReceiver ClientReceiver { get; private set; }
 
-        public EventHubsConnections(TransportAbstraction.IHost host, string connectionString, EventHubsTraceHelper traceHelper, bool useJsonPackets)
+        public EventHubsConnections(TransportAbstraction.IHost host, string connectionString, EventHubsTraceHelper traceHelper, EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets)
         {
             this.host = host;
             this.connectionString = connectionString;
@@ -149,7 +149,11 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     var client = GetPartitionEventHubsClient();
                     var partitionSender = client.CreatePartitionSender(partitionId.ToString());
-                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionUpdateEvent>(host, partitionSender, this.traceHelper, this.useJsonPackets);
+                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionUpdateEvent>(
+                        host, 
+                        partitionSender, 
+                        this.traceHelper, 
+                        this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForAll);
                     traceHelper.LogDebug("Created PartitionSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 }
                 return sender;
@@ -165,7 +169,11 @@ namespace DurableTask.EventSourced.EventHubs
                     uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
                     var client = GetClientBucketEventHubsClient(clientBucket);
                     var partitionSender = client.CreatePartitionSender((clientBucket % NumPartitionsPerClientPath).ToString());
-                    _clientSenders[clientId] = sender = new EventHubsSender<ClientEvent>(host, partitionSender, this.traceHelper, this.useJsonPackets);
+                    _clientSenders[clientId] = sender = new EventHubsSender<ClientEvent>(
+                        host, 
+                        partitionSender, 
+                        this.traceHelper,
+                        this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForClients);
                     traceHelper.LogDebug("Created ResponseSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 }
                 return sender;

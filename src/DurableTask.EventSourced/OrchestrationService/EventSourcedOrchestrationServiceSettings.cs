@@ -104,9 +104,31 @@ namespace DurableTask.EventSourced
         public bool UseAlternateObjectStore { get; set; } = false;
 
         /// <summary>
-        /// Whether to use JSON serialization for eventhubs packets
+        /// Whether to use JSON serialization for eventhubs packets.
         /// </summary>
-        public bool UseJsonPackets { get; set; } = false;
+        [JsonConverter(typeof(StringEnumConverter))]
+        public JsonPacketUse UseJsonPackets { get; set; } = JsonPacketUse.Never;
+
+        /// <summary>
+        /// Which packets to send in JSON format.
+        /// </summary>
+        public enum JsonPacketUse
+        {
+            /// <summary>
+            /// Never send packets in JSON format
+            /// </summary>
+            Never,
+
+            /// <summary>
+            /// Send packets to clients in JSON format
+            /// </summary>
+            ForClients,
+
+            /// <summary>
+            /// Send all packets in JSON format
+            /// </summary>
+            ForAll,
+        }
 
         /// <summary>
         /// A lower limit on the severity level of trace events emitted by the transport layer.
