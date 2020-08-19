@@ -214,9 +214,6 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                // TODO: Resolve issue with File storage => breaks Azure stuff in EventSourcedOrchestrationService
-                // TODO: Perf of EnumerateAllTrackedObjects
-
                 IAsyncEnumerable<TrackedObject> queryPSFsAsync()
                 {
                     // Issue the PSF query. Note that pending operations will be completed before this returns.
@@ -358,24 +355,16 @@ namespace DurableTask.EventSourced.Faster
 
         public override async IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
         {
-            // TODOperf: Performance of getting all tracked objects
-            var keysSeen = new HashSet<TrackedObjectKey>();
-
             // get the unique set of keys appearing in the log and emit them
-            using var iter1 = this.fht.Log.Scan(this.fht.Log.BeginAddress, this.fht.Log.TailAddress);
+            using var iter1 = this.fht.Iterate();
             while (iter1.GetNext(out RecordInfo recordInfo) && !recordInfo.Tombstone)
             {
                 TrackedObjectKey key = iter1.GetKey().Val;
-                if (instanceOnly && key.ObjectType != TrackedObjectKey.TrackedObjectType.Instance)
-                    continue;
-                if (keysSeen.Contains(key))
-                    continue;
-                keysSeen.Add(key);
-
-                TrackedObject target = await this.ReadAsync(key, effectTracker).ConfigureAwait(false);
-                if (target != null)
+                if (key.ObjectType == TrackedObjectKey.TrackedObjectType.Instance || !instanceOnly)
                 {
-                    yield return target;
+                    TrackedObject target = await this.ReadAsync(key, effectTracker).ConfigureAwait(false);
+                    if (target != null)
+                        yield return target;
                 }
             }
         }
