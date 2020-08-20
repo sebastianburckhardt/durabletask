@@ -60,7 +60,8 @@ namespace DurableTask.EventSourced
                 Tags = ee.Tags,
                 CreatedTime = ee.Timestamp,
                 LastUpdatedTime = evt.Timestamp,
-                CompletedTime = Core.Common.DateTimeUtils.MinDateTime
+                CompletedTime = Core.Common.DateTimeUtils.MinDateTime,
+                ScheduledStartTime = ee.ScheduledStartTime
             };
         }
 

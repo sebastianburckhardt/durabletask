@@ -78,7 +78,8 @@ namespace DurableTask.EventSourced.Tests
         public async Task<TestOrchestrationClient> StartOrchestrationAsync(
             Type orchestrationType,
             object input,
-            string instanceId = null)
+            string instanceId = null, 
+            DateTime? startAt = null)
         {
             if (!this.addedOrchestrationTypes.Contains(orchestrationType))
             {
@@ -109,10 +110,18 @@ namespace DurableTask.EventSourced.Tests
             }
 
             DateTime creationTime = DateTime.UtcNow;
-            OrchestrationInstance instance = await this.client.CreateOrchestrationInstanceAsync(
-                orchestrationType,
-                instanceId,
-                input);
+            OrchestrationInstance instance = startAt.HasValue ?
+                await this.client.CreateScheduledOrchestrationInstanceAsync(
+                    orchestrationType,
+                    instanceId,
+                    input,
+                    startAt.Value)
+                    :
+                await this.client.CreateOrchestrationInstanceAsync(
+                    orchestrationType,
+                    instanceId,
+                    input);
+
 
             Trace.TraceInformation($"Started {orchestrationType.Name}, Instance ID = {instance.InstanceId}");
             return new TestOrchestrationClient(this.client, orchestrationType, instance.InstanceId, creationTime);

@@ -90,6 +90,10 @@ namespace DurableTask.EventSourced
             {
                 return due;
             }
+            else if (message.Event is ExecutionStartedEvent executionStartedEvent && executionStartedEvent.ScheduledStartTime.HasValue)
+            {
+                return executionStartedEvent.ScheduledStartTime.Value;
+            }
             else
             {
                 throw new ArgumentException(nameof(message), "unhandled event type");
@@ -131,6 +135,19 @@ namespace DurableTask.EventSourced
                 {
                     this.Schedule(timerId, due, t);
                 }
+            }
+        }
+
+        public void Process(CreationRequestProcessed creationRequestProcessed, EffectTracker effects)
+        {
+            // starts a new timer for the execution started event
+            var timerId = this.SequenceNumber++;
+            var due = GetDueTime(creationRequestProcessed.TaskMessage);
+            this.PendingTimers.Add(timerId, (due, creationRequestProcessed.TaskMessage));
+
+            if (!effects.IsReplaying)
+            {
+                this.Schedule(timerId, due, creationRequestProcessed.TaskMessage);
             }
         }
     }

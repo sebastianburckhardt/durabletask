@@ -102,8 +102,18 @@ namespace DurableTask.EventSourced
             {
                 if (!creationRequestProcessed.FilteredDuplicate)
                 {
+                    // update the instance state to "Pending" immediately
                     effects.Add(TrackedObjectKey.Instance(creationRequestProcessed.InstanceId));
-                    effects.Add(TrackedObjectKey.Sessions);
+
+                    // queue the message in the session, or start a timer if delayed
+                    if (!creationRequestProcessed.ExecutionStartedEvent.ScheduledStartTime.HasValue)
+                    {
+                        effects.Add(TrackedObjectKey.Sessions);
+                    }
+                    else
+                    {
+                        effects.Add(TrackedObjectKey.Timers);
+                    }
                 }
                  
                 if (!effects.IsReplaying)

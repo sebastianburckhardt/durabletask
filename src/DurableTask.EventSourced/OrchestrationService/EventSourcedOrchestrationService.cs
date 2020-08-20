@@ -473,6 +473,10 @@ namespace DurableTask.EventSourced
                         {
                             (timerMessages ?? (timerMessages = new List<TaskMessage>())).Add(taskMessage);
                         }
+                        else if (taskMessage.Event is ExecutionStartedEvent executionStartedEvent && executionStartedEvent.ScheduledStartTime.HasValue)
+                        {
+                            (timerMessages ?? (timerMessages = new List<TaskMessage>())).Add(taskMessage);
+                        }
                         else
                         {
                             (localMessages ?? (localMessages = new List<TaskMessage>())).Add(taskMessage);

@@ -22,6 +22,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core;
 using DurableTask.Core.Common;
+using DurableTask.Core.History;
 using DurableTask.EventSourced.Scaling;
 
 namespace DurableTask.EventSourced
@@ -169,6 +170,10 @@ namespace DurableTask.EventSourced
                     };
                 }
                 if (Entities.IsDelayedEntityMessage(message, out _))
+                {
+                    (outmessage.DelayedTaskMessages ?? (outmessage.DelayedTaskMessages = new List<TaskMessage>())).Add(message);
+                }
+                else if (message.Event is ExecutionStartedEvent executionStartedEvent && executionStartedEvent.ScheduledStartTime.HasValue)
                 {
                     (outmessage.DelayedTaskMessages ?? (outmessage.DelayedTaskMessages = new List<TaskMessage>())).Add(message);
                 }
