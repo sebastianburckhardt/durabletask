@@ -50,7 +50,7 @@ namespace DurableTask.EventSourced.Tests
             this.addedActivityTypes = new HashSet<Type>();
         }
 
-        public string TaskHub => this.settings.TaskHubName;
+        public string TaskHub => this.settings.HubName;
 
         public void Dispose()
         {

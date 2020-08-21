@@ -84,7 +84,7 @@ namespace DurableTask.EventSourced
                 ? this.Settings.StorageConnectionString
                 : CloudStorageAccount.Parse(this.Settings.StorageConnectionString).Credentials.AccountName;
 
-            EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+            EtwSource.Log.OrchestrationServiceCreated(this.ServiceInstanceId, this.StorageAccountName, this.Settings.HubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             this.Logger.LogInformation("EventSourcedOrchestrationService created, workerId={workerId}, transport={transport}, storage={storage}", this.Settings.WorkerId, this.configuredTransport, this.configuredStorage);
 
             switch (this.configuredTransport)
@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced
             }
 
             if (this.configuredTransport != TransportConnectionString.TransportChoices.Memory)
-                this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.TaskHubName);
+                this.LoadMonitorService = new AzureLoadMonitorTable(settings.StorageConnectionString, settings.LoadInformationAzureTableName, settings.HubName);
 
             this.Logger.LogInformation(
                 "trace generation limits: general={general} , transport={transport}, storage={storage}, events={events}; etwEnabled={etwEnabled}; core.IsTraceEnabled={core}",
@@ -140,7 +140,7 @@ namespace DurableTask.EventSourced
                     return new MemoryStorage(this.Logger);
 
                 case TransportConnectionString.StorageChoices.Faster:
-                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.TaskHubName, this.LoggerFactory);
+                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.HubName, this.LoggerFactory);
 
                 default:
                     throw new NotImplementedException("no such storage choice");
@@ -159,7 +159,7 @@ namespace DurableTask.EventSourced
                     break;
 
                 case TransportConnectionString.StorageChoices.Faster:
-                    await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.TaskHubName).ConfigureAwait(false);
+                    await Faster.FasterStorage.DeleteTaskhubStorageAsync(Settings.StorageConnectionString, this.Settings.HubName).ConfigureAwait(false);
                     break;
 
                 default:
@@ -260,7 +260,7 @@ namespace DurableTask.EventSourced
                 await this.taskHub.StopAsync().ConfigureAwait(false);
 
                 this.Logger.LogInformation("EventSourcedOrchestrationService stopped, workerId={workerId}", this.Settings.WorkerId);
-                EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.TaskHubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
+                EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.HubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -318,7 +318,7 @@ namespace DurableTask.EventSourced
 
         IPartitionErrorHandler TransportAbstraction.IHost.CreateErrorHandler(uint partitionId)
         {
-            return new PartitionErrorHandler((int) partitionId, this.Logger, this.Settings.LogLevelLimit, this.StorageAccountName, this.Settings.TaskHubName);
+            return new PartitionErrorHandler((int) partitionId, this.Logger, this.Settings.LogLevelLimit, this.StorageAccountName, this.Settings.HubName);
         }
 
         /******************************/
@@ -489,8 +489,8 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            // if this orchestration is not done, we keep the work item so we can reuse the execution cursor
-            bool cacheWorkItemForReuse = state.OrchestrationStatus == OrchestrationStatus.Running;           
+            // if this orchestration is not done, and extended sessions are enabled, we keep the work item so we can reuse the execution cursor
+            bool cacheWorkItemForReuse = partition.Settings.ExtendedSessionsEnabled && state.OrchestrationStatus == OrchestrationStatus.Running;           
 
             try
             {
@@ -564,7 +564,7 @@ namespace DurableTask.EventSourced
             return 0;
         }
 
-        int IOrchestrationService.MaxConcurrentTaskOrchestrationWorkItems => this.Settings.MaxConcurrentTaskOrchestrationWorkItems;
+        int IOrchestrationService.MaxConcurrentTaskOrchestrationWorkItems => this.Settings.MaxConcurrentOrchestratorFunctions;
 
         int IOrchestrationService.TaskOrchestrationDispatcherCount => 1;
 
@@ -618,7 +618,7 @@ namespace DurableTask.EventSourced
             return Task.FromResult(workItem);
         }
 
-        int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => this.Settings.MaxConcurrentTaskActivityWorkItems;
+        int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => this.Settings.MaxConcurrentActivityFunctions;
 
         int IOrchestrationService.TaskActivityDispatcherCount => 1;
 

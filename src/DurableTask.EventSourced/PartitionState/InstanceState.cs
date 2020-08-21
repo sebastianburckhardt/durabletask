@@ -65,7 +65,6 @@ namespace DurableTask.EventSourced
             };
         }
 
-
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
             // update the state of an orchestration

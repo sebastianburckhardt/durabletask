@@ -40,9 +40,9 @@ namespace DurableTask.EventSourced
         public string StorageConnectionString { get; set; }
 
         /// <summary>
-        /// The name of the taskhub
+        /// The name of the taskhub. Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
         /// </summary>
-        public string TaskHubName { get; set; }
+        public string HubName { get; set; }
 
         /// <summary>
         /// Gets or sets the identifier for the current worker.
@@ -57,14 +57,22 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Gets or sets the maximum number of work items that can be processed concurrently on a single node.
         /// The default value is 100.
+        /// Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
         /// </summary>
-        public int MaxConcurrentTaskActivityWorkItems { get; set; } = 100;
+        public int MaxConcurrentActivityFunctions { get; set; } = 100;
 
         /// <summary>
         /// Gets or sets the maximum number of orchestrations that can be processed concurrently on a single node.
         /// The default value is 100.
+        /// Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
         /// </summary>
-        public int MaxConcurrentTaskOrchestrationWorkItems { get; set; } = 100;
+        public int MaxConcurrentOrchestratorFunctions { get; set; } = 100;
+
+        /// <summary>
+        /// Gets or sets a flag indicating whether to enable caching of execution cursors to avoid replay.
+        /// Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
+        /// </summary>
+        public bool ExtendedSessionsEnabled { get; set; } = true;
 
         /// <summary>
         ///  Whether to keep the orchestration service running even if stop is called.
@@ -167,30 +175,40 @@ namespace DurableTask.EventSourced
             return
                 (this.EventHubsConnectionString,
                 this.StorageConnectionString,
-                this.TaskHubName,
+                this.EventProcessorManagement,
+                this.HubName,
                 this.WorkerId,
                 this.LoadInformationAzureTableName,
-                this.MaxConcurrentTaskActivityWorkItems,
-                this.MaxConcurrentTaskOrchestrationWorkItems,
+                this.MaxConcurrentActivityFunctions,
+                this.MaxConcurrentOrchestratorFunctions,
+                this.ExtendedSessionsEnabled,
                 this.KeepServiceRunning,
                 this.TakeStateCheckpointWhenStoppingPartition,
                 this.MaxNumberBytesBetweenCheckpoints,
                 this.MaxNumberEventsBetweenCheckpoints,
+                this.UsePSFQueries,
+                this.UseAlternateObjectStore,
+                this.UseJsonPackets,
                 this.TransportLogLevelLimit,
                 this.StorageLogLevelLimit,
                 this.LogLevelLimit)
                 ==
                 (other.EventHubsConnectionString,
                 other.StorageConnectionString,
-                other.TaskHubName,
+                other.EventProcessorManagement,
+                other.HubName,
                 other.WorkerId,
                 other.LoadInformationAzureTableName,
-                other.MaxConcurrentTaskActivityWorkItems,
-                other.MaxConcurrentTaskOrchestrationWorkItems,
+                other.MaxConcurrentActivityFunctions,
+                other.MaxConcurrentOrchestratorFunctions,
+                other.ExtendedSessionsEnabled,
                 other.KeepServiceRunning,
                 other.TakeStateCheckpointWhenStoppingPartition,
                 other.MaxNumberBytesBetweenCheckpoints,
                 other.MaxNumberEventsBetweenCheckpoints,
+                other.UsePSFQueries,
+                other.UseAlternateObjectStore,
+                other.UseJsonPackets,
                 other.TransportLogLevelLimit,
                 other.StorageLogLevelLimit,
                 other.LogLevelLimit);
@@ -201,15 +219,20 @@ namespace DurableTask.EventSourced
         {
             return (this.EventHubsConnectionString,
                 this.StorageConnectionString,
-                this.TaskHubName,
+                this.EventProcessorManagement,
+                this.HubName,
                 this.WorkerId,
                 this.LoadInformationAzureTableName,
-                this.MaxConcurrentTaskActivityWorkItems,
-                this.MaxConcurrentTaskOrchestrationWorkItems,
+                this.MaxConcurrentActivityFunctions,
+                this.MaxConcurrentOrchestratorFunctions,
+                this.ExtendedSessionsEnabled,
                 this.KeepServiceRunning,
                 this.TakeStateCheckpointWhenStoppingPartition,
                 this.MaxNumberBytesBetweenCheckpoints,
                 this.MaxNumberEventsBetweenCheckpoints,
+                this.UsePSFQueries,
+                this.UseAlternateObjectStore,
+                this.UseJsonPackets,
                 this.TransportLogLevelLimit,
                 this.StorageLogLevelLimit,
                 this.LogLevelLimit)
@@ -258,14 +281,14 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            if (settings.MaxConcurrentTaskOrchestrationWorkItems <= 0)
+            if (settings.MaxConcurrentOrchestratorFunctions <= 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(settings.MaxConcurrentTaskOrchestrationWorkItems));
+                throw new ArgumentOutOfRangeException(nameof(settings.MaxConcurrentOrchestratorFunctions));
             }
 
-            if (settings.MaxConcurrentTaskActivityWorkItems <= 0)
+            if (settings.MaxConcurrentActivityFunctions <= 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(settings.MaxConcurrentTaskActivityWorkItems));
+                throw new ArgumentOutOfRangeException(nameof(settings.MaxConcurrentActivityFunctions));
             }
 
             return settings;
