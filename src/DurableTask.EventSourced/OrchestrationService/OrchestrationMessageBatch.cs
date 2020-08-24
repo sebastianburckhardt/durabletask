@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey? Prefetch => TrackedObjectKey.Instance(this.InstanceId);
 
-        public double WaitTimeMs(double now) => this.WaitingSince.HasValue ? (now - this.WaitingSince.Value) : 0;
+        public double WaitTimeMs(double now) => (now - this.WaitingSince) ?? 0;
 
         public override void OnReadComplete(TrackedObject s, Partition partition)
         {
