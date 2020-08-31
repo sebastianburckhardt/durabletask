@@ -20,6 +20,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -551,8 +552,16 @@ namespace DurableTask.EventSourced.Faster
                 {
                     SynchronousStorageAccessMaxConcurrency.Wait();
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
+                    var stopwatch = new Stopwatch();
+                    stopwatch.Start();
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
-                    this.StorageTracer?.FasterStorageProgress("ILogCommitManager.Commit Returned");
+                    stopwatch.Stop();
+                    this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Returned latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+                    if (stopwatch.ElapsedMilliseconds > 5000)
+                    {
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob} length={commitMetadata.Length}");
+                    }
+
                     return;
                 }
                 catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
@@ -595,9 +604,16 @@ namespace DurableTask.EventSourced.Faster
                     SynchronousStorageAccessMaxConcurrency.Wait();
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     using var stream = new MemoryStream();
+                    var stopwatch = new Stopwatch();
+                    stopwatch.Start();
                     this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
+                    stopwatch.Stop();
+                    if (stopwatch.ElapsedMilliseconds > 5000)
+                    {
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob} length={stream.Position}");
+                    }
                     var bytes = stream.ToArray();
-                    this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Returned {bytes?.Length ?? null} bytes");
+                    this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Returned {bytes?.Length ?? null} bytes, latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
                     return bytes.Length == 0 ? null : bytes;
                 }
                 catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))

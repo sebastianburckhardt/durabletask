@@ -200,6 +200,8 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} attempt={numAttempts}");
+                        var stopwatch = new Stopwatch();
+                        stopwatch.Start();
 
                         if (length > 0)
                         {
@@ -207,7 +209,13 @@ namespace DurableTask.EventSourced.Faster
                                 contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
                         }
 
-                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                        stopwatch.Stop();
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+                        
+                        if (stopwatch.ElapsedMilliseconds > 10000)
+                        {
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                        }
                         break;
                     }
                     catch (StorageException e) when (this.underLease && BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
@@ -259,6 +267,8 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={numAttempts}");
+                        var stopwatch = new Stopwatch();
+                        stopwatch.Start();
 
                         if (readLength > 0)
                         {
@@ -266,7 +276,13 @@ namespace DurableTask.EventSourced.Faster
                                      accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
                         }
 
-                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+                        stopwatch.Stop();
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+
+                        if (stopwatch.ElapsedMilliseconds > 10000)
+                        {
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.DownloadRangeToStreamAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+                        }
 
                         if (stream.Position != readLength)
                         {

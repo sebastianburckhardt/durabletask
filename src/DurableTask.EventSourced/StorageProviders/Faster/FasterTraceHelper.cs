@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (latencyMs > 10000)
             {
-                this.FasterPerfWarning($"Persisting the checkpoint {checkpointId} took {(double)latencyMs / 1000}s, which is excessive! checkpointId={checkpointId} commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}");
+                this.FasterPerfWarning($"Persisting the checkpoint {checkpointId} took {(double)latencyMs / 1000}s, which is excessive; checkpointId={checkpointId} commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}");
             }
         }
 
@@ -73,7 +73,7 @@ namespace DurableTask.EventSourced.Faster
 
             if (latencyMs > 10000)
             {
-                this.FasterPerfWarning($"Persisting the log took {(double)latencyMs / 1000}s, which is excessive! commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes}");
+                this.FasterPerfWarning($"Persisting the log took {(double)latencyMs / 1000}s, which is excessive; commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes}");
             }
         }
 
