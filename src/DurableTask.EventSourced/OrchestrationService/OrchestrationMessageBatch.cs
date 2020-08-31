@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
 
             session.CurrentBatch = this; 
 
-            partition.EventDetailTracer?.TraceEventProcessingDetail($"Prefetching instance={this.InstanceId} batch={this.WorkItemId}");
+            partition.EventDetailTracer?.TraceEventProcessingDetail($"OrchestrationMessageBatch is prefetching instance={this.InstanceId} batch={this.WorkItemId}");
 
             // continue when we have the history state loaded, which gives us the latest state and/or cursor
             partition.SubmitInternalEvent(this);
