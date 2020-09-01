@@ -259,7 +259,7 @@ namespace DurableTask.EventSourced
             this.State.SubmitInternalEvent(queryEvent);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents)
+        public void SubmitExternalEvents(IList<PartitionEvent> partitionEvents)
         {
             foreach(PartitionEvent partitionEvent in partitionEvents)
             {

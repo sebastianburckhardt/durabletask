@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced
             /// for processing on this partition state.
             /// </summary>
             /// <param name="evt">The collection of events to process.</param>
-            void SubmitExternalEvents(IEnumerable<PartitionEvent> evt);
+            void SubmitExternalEvents(IList<PartitionEvent> evt);
         }
     }
 }

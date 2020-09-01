@@ -163,6 +163,8 @@ namespace DurableTask.EventSourced.EventHubs
 
             this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
+            await this.connections.StartAsync();
+
             // Use standard eventProcessor offered by EventHubs or a custom one
             if (this.settings.EventProcessorManagement == "EventHubs")
             {

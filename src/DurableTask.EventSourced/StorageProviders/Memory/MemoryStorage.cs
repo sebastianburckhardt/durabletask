@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced
             base.Submit(entry);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> entries)
+        public void SubmitExternalEvents(IList<PartitionEvent> entries)
         {
             foreach (var entry in entries)
             {

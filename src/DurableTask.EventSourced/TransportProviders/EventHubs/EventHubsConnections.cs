@@ -12,6 +12,7 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -30,13 +31,10 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly EventHubsTraceHelper traceHelper;
         private readonly EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets;
 
-        private readonly MonitoredLock thisLock = new MonitoredLock(nameof(EventHubsConnections));
-
         public EventHubClient _partitionEventHubsClient;
-        public Dictionary<uint, EventHubClient> _clientEventHubsClients = new Dictionary<uint, EventHubClient>();
-        public Dictionary<uint, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new Dictionary<uint, EventHubsSender<PartitionUpdateEvent>>();
-        public Dictionary<uint, PartitionReceiver> _partitionReceivers = new Dictionary<uint, PartitionReceiver>();
-        public Dictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new Dictionary<Guid, EventHubsSender<ClientEvent>>();
+        public ConcurrentDictionary<uint, EventHubClient> _clientEventHubsClients = new ConcurrentDictionary<uint, EventHubClient>();
+        public ConcurrentDictionary<uint, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new ConcurrentDictionary<uint, EventHubsSender<PartitionUpdateEvent>>();
+        public ConcurrentDictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new ConcurrentDictionary<Guid, EventHubsSender<ClientEvent>>();
 
         public PartitionReceiver ClientReceiver { get; private set; }
 
@@ -46,6 +44,14 @@ namespace DurableTask.EventSourced.EventHubs
             this.connectionString = connectionString;
             this.traceHelper = traceHelper;
             this.useJsonPackets = useJsonPackets;
+        }
+
+        public Task StartAsync()
+        {
+            this._partitionEventHubsClient = GetEventHubClient(this.connectionString);
+            traceHelper.LogDebug("Created Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
+
+            return Task.CompletedTask;
         }
 
         public const string PartitionsPath = "partitions";
@@ -91,42 +97,24 @@ namespace DurableTask.EventSourced.EventHubs
             return positions;
         }
 
-        public EventHubClient GetPartitionEventHubsClient()
-        {
-            using (thisLock.Lock())
-            {
-                if (_partitionEventHubsClient == null)
-                {
-                    _partitionEventHubsClient = GetEventHubClient(this.connectionString);
-                    traceHelper.LogDebug("Created Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
-                }
-                return _partitionEventHubsClient;
-            }
-        }
-
         public EventHubClient GetClientBucketEventHubsClient(uint clientBucket)
         {
-            using (thisLock.Lock())
-            {
-                var clientPath = clientBucket / NumPartitionsPerClientPath;
-                if (!_clientEventHubsClients.TryGetValue(clientPath, out var client))
+            var clientPath = clientBucket / NumPartitionsPerClientPath;
+            return _clientEventHubsClients.GetOrAdd(clientPath, (uint key) => {
+                var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
                 {
-                    var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
-                    {
-                        EntityPath = GetClientsPath(clientPath)
-                    };
-                    _clientEventHubsClients[clientPath] = client = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
-                    traceHelper.LogDebug("Created EventHub Client {clientId}", client.ClientId);
-
-                }
+                    EntityPath = GetClientsPath(clientPath)
+                };
+                var client = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+                traceHelper.LogDebug("Created EventHub Client {clientId}", client.ClientId);
                 return client;
-            }
+            });
         }
 
         // This is to be used when EventProcessorHost is not used.
         public PartitionReceiver CreatePartitionReceiver(uint partitionId, string consumerGroupName, long nextPacketToReceive)
         {
-            var client = GetPartitionEventHubsClient();
+            var client = this._partitionEventHubsClient;
             // To create a receiver we need to give it the last! packet number and not the next to receive 
             var eventPosition = EventPosition.FromSequenceNumber(nextPacketToReceive - 1);
             var partitionReceiver = client.CreateReceiver(consumerGroupName, partitionId.ToString(), eventPosition);
@@ -140,44 +128,37 @@ namespace DurableTask.EventSourced.EventHubs
             var client = GetClientBucketEventHubsClient(clientBucket);
             return ClientReceiver = client.CreateReceiver(ClientsConsumerGroup, (clientBucket % NumPartitionsPerClientPath).ToString(), EventPosition.FromEnd());
         }
-      
+
         public EventHubsSender<PartitionUpdateEvent> GetPartitionSender(uint partitionId)
         {
-            using (thisLock.Lock()) // TODO optimize using array, and lock on slow path only
-            {
-                if (!_partitionSenders.TryGetValue(partitionId, out var sender))
-                {
-                    var client = GetPartitionEventHubsClient();
-                    var partitionSender = client.CreatePartitionSender(partitionId.ToString());
-                    _partitionSenders[partitionId] = sender = new EventHubsSender<PartitionUpdateEvent>(
-                        host, 
-                        partitionSender, 
-                        this.traceHelper, 
-                        this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForAll);
-                    traceHelper.LogDebug("Created PartitionSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
-                }
+            return _partitionSenders.GetOrAdd(partitionId, (key) => {
+                var client = this._partitionEventHubsClient;
+                var partitionSender = client.CreatePartitionSender(partitionId.ToString());
+                var sender = new EventHubsSender<PartitionUpdateEvent>(
+                    host,
+                    partitionSender,
+                    this.traceHelper,
+                    this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForAll);
+                traceHelper.LogDebug("Created PartitionSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 return sender;
-            }
+            });
         }
 
         public EventHubsSender<ClientEvent> GetClientSender(Guid clientId)
         {
-            using (thisLock.Lock()) // TODO optimize using array, and lock on slow path only
+            return _clientSenders.GetOrAdd(clientId, (key) =>
             {
-                if (!_clientSenders.TryGetValue(clientId, out var sender))
-                {
-                    uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
-                    var client = GetClientBucketEventHubsClient(clientBucket);
-                    var partitionSender = client.CreatePartitionSender((clientBucket % NumPartitionsPerClientPath).ToString());
-                    _clientSenders[clientId] = sender = new EventHubsSender<ClientEvent>(
-                        host, 
-                        partitionSender, 
-                        this.traceHelper,
-                        this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForClients);
-                    traceHelper.LogDebug("Created ResponseSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
-                }
+                uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
+                var client = GetClientBucketEventHubsClient(clientBucket);
+                var partitionSender = client.CreatePartitionSender((clientBucket % NumPartitionsPerClientPath).ToString());
+                var sender = new EventHubsSender<ClientEvent>(
+                    host,
+                    partitionSender,
+                    this.traceHelper,
+                    this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForClients);
+                traceHelper.LogDebug("Created ResponseSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 return sender;
-            }
+            });
         }
 
         public async Task Close()
@@ -191,11 +172,8 @@ namespace DurableTask.EventSourced.EventHubs
             traceHelper.LogDebug($"Closing Client Bucket Clients");
             await Task.WhenAll(_clientEventHubsClients.Values.Select(s => s.CloseAsync()).ToList()).ConfigureAwait(false);
 
-            if (_partitionEventHubsClient != null)
-            {
-                traceHelper.LogDebug("Closing Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
-                await _partitionEventHubsClient.CloseAsync().ConfigureAwait(false);
-            }
+            traceHelper.LogDebug("Closing Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
+            await _partitionEventHubsClient.CloseAsync().ConfigureAwait(false);
         }
      }
 }

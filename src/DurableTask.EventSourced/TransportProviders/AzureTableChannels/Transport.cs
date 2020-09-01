@@ -156,7 +156,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             }
         }
 
-        private class PartitionBatch : List<PartitionUpdateEvent>, TransportAbstraction.IDurabilityListener
+        private class PartitionBatch : List<PartitionEvent>, TransportAbstraction.IDurabilityListener
         {
             public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 

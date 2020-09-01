@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> events)
+        public void SubmitExternalEvents(IList<PartitionEvent> events)
         {
             this.intakeWorker.SubmitBatch(events);
         }

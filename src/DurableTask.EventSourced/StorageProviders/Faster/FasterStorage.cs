@@ -16,6 +16,7 @@ using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -183,7 +184,7 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> evts)
+        public void SubmitExternalEvents(IList<PartitionEvent> evts)
         {
             this.logWorker.SubmitExternalEvents(evts);
         }
@@ -199,6 +200,8 @@ namespace DurableTask.EventSourced.Faster
             {
                 await Task.Delay(StoreWorker.IdlingPeriod).ConfigureAwait(false);
 
+                //await this.TestStorageLatency();
+
                 if (this.terminationToken.IsCancellationRequested)
                 {
                     break;
@@ -206,6 +209,20 @@ namespace DurableTask.EventSourced.Faster
 
                 // periodically bump the store worker so it can check if enough time has elapsed for doing a checkpoint or a load publish
                 this.storeWorker.Notify();
+            }
+        }
+
+        private async Task TestStorageLatency()
+        {
+            Stopwatch stopwatch = new Stopwatch();
+            var blob = this.blobManager.BlobContainer.GetBlockBlobReference("test");
+            var text = DateTime.UtcNow.ToString("o");
+            stopwatch.Start();
+            await blob.UploadTextAsync(text).ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
+            stopwatch.Stop();
+            if (stopwatch.ElapsedMilliseconds > 1000)
+            {
+                this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadTextAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob} content={text}");
             }
         }
     }

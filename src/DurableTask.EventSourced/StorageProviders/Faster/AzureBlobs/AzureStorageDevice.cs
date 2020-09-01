@@ -87,7 +87,8 @@ namespace DurableTask.EventSourced.Faster
                     await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
                 var response = await this.blobDirectory.ListBlobsSegmentedAsync(useFlatBlobListing: false, blobListingDetails: BlobListingDetails.None, maxResults: 1000,
-                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null).ConfigureAwait(false);
+                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null)
+                    .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
 
                 foreach (IListBlobItem item in response.Results)
                 {
@@ -206,7 +207,8 @@ namespace DurableTask.EventSourced.Faster
                         if (length > 0)
                         {
                             await blob.WritePagesAsync(stream, destinationAddress + offset,
-                                contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                                contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                                .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
                         }
 
                         stopwatch.Stop();
@@ -272,8 +274,9 @@ namespace DurableTask.EventSourced.Faster
 
                         if (readLength > 0)
                         {
-                            await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                                     accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                            await blob
+                                .DownloadRangeToStreamAsync(stream, sourceAddress, readLength, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                                .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
                         }
 
                         stopwatch.Stop();
