@@ -30,7 +30,7 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly EventHubsTraceHelper traceHelper;
         private readonly EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets;
 
-        private object thisLock = new object();
+        private readonly MonitoredLock thisLock = new MonitoredLock(nameof(EventHubsConnections));
 
         public EventHubClient _partitionEventHubsClient;
         public Dictionary<uint, EventHubClient> _clientEventHubsClients = new Dictionary<uint, EventHubClient>();
@@ -93,7 +93,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubClient GetPartitionEventHubsClient()
         {
-            lock (thisLock)
+            using (thisLock.Lock())
             {
                 if (_partitionEventHubsClient == null)
                 {
@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubClient GetClientBucketEventHubsClient(uint clientBucket)
         {
-            lock (_clientEventHubsClients)
+            using (thisLock.Lock())
             {
                 var clientPath = clientBucket / NumPartitionsPerClientPath;
                 if (!_clientEventHubsClients.TryGetValue(clientPath, out var client))
@@ -143,7 +143,7 @@ namespace DurableTask.EventSourced.EventHubs
       
         public EventHubsSender<PartitionUpdateEvent> GetPartitionSender(uint partitionId)
         {
-            lock (_partitionSenders) // TODO optimize using array, and lock on slow path only
+            using (thisLock.Lock()) // TODO optimize using array, and lock on slow path only
             {
                 if (!_partitionSenders.TryGetValue(partitionId, out var sender))
                 {
@@ -162,7 +162,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         public EventHubsSender<ClientEvent> GetClientSender(Guid clientId)
         {
-            lock (_clientSenders) // TODO optimize using array, and lock on slow path only
+            using (thisLock.Lock()) // TODO optimize using array, and lock on slow path only
             {
                 if (!_clientSenders.TryGetValue(clientId, out var sender))
                 {
@@ -197,7 +197,5 @@ namespace DurableTask.EventSourced.EventHubs
                 await _partitionEventHubsClient.CloseAsync().ConfigureAwait(false);
             }
         }
-
-
      }
 }

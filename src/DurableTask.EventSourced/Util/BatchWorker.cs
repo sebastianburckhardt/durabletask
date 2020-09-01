@@ -27,7 +27,6 @@ namespace DurableTask.EventSourced
     /// </summary>
     internal abstract class BatchWorker<T>
     {
-        private readonly object thisLock = new object();
         private readonly Stopwatch stopwatch;
         protected readonly CancellationToken cancellationToken;
 
@@ -35,6 +34,7 @@ namespace DurableTask.EventSourced
         private List<T> queue = new List<T>();
 
         private TaskCompletionSource<bool> waiters;
+        private MonitoredLock thisLock;
 
         // Task for the current work cycle, or null if idle
         private volatile Task currentWorkCycle;
@@ -50,7 +50,7 @@ namespace DurableTask.EventSourced
 
         public virtual void Submit(T entry)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 this.queue.Add(entry);
                 this.NotifyInternal();
@@ -59,7 +59,7 @@ namespace DurableTask.EventSourced
 
         public virtual void SubmitBatch(IEnumerable<T> entries)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 this.queue.AddRange(entries);
                 this.NotifyInternal();
@@ -68,7 +68,7 @@ namespace DurableTask.EventSourced
 
         protected void Requeue(IEnumerable<T> entries)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 this.queue.InsertRange(0, entries);
                 this.NotifyInternal();
@@ -77,7 +77,7 @@ namespace DurableTask.EventSourced
 
         public virtual Task WaitForCompletionAsync()
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                if (this.waiters == null)
                {
@@ -95,7 +95,7 @@ namespace DurableTask.EventSourced
             EventTraceContext.Clear();
             TaskCompletionSource<bool> waiters;
 
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 // swap the queues
                 var temp = queue;
@@ -151,31 +151,24 @@ namespace DurableTask.EventSourced
         /// <summary>
         /// Default constructor.
         /// </summary>
-        public BatchWorker() : this(CancellationToken.None)
+        public BatchWorker(string name) : this(name, CancellationToken.None)
         {
         }
 
         /// <summary>
         /// Constructor including a cancellation token.
         /// </summary>
-        public BatchWorker(CancellationToken cancellationToken, bool suspended = false)
+        public BatchWorker(string name, CancellationToken cancellationToken, bool suspended = false)
         {
             this.cancellationToken = cancellationToken;
             this.suspended = suspended;
             this.stopwatch = new Stopwatch();
-        }
-
-        public void Suspend()
-        {
-            lock (this.thisLock)
-            {
-                this.suspended = true;
-            }
+            this.thisLock = new MonitoredLock(name);
         }
 
         public void Resume()
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 this.suspended = false;
                 this.NotifyInternal();
@@ -187,7 +180,7 @@ namespace DurableTask.EventSourced
         /// </summary>
         public void Notify()
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 this.NotifyInternal();
             }
@@ -217,7 +210,7 @@ namespace DurableTask.EventSourced
         /// </summary>
         private int? CheckForMoreWork()
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 if (this.moreWork)
                 {

@@ -54,6 +54,7 @@ namespace DurableTask.EventSourced.EventHubs
         // they are processed durably, so we can redeliver them when recycling/recovering a partition
         // we make this a concurrent queue so we can remove confirmed events concurrently with receiving new ones
         private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> pendingDelivery;
+        private AsyncLock deliveryLock = new AsyncLock();
 
         // this points to the latest incarnation of this partition; it gets
         // updated as we recycle partitions (create new incarnations after failures)
@@ -172,7 +173,7 @@ namespace DurableTask.EventSourced.EventHubs
                 this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} started partition (incarnation {incarnation}), next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, c.Incarnation, c.NextPacketToReceive);
 
                 // receive packets already sitting in the buffer; use lock to prevent race with new packets being delivered
-                lock (this.pendingDelivery)
+                using (await this.deliveryLock.LockAsync())
                 {
                     var batch = pendingDelivery.Select(triple => triple.Item1).Where(evt => evt.NextInputQueuePosition > c.NextPacketToReceive).ToList();
                     if (batch.Count > 0)
@@ -276,7 +277,7 @@ namespace DurableTask.EventSourced.EventHubs
                 var batch = new List<PartitionEvent>();
                 var receivedTimestamp = current.Partition.CurrentTimeMs;
 
-                lock (this.pendingDelivery) // must prevent rare race with a partition that is currently restarting
+                using (await this.deliveryLock.LockAsync()) // must prevent rare race with a partition that is currently restarting
                 {
                     foreach (var eventData in packets)
                     {

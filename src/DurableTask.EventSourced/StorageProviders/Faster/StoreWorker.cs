@@ -61,7 +61,7 @@ namespace DurableTask.EventSourced.Faster
 
 
         public StoreWorker(TrackedObjectStore store, Partition partition, FasterTraceHelper traceHelper, BlobManager blobManager, CancellationToken cancellationToken) 
-            : base(cancellationToken)
+            : base($"{nameof(StoreWorker)}{partition.PartitionId:D2}", cancellationToken)
         {
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
@@ -195,6 +195,10 @@ namespace DurableTask.EventSourced.Faster
             this.lastPublishedTime = DateTime.UtcNow;
 
             this.partition.TraceHelper.TracePartitionLoad(info);
+
+            // trace top load
+            this.partition.TraceHelper.TraceProgress($"LockMonitor top {LockMonitor.TopN}: {LockMonitor.Instance.Report()}");
+            LockMonitor.Instance.Reset();
         }
 
         private void UpdateLatencyTrend(PartitionLoadInfo info)

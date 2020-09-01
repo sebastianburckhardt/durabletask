@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
 
-        public MemoryStorage(ILogger logger)
+        public MemoryStorage(ILogger logger) : base(nameof(MemoryStorage))
         {
             this.logger = logger;
             this.GetOrAdd(TrackedObjectKey.Activities);

@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced.Scaling
 
         private CancellationTokenSource cancelWait = new CancellationTokenSource();
 
-        public LoadPublisher(ILoadMonitorService service, ILogger logger)
+        public LoadPublisher(ILoadMonitorService service, ILogger logger) : base(nameof(LoadPublisher))
         {
             this.service = service;
             this.logger = logger;

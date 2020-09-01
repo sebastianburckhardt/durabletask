@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
              string taskHubId, 
              string hostId, 
              CloudTableClient tableClient)
-            : base(token)
+            : base(nameof(AzureTableHub<TMessage>), token)
         {
             this.taskHubName = taskHubId;
             this.hostId = hostId;

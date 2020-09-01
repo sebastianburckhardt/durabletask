@@ -40,6 +40,7 @@ namespace DurableTask.EventSourced.EventHubs
         private MemoryStream stream = new MemoryStream(); // reused for all packets
 
         public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender, EventHubsTraceHelper traceHelper, bool useJsonPackets)
+            : base(nameof(EventHubsSender<T>))
         {
             this.host = host;
             this.sender = sender;
