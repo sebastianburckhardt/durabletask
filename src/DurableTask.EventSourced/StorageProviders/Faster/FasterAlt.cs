@@ -12,18 +12,12 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.Core.Common;
-using FASTER.core;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using System;
-using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Data;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -383,7 +377,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override Task<SortedDictionary<TrackedObjectKey, TrackedObject>> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        public override IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
         {
             // TODO
             return default;
@@ -513,7 +507,6 @@ namespace DurableTask.EventSourced.Faster
                     {
                         await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
 
-
                         this.detailTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} attempt={numAttempts}");
 
                         await blob.UploadFromStreamAsync(stream, this.blobManager.PartitionErrorHandler.Token).ConfigureAwait(false);
@@ -535,11 +528,6 @@ namespace DurableTask.EventSourced.Faster
                     catch (Exception exception) when (!Utils.IsFatal(exception))
                     {
                         this.blobManager?.HandleBlobError(nameof(StoreAsync), "could not write object to storage", blob?.Name, exception, true, this.blobManager.PartitionErrorHandler.IsTerminated);
-                        throw;
-                    }
-                    catch (Exception e) when (!Utils.IsFatal(e))
-                    {
-                        this.blobManager.PartitionErrorHandler.HandleError(nameof(StoreAsync), "Failed to write object to storage", e, true, this.blobManager.PartitionErrorHandler.IsTerminated);
                         throw;
                     }
                 }

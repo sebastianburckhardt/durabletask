@@ -22,13 +22,14 @@ namespace DurableTask.EventSourced
     internal class WorkItemQueue<T>
     {
         private readonly CancellationToken cancellationToken;
-        private readonly object thisLock = new object(); // TODO test and perhaps improve scalability of single lock
+        private readonly MonitoredLock thisLock; // TODO test and perhaps improve scalability of single lock
 
         private readonly Queue<T> work = new Queue<T>();
         private readonly Queue<(DateTime, CancellableCompletionSource<T>)> waiters = new Queue<(DateTime, CancellableCompletionSource<T>)>();
 
-        public WorkItemQueue(CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
+        public WorkItemQueue(string name, CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
         {
+            this.thisLock = new MonitoredLock(name);
             this.cancellationToken = token;
         }
 
@@ -56,7 +57,7 @@ namespace DurableTask.EventSourced
 
         public Task<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 if (this.work.Count > 0)
                 {
@@ -76,7 +77,7 @@ namespace DurableTask.EventSourced
 
         public void CheckExpirations()
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 while (waiters.Count > 0 && waiters.Peek().Item1 < DateTime.UtcNow)
                 {

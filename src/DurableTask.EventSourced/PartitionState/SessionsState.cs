@@ -161,7 +161,6 @@ namespace DurableTask.EventSourced
                 foreach (var message in messages)
                 {
                     this.Partition.EventTraceHelper.TraceTaskMessageReceived(message, GetSessionPosition(session));
-
                     session.Batch.Add(message);
                 }
 

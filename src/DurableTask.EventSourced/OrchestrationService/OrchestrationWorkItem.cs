@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
             this.NewMessages = messageBatch.MessagesToProcess;
             this.OrchestrationRuntimeState = new OrchestrationRuntimeState(previousHistory);
             this.LockedUntilUtc = DateTime.MaxValue; // this backend does not require workitem lock renewals
-            this.Session = null; // we don't need the extended session API in this provider because we are caching the work items
+            this.Session = null; // we don't use the extended session API because we are caching cursors in the work item
         }
 
         public void SetNextMessageBatch(OrchestrationMessageBatch messageBatch)

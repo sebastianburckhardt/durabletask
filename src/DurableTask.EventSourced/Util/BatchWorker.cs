@@ -11,9 +11,13 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Azure.Cosmos.Table;
 
 namespace DurableTask.EventSourced
 {
@@ -26,204 +30,230 @@ namespace DurableTask.EventSourced
     /// </summary>
     internal abstract class BatchWorker<T>
     {
-        protected readonly object thisLock = new object();
+        private readonly Stopwatch stopwatch;
         protected readonly CancellationToken cancellationToken;
 
-        private List<T> batch = new List<T>();
-        private List<T> queue = new List<T>();
+        private volatile int state;
+        private const int IDLE = 0;
+        private const int RUNNING = 1;
+        private const int SUSPENDED = 2;
+        private const int SHUTTINGDOWN = 3;
 
-        private TaskCompletionSource<bool> waiters;
+        private ConcurrentQueue<object> work = new ConcurrentQueue<object>();
 
-        // Task for the current work cycle, or null if idle
-        private volatile Task currentWorkCycle;
+        private const int MAXBATCHSIZE = 10000;
 
-        // Flag is set to indicate that more work has arrived during execution of the task
-        private bool moreWork;
-
-        private Action<Task> checkForMoreWorkAction;
-
-        private bool suspended;
-
-        /// <summary>Implement this member in derived classes to process a batch</summary>
-        protected abstract Task Process(IList<T> batch);
-
-        public virtual void Submit(T entry)
-        {
-            lock (this.thisLock)
-            {
-                this.queue.Add(entry);
-                this.Notify();
-            }
-        }
-
-        public void Submit(T entry1, T entry2)
-        {
-            lock (this.thisLock)
-            {
-                this.queue.Add(entry1);
-                this.queue.Add(entry2);
-                this.Notify();
-            }
-        }
-
-        public virtual void SubmitBatch(IEnumerable<T> entries)
-        {
-            lock (this.thisLock)
-            {
-                this.queue.AddRange(entries);
-                this.Notify();
-            }
-        }
-
-        protected void Requeue(IEnumerable<T> entries)
-        {
-            lock (this.thisLock)
-            {
-                this.queue.InsertRange(0, entries);
-                this.Notify();
-            }
-        }
-
-        // Returns after ALL enqueued work is done processing in the batch worker
-        public virtual Task WaitForCompletionAsync()
-        {
-            lock (this.thisLock)
-            {
-               if (this.waiters == null)
-               {
-                  this.waiters = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-               }
-
-               this.Notify();
-
-               return this.waiters.Task;
-            }
-        }
-
-        private async Task Work()
-        {
-            EventTraceContext.Clear();
-            TaskCompletionSource<bool> waiters;
-
-            lock (this.thisLock)
-            {
-                // swap the queues
-                var temp = queue;
-                this.queue = this.batch;
-                this.batch = temp;
-
-                // take the waiters and reset 
-                waiters = this.waiters;
-                this.waiters = null;
-            }
-
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                await this.Process(batch).ConfigureAwait(false);
-
-                waiters?.SetResult(true);
-            }
-            catch (Exception e)
-            {
-                waiters?.SetException(e);
-            }
-            finally
-            {
-                this.batch.Clear();
-            }
-        }
+        private object dummyEntry = new object();
 
         /// <summary>
         /// Default constructor.
         /// </summary>
-        public BatchWorker() : this(CancellationToken.None)
+        public BatchWorker(string name) : this(name, CancellationToken.None)
         {
         }
 
         /// <summary>
         /// Constructor including a cancellation token.
         /// </summary>
-        public BatchWorker(CancellationToken cancellationToken, bool suspended = false)
+        public BatchWorker(string name, CancellationToken cancellationToken, bool suspended = false)
         {
             this.cancellationToken = cancellationToken;
-            this.suspended = suspended;
-            // store delegate so it does not get newly allocated on each call
-            this.checkForMoreWorkAction = (t) => this.CheckForMoreWork();
+            this.state = suspended ? SUSPENDED : IDLE;
+            this.stopwatch = new Stopwatch();
         }
 
-        public void Suspend()
+        /// <summary>Implement this member in derived classes to process a batch</summary>
+        protected abstract Task Process(IList<T> batch);
+
+        public virtual void Submit(T entry)
         {
-            lock (this.thisLock)
+            work.Enqueue(entry);
+            this.NotifyInternal();
+        }
+
+        public virtual void SubmitBatch(IList<T> entries)
+        {
+            foreach (var e in entries)
             {
-                this.suspended = true;
+                work.Enqueue(e);
             }
+            this.NotifyInternal();
+        }
+
+        public void Notify()
+        {
+            this.work.Enqueue(dummyEntry);
+            this.NotifyInternal();
+        }
+
+        protected void Requeue(IList<T> entries)
+        {
+            this.requeued = entries;
+        }
+
+        // Returns after ALL enqueued work is done processing in the batch worker
+        public virtual Task WaitForCompletionAsync()
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            work.Enqueue(tcs);
+            this.Notify();
+            return tcs.Task;
+        }
+
+        private List<T> batch = new List<T>();
+        private List<TaskCompletionSource<bool>> waiters = new List<TaskCompletionSource<bool>>();
+        private IList<T> requeued = null;
+
+        private int? GetNextBatch()
+        {
+            bool runAgain = false;
+
+            this.batch.Clear();
+            this.waiters.Clear();
+
+            if (requeued != null)
+            {
+                runAgain = true;
+                batch.AddRange(requeued);
+                requeued = null;
+            }
+
+            while (batch.Count < MAXBATCHSIZE)
+            {
+                if (!this.work.TryDequeue(out object entry))
+                {
+                    break;
+                }
+                else if (entry is T t)
+                {
+                    runAgain = true;
+                    batch.Add(t);
+                }
+                else if (entry == dummyEntry)
+                {
+                    runAgain = true;
+                    continue;
+                }
+                else
+                {
+                    runAgain = true;
+                    waiters.Add((TaskCompletionSource<bool>)entry);
+                }
+            }
+
+            return runAgain ? batch.Count : (int?)null;
+        }
+
+
+        private async Task Work()
+        {
+            EventTraceContext.Clear();
+            int? previousBatch = null;
+
+            while(!cancellationToken.IsCancellationRequested)
+            {
+                int? nextBatch = this.GetNextBatch();
+
+                if (previousBatch.HasValue)
+                {
+                    this.WorkLoopCompleted(previousBatch.Value, this.stopwatch.Elapsed.TotalMilliseconds, nextBatch);
+                }
+
+                if (!nextBatch.HasValue)
+                {
+                    // no work found. Announce that we are planning to shut down.
+                    // Using an interlocked exchange to enforce store-load fence.
+                    Interlocked.Exchange(ref this.state, SHUTTINGDOWN);
+
+                    // but recheck so we don't miss work that was just added
+                    nextBatch = this.GetNextBatch();
+
+                    if (!nextBatch.HasValue)
+                    { 
+                        // still no work. Try to transition to idle but revert if state has been changed.
+                        var read = Interlocked.CompareExchange(ref this.state, IDLE, SHUTTINGDOWN);
+
+                        if (read == SHUTTINGDOWN)
+                        {
+                            // shut down is complete
+                            return;
+                        }
+                    }
+
+                    // shutdown canceled, we are running
+                    this.state = RUNNING;
+                }
+
+                this.stopwatch.Restart();
+
+                try
+                {
+                    // recheck for cancellation right before doing work
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    // do the work, calling the virtual method
+                    await this.Process(batch).ConfigureAwait(false);
+
+                    // notify anyone who is waiting for completion
+                    foreach (var w in waiters)
+                    {
+                        w.TrySetResult(true);
+                    }
+                }
+                catch (Exception e)
+                {
+                    foreach (var w in waiters)
+                    {
+                        w.TrySetException(e);
+                    }
+                }
+           
+                stopwatch.Stop();
+
+                previousBatch = this.batch.Count;
+            }
+        }
+
+        /// <summary>
+        /// Can be overridden by subclasses to trace progress of the batch work loop
+        /// </summary>
+        /// <param name="batchSize">The size of the batch that was processed</param>
+        /// <param name="elapsedMilliseconds">The time in milliseconds it took to process</param>
+        /// <param name="nextBatch">If there is more work, the current queue size of the next batch, or null otherwise</param>
+        protected virtual void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
         }
 
         public void Resume()
         {
-            lock (this.thisLock)
-            {
-                this.suspended = false;
-                this.Notify();
-            }
+            this.work.Enqueue(dummyEntry);
+            this.NotifyInternal(true);
         }
 
-        /// <summary>
-        /// Notify the worker that there is more work.
-        /// </summary>
-        public void Notify()
+        private void NotifyInternal(bool resume = false)
         {
-            lock (this.thisLock)
+            while (true)
             {
-                if (!this.suspended) // while suspended, the worker is remains unaware of new work
+                int currentState = this.state;
+                if (currentState == RUNNING)
                 {
-                    if (this.currentWorkCycle != null)
+                    return;
+                }
+               else if (currentState == IDLE || (currentState == SUSPENDED && resume) || currentState == SHUTTINGDOWN)
+                {
+                    int read = Interlocked.CompareExchange(ref this.state, RUNNING, currentState);
+                    if (read == currentState)
                     {
-                        // lets the current work cycle know that there is more work
-                        this.moreWork = true;
+                        if (read != SHUTTINGDOWN)
+                        {
+                            Task.Run(this.Work);
+                        }
+                        break;
                     }
                     else
                     {
-                        // start a work cycle
-                        this.Start();
+                        continue;
                     }
-                }
-            }
-        }
-
-        private void Start()
-        {
-            try
-            {
-                // Start the task that is doing the work, on the threadpool
-                this.currentWorkCycle = Task.Run(this.Work);
-            }
-            finally
-            {
-                // chain a continuation that checks for more work
-                this.currentWorkCycle.ContinueWith(this.checkForMoreWorkAction);
-            }
-        }
-
-        /// <summary>
-        /// Executes at the end of each work cycle.
-        /// </summary>
-        private void CheckForMoreWork()
-        {
-            lock (this.thisLock)
-            {
-                if (this.moreWork)
-                {
-                    this.moreWork = false;
-
-                    // start the next work cycle
-                    this.Start();
-                }
-                else
-                {
-                    this.currentWorkCycle = null;
                 }
             }
         }

@@ -171,7 +171,7 @@ namespace DurableTask.EventSourced.Tests
             {
                 EventHubsConnectionString = TestHelpers.GetEventHubsConnectionString(),
                 StorageConnectionString = TestHelpers.GetStorageConnectionString(),
-                TaskHubName = TestHelpers.GetTestTaskHubName()
+                HubName = TestHelpers.GetTestTaskHubName()
             };
 
             var service = new EventSourcedOrchestrationService(settings, loggerFactory);

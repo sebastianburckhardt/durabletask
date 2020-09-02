@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
              string taskHubId, 
              string hostId, 
              CloudTableClient tableClient)
-            : base(token)
+            : base(nameof(AzureTableHub<TMessage>), token)
         {
             this.taskHubName = taskHubId;
             this.hostId = hostId;
@@ -74,7 +74,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         public void DeleteRange(IEnumerable<ContentEntity> entities)
         {
-            this.SubmitBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
+            this.SubmitBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))).ToList());
         }
 
         protected abstract void HandleSuccessfulSend(TMessage msg);
@@ -176,7 +176,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         public void Delete(IEnumerable<ContentEntity> entities)
         {
-            SubmitBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))));
+            SubmitBatch(entities.Select(entity => ((TMessage)null, TableOperation.Delete(entity))).ToList());
         }
 
         protected override async Task Process(IList<(TMessage,TableOperation)> batch)

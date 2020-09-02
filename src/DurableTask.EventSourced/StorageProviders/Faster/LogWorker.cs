@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly IntakeWorker intakeWorker;
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
-            : base(cancellationToken)
+            : base(nameof(LogWorker), cancellationToken)
         {
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
@@ -66,7 +66,7 @@ namespace DurableTask.EventSourced.Faster
             // I assume that this list contains pointers to the events
             public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
 
-            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(token)
+            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(nameof(IntakeWorker), token)
             {
                 this.logWorker = logWorker;
                 this.updateEvents = new List<PartitionUpdateEvent>();
@@ -129,7 +129,7 @@ namespace DurableTask.EventSourced.Faster
 
                     // the store worker and the log worker can now process these events in parallel
                     // Persistence Confirmation events are not submitted to any of the workers.
-                    this.logWorker.storeWorker.SubmitBatch(batch.Where(e => !(e is PersistenceConfirmationEvent)));
+                    this.logWorker.storeWorker.SubmitBatch(batch.Where(e => !(e is PersistenceConfirmationEvent)).ToList());
                     this.logWorker.SubmitBatch(updateEvents);
 
                     this.updateEvents.Clear();
@@ -176,6 +176,10 @@ namespace DurableTask.EventSourced.Faster
                 }
             }
 
+            protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+            {
+                this.logWorker.traceHelper.FasterProgress($"IntakeWorker completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+            }
 
         }
 
@@ -184,7 +188,7 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> events)
+        public void SubmitExternalEvents(IList<PartitionEvent> events)
         {
             this.intakeWorker.SubmitBatch(events);
         }
@@ -269,6 +273,9 @@ namespace DurableTask.EventSourced.Faster
                     if (!(this.isShuttingDown || this.cancellationToken.IsCancellationRequested))
                     {
                         var currEvt = batch[j];
+
+                        this.LastCommittedInputQueuePosition = Math.Max(this.LastCommittedInputQueuePosition, currEvt.NextInputQueuePosition);
+
                         try
                         {
                             DurabilityListeners.ConfirmDurable(currEvt);
@@ -328,7 +335,11 @@ namespace DurableTask.EventSourced.Faster
                 this.partition.ErrorHandler.HandleError("LogWorker.Process", "Encountered exception while working on commit log", e, true, false);
             }
         }
-    
+
+        protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
+            this.traceHelper.FasterProgress($"LogWorker completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+        }
 
         public async Task ReplayCommitLog(long from, StoreWorker worker)
         {
@@ -385,7 +396,7 @@ namespace DurableTask.EventSourced.Faster
                         if (partitionEvent != null)
                         {
                             partitionEvent.NextCommitLogPosition = iter.NextAddress;
-                            await worker.ProcessUpdate(partitionEvent).ConfigureAwait(false);
+                            await worker.ReplayUpdate(partitionEvent).ConfigureAwait(false);
                         }
                     }
                 }

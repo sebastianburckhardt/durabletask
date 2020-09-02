@@ -87,7 +87,8 @@ namespace DurableTask.EventSourced.Faster
                     await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
                 var response = await this.blobDirectory.ListBlobsSegmentedAsync(useFlatBlobListing: false, blobListingDetails: BlobListingDetails.None, maxResults: 1000,
-                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null).ConfigureAwait(false);
+                    currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null)
+                    .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
 
                 foreach (IListBlobItem item in response.Results)
                 {
@@ -187,6 +188,7 @@ namespace DurableTask.EventSourced.Faster
                 await BlobManager.AsynchronousStorageWriteMaxConcurrency.WaitAsync();
 
                 int numAttempts = 0;
+                long streamPosition = stream.Position;
 
                 while(true) // retry loop
                 {
@@ -199,11 +201,23 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} attempt={numAttempts}");
+                        var stopwatch = new Stopwatch();
+                        stopwatch.Start();
 
-                        await blob.WritePagesAsync(stream, destinationAddress + offset,
-                            contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token).ConfigureAwait(false);
+                        if (length > 0)
+                        {
+                            await blob.WritePagesAsync(stream, destinationAddress + offset,
+                                contentChecksum: null, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                                .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
+                        }
 
-                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                        stopwatch.Stop();
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished upload target={blob.Name} length={length} destinationAddress={destinationAddress + offset} latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+                        
+                        if (stopwatch.ElapsedMilliseconds > 10000)
+                        {
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                        }
                         break;
                     }
                     catch (StorageException e) when (this.underLease && BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
@@ -211,6 +225,7 @@ namespace DurableTask.EventSourced.Faster
                         TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
                         this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
+                        stream.Seek(streamPosition, SeekOrigin.Begin); // must go back to original position before retry
                         continue;
                     }
                     catch (Exception exception) when (!Utils.IsFatal(exception))
@@ -254,11 +269,23 @@ namespace DurableTask.EventSourced.Faster
                         }
 
                         this.BlobManager?.StorageTracer?.FasterStorageProgress($"starting download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} attempt={numAttempts}");
+                        var stopwatch = new Stopwatch();
+                        stopwatch.Start();
 
-                        await blob.DownloadRangeToStreamAsync(stream, sourceAddress, readLength,
-                                 accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token);
+                        if (readLength > 0)
+                        {
+                            await blob
+                                .DownloadRangeToStreamAsync(stream, sourceAddress, readLength, accessCondition: null, options: this.BlobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                                .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
+                        }
 
-                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+                        stopwatch.Stop();
+                        this.BlobManager?.StorageTracer?.FasterStorageProgress($"finished download target={blob.Name} readLength={readLength} sourceAddress={sourceAddress} latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+
+                        if (stopwatch.ElapsedMilliseconds > 10000)
+                        {
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.DownloadRangeToStreamAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+                        }
 
                         if (stream.Position != readLength)
                         {
@@ -271,6 +298,7 @@ namespace DurableTask.EventSourced.Faster
                         TimeSpan nextRetryIn = TimeSpan.FromSeconds(1 + Math.Pow(2, (numAttempts - 1)));
                         this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
+                        stream.Seek(0, SeekOrigin.Begin); // must go back to original position before retrying
                         continue;
                     }
                     catch (Exception exception) when (!Utils.IsFatal(exception))

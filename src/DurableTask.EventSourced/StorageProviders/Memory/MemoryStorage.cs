@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         private ConcurrentDictionary<TrackedObjectKey, TrackedObject> trackedObjects
             = new ConcurrentDictionary<TrackedObjectKey, TrackedObject>();
 
-        public MemoryStorage(ILogger logger)
+        public MemoryStorage(ILogger logger) : base(nameof(MemoryStorage))
         {
             this.logger = logger;
             this.GetOrAdd(TrackedObjectKey.Activities);
@@ -56,7 +56,7 @@ namespace DurableTask.EventSourced
             base.Submit(entry);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> entries)
+        public void SubmitExternalEvents(IList<PartitionEvent> entries)
         {
             foreach (var entry in entries)
             {
@@ -101,12 +101,12 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        private IEnumerable<InstanceState> GetAllInstances()
+        private IAsyncEnumerable<InstanceState> GetAllInstances()
         {
             return trackedObjects
                 .Values
-                .Select(trackedObject => (trackedObject as InstanceState))
-                .Where(instanceState => instanceState != null).ToList();
+                .Select(trackedObject => trackedObject as InstanceState)
+                .Where(instanceState => instanceState != null).ToList().ToAsyncEnumerable();
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -153,7 +153,7 @@ namespace DurableTask.EventSourced
                                     break;
 
                                 case PartitionQueryEvent queryEvent:
-                                    effects.ProcessQueryResult(queryEvent, this.GetAllInstances());
+                                    await effects.ProcessQueryResultAsync(queryEvent, this.GetAllInstances());
                                     break;
 
                                 default:

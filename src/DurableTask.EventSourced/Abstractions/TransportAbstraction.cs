@@ -139,7 +139,7 @@ namespace DurableTask.EventSourced
             /// Queues a batch of incoming external events for processing on this partition.
             /// </summary>
             /// <param name="partitionEvents">The events to process.</param>
-            void SubmitExternalEvents(IEnumerable<PartitionEvent> partitionEvents);
+            void SubmitExternalEvents(IList<PartitionEvent> partitionEvents);
 
             /// <summary>
             /// The error handler for this partition.

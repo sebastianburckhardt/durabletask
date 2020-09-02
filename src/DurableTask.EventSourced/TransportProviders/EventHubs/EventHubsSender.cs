@@ -33,20 +33,28 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly EventHubsTraceHelper traceHelper;
         private readonly string eventHubName;
         private readonly string eventHubPartition;
+        private readonly bool useJsonPackets;
 
         private TimeSpan backoff = TimeSpan.FromSeconds(5);
         private const int maxFragmentSize = 500 * 1024; // account for very non-optimal serialization of event
         private MemoryStream stream = new MemoryStream(); // reused for all packets
 
-        public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender, EventHubsTraceHelper traceHelper)
+        public EventHubsSender(TransportAbstraction.IHost host, PartitionSender sender, EventHubsTraceHelper traceHelper, bool useJsonPackets)
+            : base(nameof(EventHubsSender<T>))
         {
             this.host = host;
             this.sender = sender;
             this.traceHelper = traceHelper;
             this.eventHubName = this.sender.EventHubClient.EventHubName;
             this.eventHubPartition = this.sender.PartitionId;
+            this.useJsonPackets = useJsonPackets;
         }
-   
+
+        protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
+        {
+            this.traceHelper.LogDebug($"EventHubsSender completed batch: batchSize={batchSize} elapsedMilliseconds={elapsedMilliseconds} nextBatch={nextBatch}");
+        }
+
         protected override async Task Process(IList<Event> toSend)
         {
             if (toSend.Count == 0)
@@ -69,7 +77,7 @@ namespace DurableTask.EventSourced.EventHubs
                 {
                     long startPos = stream.Position;
                     var evt = toSend[i];
-                    Packet.Serialize(evt, stream);
+                    Packet.Serialize(evt, stream, this.useJsonPackets);
                     int length = (int)(stream.Position - startPos);
                     var arraySegment = new ArraySegment<byte>(stream.GetBuffer(), (int)startPos, length);
                     var eventData = new EventData(arraySegment);
@@ -104,7 +112,7 @@ namespace DurableTask.EventSourced.EventHubs
                             {
                                 //TODO send bytes directly instead of as events (which causes significant space overhead)
                                 stream.Seek(0, SeekOrigin.Begin);
-                                Packet.Serialize((Event)fragment, stream);
+                                Packet.Serialize((Event)fragment, stream, this.useJsonPackets);
                                 length = (int)stream.Position;
                                 await sender.SendAsync(new EventData(new ArraySegment<byte>(stream.GetBuffer(), 0, length))).ConfigureAwait(false);
                                 this.traceHelper.LogDebug("EventHubsSender {eventHubName}/{eventHubPartitionId} sent packet ({size} bytes) {evt} id={eventId}", this.eventHubName, this.eventHubPartition, length, fragment, ((Event)fragment).EventIdString);

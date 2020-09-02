@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using DurableTask.Core;
 
 namespace DurableTask.EventSourced
@@ -63,6 +64,6 @@ namespace DurableTask.EventSourced
         /// </summary>
         /// <param name="result">The tracked objects returned by this query</param>
         /// <param name="partition">The partition</param>
-        public abstract void OnQueryComplete(IEnumerable<TrackedObject> result, Partition partition);
+        public abstract Task OnQueryCompleteAsync(IAsyncEnumerable<TrackedObject> result, Partition partition);
     }
 }
