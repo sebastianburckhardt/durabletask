@@ -56,10 +56,11 @@ namespace DurableTask.EventSourced
                 Version = ee.Version,
                 OrchestrationInstance = ee.OrchestrationInstance,
                 OrchestrationStatus = OrchestrationStatus.Pending,
+                ParentInstance = ee.ParentInstance,
                 Input = ee.Input,
                 Tags = ee.Tags,
                 CreatedTime = ee.Timestamp,
-                LastUpdatedTime = evt.Timestamp,
+                LastUpdatedTime = DateTime.UtcNow,
                 CompletedTime = Core.Common.DateTimeUtils.MinDateTime,
                 ScheduledStartTime = ee.ScheduledStartTime
             };
