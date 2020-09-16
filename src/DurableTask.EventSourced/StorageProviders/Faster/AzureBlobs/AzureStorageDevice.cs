@@ -300,7 +300,7 @@ namespace DurableTask.EventSourced.Faster
 
                         if (stopwatch.ElapsedMilliseconds > 1000)
                         {
-                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync took {stopwatch.ElapsedMilliseconds:f1}ms, which is excessive; target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
                         }
                         break;
                     }
