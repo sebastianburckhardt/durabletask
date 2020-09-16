@@ -57,20 +57,22 @@ namespace DurableTask.EventSourced.Faster
 
         IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
         {
-            this.blobManager.GetLatestCheckpoint(out Guid indexToken, out Guid _, this.groupOrdinal);
-            yield return indexToken;
+            if (this.blobManager.GetLatestCheckpoint(out Guid indexToken, out Guid _, this.groupOrdinal))
+            {
+                yield return indexToken;
+            }
         }
 
         IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
         {
-            this.blobManager.GetLatestCheckpoint(out Guid _, out Guid logToken, this.groupOrdinal);
-            yield return logToken;
+            if (this.blobManager.GetLatestCheckpoint(out Guid _, out Guid logToken, this.groupOrdinal))
+            {
+                yield return logToken;
+            }
         }
 
-        void ICheckpointManager.PurgeAll()
-            => this.blobManager.PurgeAll();
+        public void PurgeAll() { /* TODO */ }
 
-        void IDisposable.Dispose()
-            => this.blobManager.Dispose();
+        public void Dispose() { }
     }
 }

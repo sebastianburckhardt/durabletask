@@ -65,24 +65,34 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.localCheckpointManager.GetSnapshotObjectLogDevice(token);
 
-        //bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
-        //{
-        //    if (!File.Exists(this.checkpointCompletedFilename))
-        //        return false;
+        bool GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
+        {
+            if (!File.Exists(this.checkpointCompletedFilename))
+                return false;
 
-        //    var jsonString = File.ReadAllText(this.checkpointCompletedFilename);
-        //    this.checkpointInfo.CopyFrom(JsonConvert.DeserializeObject<CheckpointInfo>(jsonString));
+            var jsonString = File.ReadAllText(this.checkpointCompletedFilename);
+            this.checkpointInfo.CopyFrom(JsonConvert.DeserializeObject<CheckpointInfo>(jsonString));
 
-        //    indexToken = this.checkpointInfo.IndexToken;
-        //    logToken = this.checkpointInfo.LogToken;
-        //    return indexToken != default && logToken != default;
-        //}
+            indexToken = this.checkpointInfo.IndexToken;
+            logToken = this.checkpointInfo.LogToken;
+            return indexToken != default && logToken != default;
+        }
 
         IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
-            => this.localCheckpointManager.GetIndexCheckpointTokens();
+        {
+            if (this.GetLatestCheckpoint(out Guid indexToken, out Guid _))
+            {
+                yield return indexToken;
+            }
+        }
 
         IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
-            => this.localCheckpointManager.GetLogCheckpointTokens();
+        {
+            if (this.GetLatestCheckpoint(out Guid _, out Guid logToken))
+            {
+                yield return logToken;
+            }
+        }
 
         void ICheckpointManager.PurgeAll()
             => this.localCheckpointManager.PurgeAll();

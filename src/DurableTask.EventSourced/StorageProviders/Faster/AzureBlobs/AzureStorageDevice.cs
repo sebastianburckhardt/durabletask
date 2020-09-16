@@ -13,22 +13,14 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Net.NetworkInformation;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core.Common;
-using DurableTask.EventSourced.Faster;
 using FASTER.core;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
-using Microsoft.Azure.Storage.RetryPolicies;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -136,7 +128,9 @@ namespace DurableTask.EventSourced.Faster
             return $"{blobName}.{segmentId}";
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// <see cref="StorageDeviceBase.Dispose">Inherited</see>
+        /// </summary>
         public override void Dispose()
         {
         }
@@ -371,7 +365,7 @@ namespace DurableTask.EventSourced.Faster
 
                     // If no blob exists for the segment, we must first create the segment asynchronouly. (Create call takes ~70 ms by measurement)
                     // After creation is done, we can call write.
-                    var ignoredTask = entry.CreateAsync(size, pageBlob);
+                    _ = entry.CreateAsync(size, pageBlob);
                 }
                 // Otherwise, some other thread beat us to it. Okay to use their blobs.
                 blobEntry = blobs[segmentId];

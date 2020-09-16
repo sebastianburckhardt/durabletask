@@ -719,14 +719,18 @@ namespace DurableTask.EventSourced.Faster
 
         IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
         {
-            this.GetLatestCheckpoint(out Guid indexToken, out Guid _, InvalidPsfGroupOrdinal);
-            yield return indexToken;
+            if (this.GetLatestCheckpoint(out Guid indexToken, out Guid _, InvalidPsfGroupOrdinal))
+            {
+                yield return indexToken;
+            }
         }
 
         IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
         {
-            this.GetLatestCheckpoint(out Guid _, out Guid logToken, InvalidPsfGroupOrdinal);
-            yield return logToken;
+            if (this.GetLatestCheckpoint(out Guid _, out Guid logToken, InvalidPsfGroupOrdinal))
+            {
+                yield return logToken;
+            }
         }
 
         #endregion
@@ -882,7 +886,7 @@ namespace DurableTask.EventSourced.Faster
                 var bblobDirectory = bpartDir.GetDirectoryReference(path);
                 var device = new AzureStorageDevice(blobName, bblobDirectory, pblobDirectory, this, false); // we don't need a lease since the token provides isolation
                 device.StartAsync().Wait();
-                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexDevice Returned from {tag}, blobDirectory={pblobDirectory} blobName={blobName}");
+                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexDevice Returned from {tag}, blobDirectory={pblobDirectory.Prefix} blobName={blobName}");
                 return device;
             }
             catch (Exception e)
