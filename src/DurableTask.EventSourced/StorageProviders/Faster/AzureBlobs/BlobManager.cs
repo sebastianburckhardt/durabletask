@@ -276,7 +276,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        internal void ClosePSFDevices() => Array.ForEach(this.PsfLogDevices, logDevice => logDevice.Close());
+        internal void ClosePSFDevices() => Array.ForEach(this.PsfLogDevices, logDevice => logDevice.Dispose());
 
         public void HandleBlobError(string where, string message, string blobName, Exception e, bool isFatal, bool isWarning)
         {
@@ -596,7 +596,9 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        byte[] ILogCommitManager.GetCommitMetadata()
+        public IEnumerable<long> ListCommits() => new long[] { 0 }; // TODO
+
+        byte[] ILogCommitManager.GetCommitMetadata(long commitNum /* TODO */)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Called (thread={Thread.CurrentThread.ManagedThreadId})");
 
@@ -670,11 +672,31 @@ namespace DurableTask.EventSourced.Faster
         void ICheckpointManager.CommitLogCheckpoint(Guid logToken, byte[] commitMetadata)
             => this.CommitLogCheckpoint(logToken, commitMetadata, InvalidPsfGroupOrdinal);
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
             => this.GetIndexCommitMetadata(indexToken, InvalidPsfGroupOrdinal);
 
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
             => this.GetLogCommitMetadata(logToken, InvalidPsfGroupOrdinal);
+
+        /// <summary>
+        /// Get list of index checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetIndexCheckpointTokens()
+        {
+            return this.GetLatestCheckpoint(out Guid indexToken, out _, InvalidPsfGroupOrdinal) // TODO
+                ? new[] { indexToken } : Array.Empty<Guid>();
+        }
+
+        /// <summary>
+        /// Get list of log checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetLogCheckpointTokens()
+        {
+            return this.GetLatestCheckpoint(out _, out Guid logToken, InvalidPsfGroupOrdinal)   // TODO
+                ? new[] { logToken } : Array.Empty<Guid>();
+        }
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.GetIndexDevice(indexToken, InvalidPsfGroupOrdinal);
@@ -685,8 +707,8 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.GetSnapshotObjectLogDevice(token, InvalidPsfGroupOrdinal);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
-            => this.GetLatestCheckpoint(out indexToken, out logToken, InvalidPsfGroupOrdinal);
+        public void PurgeAll() { /* TODO here and in PsfBlobCheckpointManager */ }
+        public void Dispose() { /* TODO */ }
 
         #endregion
 
@@ -786,7 +808,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCommitMetadata), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCheckpointMetadata), target?.Name, e);
                 throw;
             }
             finally
@@ -817,7 +839,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCommitMetadata), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCheckpointMetadata), target?.Name, e);
                 throw;
             }
             finally
@@ -946,7 +968,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLatestCheckpoint), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(GetLatestCheckpoint /* TODO */), target?.Name, e);
                 throw;
             }
             finally

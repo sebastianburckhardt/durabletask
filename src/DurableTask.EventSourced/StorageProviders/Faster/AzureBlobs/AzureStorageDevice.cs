@@ -13,22 +13,14 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Net.NetworkInformation;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core.Common;
-using DurableTask.EventSourced.Faster;
 using FASTER.core;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
-using Microsoft.Azure.Storage.RetryPolicies;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -134,9 +126,9 @@ namespace DurableTask.EventSourced.Faster
         }
 
         /// <summary>
-        /// <see cref="IDevice.Close">Inherited</see>
+        /// <see cref="StorageDeviceBase.Dispose">Inherited</see>
         /// </summary>
-        public override void Close()
+        public override void Dispose()
         {
         }
 
@@ -318,10 +310,11 @@ namespace DurableTask.EventSourced.Faster
         //---- the overridden methods represent the interface for a generic storage device
 
         /// <summary>
-        /// <see cref="IDevice.ReadAsync(int, ulong, IntPtr, uint, IOCompletionCallback, IAsyncResult)">Inherited</see>
+        /// <see cref="StorageDeviceBase.ReadAsync(int, ulong, IntPtr, uint, DeviceIOCompletionCallback, object)">Inherited</see>
         /// </summary>
-        public override unsafe void ReadAsync(int segmentId, ulong sourceAddress, IntPtr destinationAddress, uint readLength, IOCompletionCallback callback, IAsyncResult asyncResult)
+        public override unsafe void ReadAsync(int segmentId, ulong sourceAddress, IntPtr destinationAddress, uint readLength, DeviceIOCompletionCallback callback, object context) // TODO: was IAsyncResult asyncResult)
         {
+#if false // TODO
             this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.ReadAsync Called segmentId={segmentId} sourceAddress={sourceAddress} readLength={readLength}");
 
             // It is up to the allocator to make sure no reads are issued to segments before they are written
@@ -351,13 +344,15 @@ namespace DurableTask.EventSourced.Faster
                           callback(0, readLength, ovNative);
                       }
                   });
+#endif // TODO
         }
 
         /// <summary>
-        /// <see cref="IDevice.WriteAsync(IntPtr, int, ulong, uint, IOCompletionCallback, IAsyncResult)">Inherited</see>
+        /// <see cref="StorageDeviceBase.WriteAsync(IntPtr, int, ulong, uint, DeviceIOCompletionCallback, object)">Inherited</see>
         /// </summary>
-        public override void WriteAsync(IntPtr sourceAddress, int segmentId, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
+        public override void WriteAsync(IntPtr sourceAddress, int segmentId, ulong destinationAddress, uint numBytesToWrite, DeviceIOCompletionCallback callback, object context) // TODO: was IAsyncResult asyncResult)
         {
+#if false // TODO
             this.BlobManager?.StorageTracer?.FasterStorageProgress($"AzureStorageDevice.WriteAsync Called segmentId={segmentId} destinationAddress={destinationAddress} numBytesToWrite={numBytesToWrite}");
 
             if (!blobs.TryGetValue(segmentId, out BlobEntry blobEntry))
@@ -374,15 +369,16 @@ namespace DurableTask.EventSourced.Faster
 
                     // If no blob exists for the segment, we must first create the segment asynchronouly. (Create call takes ~70 ms by measurement)
                     // After creation is done, we can call write.
-                    var ignoredTask = entry.CreateAsync(size, pageBlob);
+                    _ = entry.CreateAsync(size, pageBlob);
                 }
                 // Otherwise, some other thread beat us to it. Okay to use their blobs.
                 blobEntry = blobs[segmentId];
             }
             this.TryWriteAsync(blobEntry, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
+#endif // TODO
         }
 
-        private void TryWriteAsync(BlobEntry blobEntry, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
+        private void TryWriteAsync(BlobEntry blobEntry, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, DeviceIOCompletionCallback callback, IAsyncResult asyncResult)
         {
             // If pageBlob is null, it is being created. Attempt to queue the write for the creator to complete after it is done
             if (blobEntry.PageBlob == null
@@ -394,8 +390,9 @@ namespace DurableTask.EventSourced.Faster
             this.WriteToBlobAsync(blobEntry.PageBlob, sourceAddress, destinationAddress, numBytesToWrite, callback, asyncResult);
         }
 
-        private unsafe void WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, IOCompletionCallback callback, IAsyncResult asyncResult)
+        private unsafe void WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, ulong destinationAddress, uint numBytesToWrite, DeviceIOCompletionCallback callback, IAsyncResult asyncResult)
         {
+#if false // TODO
             // Even though Azure Page Blob does not make use of Overlapped, we populate one to conform to the callback API
             Overlapped ov = new Overlapped(0, 0, IntPtr.Zero, asyncResult);
             NativeOverlapped* ovNative = ov.UnsafePack(callback, IntPtr.Zero);
@@ -414,6 +411,7 @@ namespace DurableTask.EventSourced.Faster
                             callback(0, numBytesToWrite, ovNative);
                         }
                     });
+#endif // TODO
         }
 
         private async Task WriteToBlobAsync(CloudPageBlob blob, IntPtr sourceAddress, long destinationAddress, uint numBytesToWrite)

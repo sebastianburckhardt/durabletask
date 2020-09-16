@@ -33,7 +33,7 @@
     <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="1.0.8" />
     <PackageReference Include="Microsoft.Azure.Storage.Blob" Version="11.2.2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="2.2.0" />
-    <PackageReference Include="Microsoft.FASTER" Version="2020.6.5.1-tag48" />
+    <PackageReference Include="Microsoft.FASTER" Version="2020.6.5.1-tag5" />
   </ItemGroup>
 
   <ItemGroup>

@@ -15,6 +15,7 @@ using DurableTask.EventSourced.Faster;
 using FASTER.core;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace DurableTask.EventSourced.Faster
@@ -50,11 +51,31 @@ namespace DurableTask.EventSourced.Faster
             this.checkpointInfo.LogToken = logToken;
         }
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
-            => this.localCheckpointManager.GetIndexCommitMetadata(indexToken);
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
+            => this.localCheckpointManager.GetIndexCheckpointMetadata(indexToken);
 
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
-            => this.localCheckpointManager.GetLogCommitMetadata(logToken);
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
+            => this.localCheckpointManager.GetLogCheckpointMetadata(logToken);
+
+        /// <summary>
+        /// Get list of index checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetIndexCheckpointTokens()
+        {
+            return this.GetLatestCheckpoint(out Guid indexToken, out _) // TODO
+                ? new[] { indexToken } : Array.Empty<Guid>();
+        }
+
+        /// <summary>
+        /// Get list of log checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetLogCheckpointTokens()
+        {
+            return this.GetLatestCheckpoint(out _, out Guid logToken)   // TODO
+                ? new[] { logToken } : Array.Empty<Guid>();
+        }
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.localCheckpointManager.GetIndexDevice(indexToken);
@@ -65,7 +86,7 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.localCheckpointManager.GetSnapshotObjectLogDevice(token);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
+        bool GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
         {
             if (!File.Exists(this.checkpointCompletedFilename))
                 return false;
@@ -77,5 +98,8 @@ namespace DurableTask.EventSourced.Faster
             logToken = this.checkpointInfo.LogToken;
             return indexToken != default && logToken != default;
         }
+
+        public void PurgeAll() { /* TODO */ }
+        public void Dispose() { /* TODO */ }
     }
 }

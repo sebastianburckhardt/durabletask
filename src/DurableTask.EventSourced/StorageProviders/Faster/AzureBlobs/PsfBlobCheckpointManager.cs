@@ -13,6 +13,7 @@
 
 using FASTER.core;
 using System;
+using System.Collections.Generic;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -39,11 +40,31 @@ namespace DurableTask.EventSourced.Faster
         void ICheckpointManager.CommitLogCheckpoint(Guid logToken, byte[] commitMetadata)
             => this.blobManager.CommitLogCheckpoint(logToken, commitMetadata, this.groupOrdinal);
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
             => this.blobManager.GetIndexCommitMetadata(indexToken, this.groupOrdinal);
 
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
             => this.blobManager.GetLogCommitMetadata(logToken, this.groupOrdinal);
+
+        /// <summary>
+        /// Get list of index checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetIndexCheckpointTokens()
+        {
+            return this.blobManager.GetLatestCheckpoint(out Guid indexToken, out _, this.groupOrdinal)
+                ? new[] { indexToken } : Array.Empty<Guid>();
+        }
+
+        /// <summary>
+        /// Get list of log checkpoint tokens, in order of usage preference
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<Guid> GetLogCheckpointTokens()
+        {
+            return this.blobManager.GetLatestCheckpoint(out _, out Guid logToken, this.groupOrdinal)
+                ? new[] { logToken } : Array.Empty<Guid>();
+        }
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.blobManager.GetIndexDevice(indexToken, this.groupOrdinal);
@@ -54,7 +75,8 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.blobManager.GetSnapshotObjectLogDevice(token, this.groupOrdinal);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
-            => this.blobManager.GetLatestCheckpoint(out indexToken, out logToken, this.groupOrdinal);
+        public void PurgeAll() { /* TODO */ }
+
+        public void Dispose() { }
     }
 }

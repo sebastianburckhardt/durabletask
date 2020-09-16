@@ -428,7 +428,11 @@ namespace DurableTask.EventSourced.Faster
 
             public class Serializer : BinaryObjectSerializer<Key>
             {
-                public override void Deserialize(ref Key obj) => obj.Val.Deserialize(this.reader);
+                public override void Deserialize(out Key obj)
+                {
+                    obj = new Key();
+                    obj.Val.Deserialize(this.reader);
+                }
 
                 public override void Serialize(ref Key obj) => obj.Val.Serialize(this.writer);
             }
@@ -452,7 +456,7 @@ namespace DurableTask.EventSourced.Faster
                     this.storeStats = storeStats;
                 }
 
-                public override void Deserialize(ref Value obj)
+                public override void Deserialize(out Value obj)
                 {
                     int count = this.reader.ReadInt32();
                     byte[] bytes = this.reader.ReadBytes(count);
@@ -474,7 +478,7 @@ namespace DurableTask.EventSourced.Faster
                     //    this.storeStats.F += bytes.Length;
                     //    this.storeStats.UU.Add(h.InstanceId);
                     //}
-                    obj.Val = trackedObject;
+                    obj = new Value { Val = trackedObject };
                     this.storeStats.Deserialize++;
                 }
 

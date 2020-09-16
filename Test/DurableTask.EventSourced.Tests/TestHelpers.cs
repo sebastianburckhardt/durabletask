@@ -75,12 +75,12 @@ namespace DurableTask.EventSourced.Tests
             // return "Memory:32";
 
             // MemoryF means TransportChoices.Memory and StorageChoices.Faster
-            // return "MemoryF:1";
+            return "MemoryF:1";
             // return "MemoryF:4";
             // return "MemoryF:32";
 
             // using an actual connection string means TransportChoices.EventHubs and StorageChoices.Faster
-            return GetTestSetting("EventHubsConnectionString", false);
+            //return GetTestSetting("EventHubsConnectionString", false);
         }
 
         static string GetTestSetting(string name, bool require)
