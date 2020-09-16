@@ -13,6 +13,7 @@
 
 using FASTER.core;
 using System;
+using System.Collections.Generic;
 
 namespace DurableTask.EventSourced.Faster
 {
@@ -39,12 +40,6 @@ namespace DurableTask.EventSourced.Faster
         void ICheckpointManager.CommitLogCheckpoint(Guid logToken, byte[] commitMetadata)
             => this.blobManager.CommitLogCheckpoint(logToken, commitMetadata, this.groupOrdinal);
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
-            => this.blobManager.GetIndexCommitMetadata(indexToken, this.groupOrdinal);
-
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
-            => this.blobManager.GetLogCommitMetadata(logToken, this.groupOrdinal);
-
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.blobManager.GetIndexDevice(indexToken, this.groupOrdinal);
 
@@ -54,7 +49,28 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.blobManager.GetSnapshotObjectLogDevice(token, this.groupOrdinal);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
-            => this.blobManager.GetLatestCheckpoint(out indexToken, out logToken, this.groupOrdinal);
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
+            => this.blobManager.GetIndexCheckpointMetadata(indexToken, this.groupOrdinal);
+
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
+            => this.blobManager.GetLogCheckpointMetadata(logToken, this.groupOrdinal);
+
+        IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
+        {
+            this.blobManager.GetLatestCheckpoint(out Guid indexToken, out Guid _, this.groupOrdinal);
+            yield return indexToken;
+        }
+
+        IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
+        {
+            this.blobManager.GetLatestCheckpoint(out Guid _, out Guid logToken, this.groupOrdinal);
+            yield return logToken;
+        }
+
+        void ICheckpointManager.PurgeAll()
+            => this.blobManager.PurgeAll();
+
+        void IDisposable.Dispose()
+            => this.blobManager.Dispose();
     }
 }

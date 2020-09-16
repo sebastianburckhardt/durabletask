@@ -120,6 +120,18 @@ namespace DurableTask.EventSourced.Faster
                                         20 , // 1MB         
         };
 
+
+        public void Dispose()
+        {
+            //TODO figure out what is supposed to go here
+        }
+
+        public void PurgeAll()
+        {
+            //TODO figure out what is supposed to go here
+        }
+
+
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {
             CheckpointManager = this.UseLocalFilesForTestingAndDebugging 
@@ -290,7 +302,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        internal void ClosePSFDevices() => Array.ForEach(this.PsfLogDevices, logDevice => logDevice.Close());
+        internal void ClosePSFDevices() => Array.ForEach(this.PsfLogDevices, logDevice => logDevice.Dispose());
 
         public void HandleBlobError(string where, string message, string blobName, Exception e, bool isFatal, bool isWarning)
         {
@@ -610,7 +622,13 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        byte[] ILogCommitManager.GetCommitMetadata()
+        IEnumerable<long> ILogCommitManager.ListCommits()
+        {
+            // we only use a single commit file in this implementation
+            yield return 0;
+        }
+
+        byte[] ILogCommitManager.GetCommitMetadata(long commitNum)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Called (thread={Thread.CurrentThread.ManagedThreadId})");
 
@@ -684,11 +702,11 @@ namespace DurableTask.EventSourced.Faster
         void ICheckpointManager.CommitLogCheckpoint(Guid logToken, byte[] commitMetadata)
             => this.CommitLogCheckpoint(logToken, commitMetadata, InvalidPsfGroupOrdinal);
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
-            => this.GetIndexCommitMetadata(indexToken, InvalidPsfGroupOrdinal);
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
+            => this.GetIndexCheckpointMetadata(indexToken, InvalidPsfGroupOrdinal);
 
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
-            => this.GetLogCommitMetadata(logToken, InvalidPsfGroupOrdinal);
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
+            => this.GetLogCheckpointMetadata(logToken, InvalidPsfGroupOrdinal);
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.GetIndexDevice(indexToken, InvalidPsfGroupOrdinal);
@@ -699,8 +717,17 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.GetSnapshotObjectLogDevice(token, InvalidPsfGroupOrdinal);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
-            => this.GetLatestCheckpoint(out indexToken, out logToken, InvalidPsfGroupOrdinal);
+        IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
+        {
+            this.GetLatestCheckpoint(out Guid indexToken, out Guid _, InvalidPsfGroupOrdinal);
+            yield return indexToken;
+        }
+
+        IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
+        {
+            this.GetLatestCheckpoint(out Guid _, out Guid logToken, InvalidPsfGroupOrdinal);
+            yield return logToken;
+        }
 
         #endregion
 
@@ -778,7 +805,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        internal byte[] GetIndexCommitMetadata(Guid indexToken, int psfGroupOrdinal)
+        internal byte[] GetIndexCheckpointMetadata(Guid indexToken, int psfGroupOrdinal)
         {
             var (isPsf, tag) = IsPsfOrPrimary(psfGroupOrdinal);
             this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexCommitMetadata Called on {tag}, indexToken={indexToken}");
@@ -800,7 +827,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCommitMetadata), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetIndexCheckpointMetadata), target?.Name, e);
                 throw;
             }
             finally
@@ -809,7 +836,7 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        internal byte[] GetLogCommitMetadata(Guid logToken, int psfGroupOrdinal)
+        internal byte[] GetLogCheckpointMetadata(Guid logToken, int psfGroupOrdinal)
         {
             var (isPsf, tag) = IsPsfOrPrimary(psfGroupOrdinal);
             this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexCommitMetadata Called on {tag}, logToken={logToken}");
@@ -831,7 +858,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCommitMetadata), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLogCheckpointMetadata), target?.Name, e);
                 throw;
             }
             finally
@@ -967,7 +994,7 @@ namespace DurableTask.EventSourced.Faster
             }
             catch (Exception e)
             {
-                this.TraceHelper.FasterBlobStorageError(nameof(ICheckpointManager.GetLatestCheckpoint), target?.Name, e);
+                this.TraceHelper.FasterBlobStorageError(nameof(GetLatestCheckpoint), target?.Name, e);
                 throw;
             }
             finally
@@ -1009,7 +1036,7 @@ namespace DurableTask.EventSourced.Faster
                     await writeBlob(this.blockBlobPartitionDirectory.GetDirectoryReference(this.PsfGroupFolderName(ii)), jsonText);
             }
         }
-
+ 
         #endregion
     }
 }

@@ -84,8 +84,8 @@ namespace DurableTask.EventSourced.Faster
                     {
                         this.mainSession?.Dispose();
                         fht.Dispose();
-                        this.blobManager.HybridLogDevice.Close();
-                        this.blobManager.ObjectLogDevice.Close();
+                        this.blobManager.HybridLogDevice.Dispose();
+                        this.blobManager.ObjectLogDevice.Dispose();
                         this.blobManager.ClosePSFDevices();
                     }
                     catch(Exception e)
