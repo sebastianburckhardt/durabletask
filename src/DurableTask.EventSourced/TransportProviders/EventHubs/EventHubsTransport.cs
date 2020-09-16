@@ -53,7 +53,6 @@ namespace DurableTask.EventSourced.EventHubs
         private CloudBlockBlob taskhubParameters;
         private CloudBlockBlob partitionScript;
         private ScriptedEventProcessorHost customEventProcessorHost;
-        private const int MaxReceiveBatchSize = 10000; // actual batches will always be much smaller
 
         public Guid ClientId { get; private set; }
 
@@ -178,7 +177,8 @@ namespace DurableTask.EventSourced.EventHubs
                 var processorOptions = new EventProcessorOptions()
                 {
                     InitialOffsetProvider = (s) => EventPosition.FromSequenceNumber(this.parameters.StartPositions[int.Parse(s)] - 1),
-                    MaxBatchSize = MaxReceiveBatchSize,
+                    MaxBatchSize = 300,
+                    PrefetchCount = 500,
                 };
 
                 await eventProcessorHost.RegisterEventProcessorFactoryAsync(this, processorOptions).ConfigureAwait(false);
@@ -262,7 +262,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
-                IEnumerable<EventData> eventData = await clientReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+                IEnumerable<EventData> eventData = await clientReceiver.ReceiveAsync(1000, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
 
                 if (eventData != null)
                 {

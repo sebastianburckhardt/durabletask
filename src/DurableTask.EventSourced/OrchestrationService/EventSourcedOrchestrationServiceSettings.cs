@@ -40,6 +40,11 @@ namespace DurableTask.EventSourced
         public string StorageConnectionString { get; set; }
 
         /// <summary>
+        /// Gets or sets the connection string for a second Azure storage account.
+        /// </summary>
+        public string SecondaryStorageConnectionString { get; set; }
+
+        /// <summary>
         /// The name of the taskhub. Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
         /// </summary>
         public string HubName { get; set; }

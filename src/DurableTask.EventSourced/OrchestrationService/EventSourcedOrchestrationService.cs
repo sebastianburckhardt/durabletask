@@ -140,7 +140,7 @@ namespace DurableTask.EventSourced
                     return new MemoryStorage(this.Logger);
 
                 case TransportConnectionString.StorageChoices.Faster:
-                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.HubName, this.LoggerFactory);
+                    return new Faster.FasterStorage(this.Settings.StorageConnectionString, this.Settings.SecondaryStorageConnectionString, this.Settings.HubName, this.LoggerFactory);
 
                 default:
                     throw new NotImplementedException("no such storage choice");

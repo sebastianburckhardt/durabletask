@@ -62,6 +62,8 @@ namespace DurableTask.EventSourced.Faster
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
+            private readonly SemaphoreSlim logWorkerCredits = new SemaphoreSlim(10);
+            private readonly SemaphoreSlim storeWorkerCredits = new SemaphoreSlim(10);
 
             public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(nameof(IntakeWorker), token)
             {
@@ -69,7 +71,7 @@ namespace DurableTask.EventSourced.Faster
                 this.updateEvents = new List<PartitionUpdateEvent>();
             }
 
-            protected override Task Process(IList<PartitionEvent> batch)
+            protected override async Task Process(IList<PartitionEvent> batch)
             {
                 if (batch.Count > 0 && !this.logWorker.isShuttingDown)
                 {
@@ -87,13 +89,15 @@ namespace DurableTask.EventSourced.Faster
                     }
 
                     // the store worker and the log worker can now process these events in parallel
-                    this.logWorker.storeWorker.SubmitBatch(batch);
-                    this.logWorker.SubmitBatch(updateEvents);
+                    this.logWorker.storeWorker.SubmitBatch(batch, this.storeWorkerCredits);
+                    this.logWorker.SubmitBatch(updateEvents, this.logWorkerCredits);
 
                     this.updateEvents.Clear();
-                }
 
-                return Task.CompletedTask;
+                    // do not continue the processing loop until we have enough credits
+                    await this.storeWorkerCredits.WaitAsync(this.cancellationToken);
+                    await this.logWorkerCredits.WaitAsync(this.cancellationToken);
+                }
             }
 
             protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
@@ -107,9 +111,9 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IList<PartitionEvent> events)
+        public void SubmitExternalEvents(IList<PartitionEvent> events, SemaphoreSlim credits)
         {
-            this.intakeWorker.SubmitBatch(events);
+            this.intakeWorker.SubmitBatch(events, credits);
         }
 
       

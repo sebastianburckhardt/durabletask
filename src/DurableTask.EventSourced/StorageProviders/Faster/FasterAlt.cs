@@ -395,7 +395,7 @@ namespace DurableTask.EventSourced.Faster
                 blobName.Append(key.InstanceId);
             }
             // TODO validate blob name and handle problems (too long, too many slashes)
-            return this.blobManager.BlobContainer.GetBlockBlobReference(blobName.ToString());
+            return this.blobManager.BlockBlobContainer.GetBlockBlobReference(blobName.ToString());
         }
 
         private async Task<ToRead> LoadAsync(TrackedObjectKey key)
@@ -542,7 +542,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var blob = this.blobManager.BlobContainer.GetBlockBlobReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/{guid}");
+                var blob = this.blobManager.BlockBlobContainer.GetBlockBlobReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/{guid}");
                 await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 await blob.UploadTextAsync("", this.blobManager.PartitionErrorHandler.Token);
             }
@@ -561,7 +561,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var blob = this.blobManager.BlobContainer.GetBlockBlobReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/{guid}");
+                var blob = this.blobManager.BlockBlobContainer.GetBlockBlobReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/{guid}");
                 await this.blobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 await blob.DeleteAsync(this.blobManager.PartitionErrorHandler.Token);
             }
@@ -580,7 +580,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var directory = this.blobManager.BlobContainer.GetDirectoryReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/");
+                var directory = this.blobManager.BlockBlobContainer.GetDirectoryReference($"p{this.partition.PartitionId:D2}/incomplete-checkpoints/");
                 var checkPoints = directory.ListBlobs().ToList();
                 this.blobManager.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                 return checkPoints.Select((item) =>

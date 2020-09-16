@@ -64,9 +64,11 @@ namespace DurableTask.EventSourced.AzureTableChannels
 
         public async Task ReceiveLoopAsync(TransportAbstraction.IPartition partition, TransportAbstraction.IClient client)
         {
-            PartitionBatch partitionBatch = new PartitionBatch();
+            List<PartitionEvent> partitionBatch = new List<PartitionEvent>();
             List<ClientEvent> clientBatch = new List<ClientEvent>();
 
+            SemaphoreSlim credits = new SemaphoreSlim(0); // no parallelism
+            
             this.partition = partition;
             this.client = client;
 
@@ -103,11 +105,9 @@ namespace DurableTask.EventSourced.AzureTableChannels
                     {
                         var lastEventInBatch = partitionBatch[partitionBatch.Count - 1];
 
-                        DurabilityListeners.Register(lastEventInBatch, partitionBatch);
+                        partition.SubmitExternalEvents(partitionBatch, credits);
 
-                        partition.SubmitExternalEvents(partitionBatch);
-
-                        await partitionBatch.Tcs.Task.ConfigureAwait(false); // TODO add cancellation token
+                        await credits.WaitAsync(this.cancellationToken);
 
                         partitionBatch.Clear();
                     }
@@ -153,16 +153,6 @@ namespace DurableTask.EventSourced.AzureTableChannels
                 DurabilityListeners.ReportException(evt, exception);
 
                 requeue = false;
-            }
-        }
-
-        private class PartitionBatch : List<PartitionEvent>, TransportAbstraction.IDurabilityListener
-        {
-            public TaskCompletionSource<object> Tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            public void ConfirmDurable(Event evt)
-            {
-                Tcs.TrySetResult(null);
             }
         }
 

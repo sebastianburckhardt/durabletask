@@ -39,7 +39,8 @@ namespace DurableTask.EventSourced.Faster
     internal class AzureStorageDevice : StorageDeviceBase
     {
         private readonly ConcurrentDictionary<int, BlobEntry> blobs;
-        private readonly CloudBlobDirectory blobDirectory;
+        private readonly CloudBlobDirectory blockBlobDirectory;
+        private readonly CloudBlobDirectory pageBlobDirectory;
         private readonly string blobName;
         private readonly bool underLease;
 
@@ -58,14 +59,16 @@ namespace DurableTask.EventSourced.Faster
         /// Constructs a new AzureStorageDevice instance, backed by Azure Page Blobs
         /// </summary>
         /// <param name="blobName">A descriptive name that will be the prefix of all segments created</param>
-        /// <param name="blobDirectory">the directory containing the blob</param>
+        /// <param name="blockBlobDirectory">the directory containing the block blobs</param>
+        /// <param name="pageBlobDirectory">the directory containing the page blobs</param>
         /// <param name="blobManager">the blob manager handling the leases</param>
         /// <param name="underLease">whether this device needs to be protected by the lease</param>
-        public AzureStorageDevice(string blobName, CloudBlobDirectory blobDirectory, BlobManager blobManager, bool underLease)
-            : base($"{blobDirectory}\\{blobName}", PAGE_BLOB_SECTOR_SIZE, Devices.CAPACITY_UNSPECIFIED)
+        public AzureStorageDevice(string blobName, CloudBlobDirectory blockBlobDirectory, CloudBlobDirectory pageBlobDirectory, BlobManager blobManager, bool underLease)
+            : base($"{blockBlobDirectory}\\{blobName}", PAGE_BLOB_SECTOR_SIZE, Devices.CAPACITY_UNSPECIFIED)
         {
             this.blobs = new ConcurrentDictionary<int, BlobEntry>();
-            this.blobDirectory = blobDirectory;
+            this.blockBlobDirectory = blockBlobDirectory;
+            this.pageBlobDirectory = pageBlobDirectory;
             this.blobName = blobName;
             this.PartitionErrorHandler = blobManager.PartitionErrorHandler;
             this.BlobManager = blobManager;
@@ -77,7 +80,7 @@ namespace DurableTask.EventSourced.Faster
         {
             // list all the blobs representing the segments
             int prevSegmentId = -1;
-            var prefix = $"{blobDirectory.Prefix}{blobName}.";
+            var prefix = $"{blockBlobDirectory.Prefix}{blobName}.";
 
             BlobContinuationToken continuationToken = null;
             do
@@ -86,7 +89,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     await this.BlobManager.ConfirmLeaseIsGoodForAWhileAsync().ConfigureAwait(false);
                 }
-                var response = await this.blobDirectory.ListBlobsSegmentedAsync(useFlatBlobListing: false, blobListingDetails: BlobListingDetails.None, maxResults: 1000,
+                var response = await this.pageBlobDirectory.ListBlobsSegmentedAsync(useFlatBlobListing: false, blobListingDetails: BlobListingDetails.None, maxResults: 1000,
                     currentToken: continuationToken, options: this.BlobRequestOptions, operationContext: null)
                     .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
 
@@ -114,7 +117,7 @@ namespace DurableTask.EventSourced.Faster
 
             for (int i = startSegment; i <= endSegment; i++)
             {
-                bool ret = this.blobs.TryAdd(i, new BlobEntry(this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(i)), this));
+                bool ret = this.blobs.TryAdd(i, new BlobEntry(this.pageBlobDirectory.GetPageBlobReference(GetSegmentBlobName(i)), this));
 
                 if (!ret)
                 {
@@ -327,7 +330,7 @@ namespace DurableTask.EventSourced.Faster
             // It is up to the allocator to make sure no reads are issued to segments before they are written
             if (!blobs.TryGetValue(segmentId, out BlobEntry blobEntry))
             {
-                var nonLoadedBlob = this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
+                var nonLoadedBlob = this.pageBlobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
                 var exception = new InvalidOperationException("Attempt to read a non-loaded segment");
                 this.BlobManager?.HandleBlobError(nameof(ReadAsync), exception.Message, nonLoadedBlob?.Name, exception, true, false);
                 throw exception;
@@ -365,7 +368,7 @@ namespace DurableTask.EventSourced.Faster
                 BlobEntry entry = new BlobEntry(this);
                 if (blobs.TryAdd(segmentId, entry))
                 {
-                    CloudPageBlob pageBlob = this.blobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
+                    CloudPageBlob pageBlob = this.pageBlobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
 
                     // If segment size is -1, which denotes absence, we request the largest possible blob. This is okay because
                     // page blobs are not backed by real pages on creation, and the given size is only a the physical limit of 
