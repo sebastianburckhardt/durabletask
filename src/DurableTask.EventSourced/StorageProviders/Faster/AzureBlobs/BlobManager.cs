@@ -88,7 +88,7 @@ namespace DurableTask.EventSourced.Faster
                 ? new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolderName}\\{CommitBlobName}")
                 : (ILogCommitManager)this,
             PageSizeBits = 21, // 2MB
-            SegmentSizeBits = 28, // 256 MB
+            SegmentSizeBits = 30, // 1 GB
             MemorySizeBits = 23, // 8MB
         };
 
@@ -120,7 +120,6 @@ namespace DurableTask.EventSourced.Faster
                                         20 , // 1MB         
         };
 
-
         public void Dispose()
         {
             //TODO figure out what is supposed to go here
@@ -130,7 +129,6 @@ namespace DurableTask.EventSourced.Faster
         {
             //TODO figure out what is supposed to go here
         }
-
 
         public CheckpointSettings StoreCheckpointSettings => new CheckpointSettings
         {

@@ -340,7 +340,7 @@ namespace DurableTask.EventSourced.EventHubs
                     stopwatch.Start();
                     await current.Credits.WaitAsync(current.ErrorHandler.Token);
                     stopwatch.Stop();
-                    this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} submitted batch of {batchsize} packets, waited {elapsedMilliseconds:f1}ms", this.eventHubName, this.eventHubPartition, batch.Count, stopwatch.Elapsed.TotalMilliseconds);
+                    this.traceHelper.LogTrace("EventHubsProcessor {eventHubName}/{eventHubPartition} after submitting batch of {batchsize} packets waited {elapsedMilliseconds:f1}ms", this.eventHubName, this.eventHubPartition, batch.Count, stopwatch.Elapsed.TotalMilliseconds);
                 }
 
                 // can use this for testing: terminates partition after every one packet received, but

@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced.Faster
                   try
                   {
                       this.log.Dispose();
-                      blobManager.EventLogDevice.Close();
+                      blobManager.EventLogDevice.Dispose();
                   }
                   catch (Exception e)
                   {
