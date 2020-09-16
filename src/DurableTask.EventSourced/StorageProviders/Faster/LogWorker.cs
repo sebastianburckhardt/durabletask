@@ -36,7 +36,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly IntakeWorker intakeWorker;
 
         public LogWorker(BlobManager blobManager, FasterLog log, Partition partition, StoreWorker storeWorker, FasterTraceHelper traceHelper, CancellationToken cancellationToken)
-            : base(cancellationToken)
+            : base(nameof(LogWorker), cancellationToken)
         {
             partition.ErrorHandler.Token.ThrowIfCancellationRequested();
 
@@ -63,7 +63,7 @@ namespace DurableTask.EventSourced.Faster
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
 
-            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(token)
+            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(nameof(IntakeWorker), token)
             {
                 this.logWorker = logWorker;
                 this.updateEvents = new List<PartitionUpdateEvent>();
@@ -107,7 +107,7 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IEnumerable<PartitionEvent> events)
+        public void SubmitExternalEvents(IList<PartitionEvent> events)
         {
             this.intakeWorker.SubmitBatch(events);
         }

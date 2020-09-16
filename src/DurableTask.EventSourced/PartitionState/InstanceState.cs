@@ -56,14 +56,15 @@ namespace DurableTask.EventSourced
                 Version = ee.Version,
                 OrchestrationInstance = ee.OrchestrationInstance,
                 OrchestrationStatus = OrchestrationStatus.Pending,
+                ParentInstance = ee.ParentInstance,
                 Input = ee.Input,
                 Tags = ee.Tags,
                 CreatedTime = ee.Timestamp,
-                LastUpdatedTime = evt.Timestamp,
-                CompletedTime = Core.Common.DateTimeUtils.MinDateTime
+                LastUpdatedTime = DateTime.UtcNow,
+                CompletedTime = Core.Common.DateTimeUtils.MinDateTime,
+                ScheduledStartTime = ee.ScheduledStartTime
             };
         }
-
 
         public void Process(BatchProcessed evt, EffectTracker effects)
         {

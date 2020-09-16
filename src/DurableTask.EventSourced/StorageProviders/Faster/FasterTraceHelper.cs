@@ -56,6 +56,11 @@ namespace DurableTask.EventSourced.Faster
                 logger.LogInformation("Part{partition:D2} Persisted Checkpoint {checkpointId}, reason={reason}, commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition} latencyMs={latencyMs}", partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, latencyMs);
                 this.etwLogInformation?.FasterCheckpointPersisted(this.account, this.taskHub, partitionId, checkpointId, reason, commitLogPosition, inputQueuePosition, latencyMs, TraceUtils.ExtensionVersion);
             }
+
+            if (latencyMs > 10000)
+            {
+                this.FasterPerfWarning($"Persisting the checkpoint {checkpointId} took {(double)latencyMs / 1000}s, which is excessive; checkpointId={checkpointId} commitLogPosition={commitLogPosition} inputQueuePosition={inputQueuePosition}");
+            }
         }
 
         public void FasterLogPersisted(long commitLogPosition, long numberEvents, long sizeInBytes, long latencyMs)
@@ -64,6 +69,20 @@ namespace DurableTask.EventSourced.Faster
             {
                 logger.LogDebug("Part{partition:D2} Persisted Log, commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes} latencyMs={latencyMs}", partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs);
                 this.etwLogDebug?.FasterLogPersisted(this.account, this.taskHub, partitionId, commitLogPosition, numberEvents, sizeInBytes, latencyMs, TraceUtils.ExtensionVersion);
+            }
+
+            if (latencyMs > 10000)
+            {
+                this.FasterPerfWarning($"Persisting the log took {(double)latencyMs / 1000}s, which is excessive; commitLogPosition={commitLogPosition} numberEvents={numberEvents} sizeInBytes={sizeInBytes}");
+            }
+        }
+
+        public void FasterPerfWarning(string details)
+        {
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                logger.LogWarning("Part{partition:D2} Performance issue detected: {details}", partitionId, details);
+                this.etwLogDebug?.FasterPerfWarning(this.account, this.taskHub, partitionId, details, TraceUtils.ExtensionVersion);
             }
         }
 

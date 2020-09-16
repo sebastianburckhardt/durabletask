@@ -50,9 +50,9 @@ namespace DurableTask.EventSourced
         {
             this.host = host;
             this.ClientId = clientId;
-            this.traceHelper = new ClientTraceHelper(host.Logger, host.Settings.LogLevelLimit, host.StorageAccountName, host.Settings.TaskHubName, this.ClientId);
+            this.traceHelper = new ClientTraceHelper(host.Logger, host.Settings.LogLevelLimit, host.StorageAccountName, host.Settings.HubName, this.ClientId);
             this.account = host.StorageAccountName;
-            this.taskHub = host.Settings.TaskHubName;
+            this.taskHub = host.Settings.HubName;
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<PendingRequest>(this.shutdownToken, this.Timeout, this.traceHelper.TraceTimerProgress);

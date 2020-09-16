@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced.Emulated
         private Action<IEnumerable<Event>> sendHandler;
 
         public SendWorker(CancellationToken token)
-            : base(token)
+            : base(nameof(SendWorker), token)
         {
         }
 

@@ -42,7 +42,7 @@ namespace DurableTask.EventSourced
             this.benchmarkLogger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.Benchmark");
             this.logLevelLimit = logLevelLimit;
             this.account = partition.StorageAccountName;
-            this.taskHub = partition.Settings.TaskHubName;
+            this.taskHub = partition.Settings.HubName;
             this.partitionId = (int)partition.PartitionId;
             this.etw = EtwSource.Log.IsEnabled() ? EtwSource.Log : null;
         }

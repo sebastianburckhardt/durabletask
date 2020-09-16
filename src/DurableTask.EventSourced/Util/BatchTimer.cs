@@ -22,7 +22,7 @@ namespace DurableTask.EventSourced
 {
     internal class BatchTimer<T>
     {
-        private readonly object thisLock = new object();
+        private MonitoredLock thisLock;
         private readonly CancellationToken cancellationToken;
         private readonly Action<List<T>> handler;
         private readonly SortedList<(DateTime due, int id), T> schedule;
@@ -46,6 +46,7 @@ namespace DurableTask.EventSourced
 
         public void Start(string name)
         {
+            this.thisLock = new MonitoredLock(name);
             var thread = new Thread(ExpirationCheckLoop);
             thread.Name = name;
             thread.Start();
@@ -53,15 +54,15 @@ namespace DurableTask.EventSourced
 
         public int GetFreshId()
         {
-           lock(this)
-           {
-               return sequenceNumber++;
-           }
+            using (thisLock.Lock())
+            {
+                return sequenceNumber++;
+            }
         }
 
         public void Schedule(DateTime due, T what, int? id = null)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 var key = (due, id ?? sequenceNumber++);
 
@@ -79,7 +80,7 @@ namespace DurableTask.EventSourced
 
         public bool TryCancel((DateTime due, int id) key)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 if (this.schedule.Remove(key))
                 {
@@ -109,7 +110,7 @@ namespace DurableTask.EventSourced
                     tracer?.Invoke($"awakening at {(DateTime.UtcNow - due).TotalSeconds}s");
                 }
 
-                lock (this.thisLock)
+                using (thisLock.Lock())
                 {
                     var next = this.schedule.FirstOrDefault();
 
@@ -147,7 +148,7 @@ namespace DurableTask.EventSourced
 
         private bool RequiresDelay(out TimeSpan delay, out DateTime due)
         {
-            lock (this.thisLock)
+            using (thisLock.Lock())
             {
                 if (this.schedule.Count == 0)
                 {

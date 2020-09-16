@@ -36,9 +36,6 @@ namespace DurableTask.EventSourced
         public TaskMessage TaskMessage { get; set; }
 
         [DataMember]
-        public DateTime Timestamp { get; set; }
-
-        [DataMember]
         public bool FilteredDuplicate { get; set; }
 
         [IgnoreDataMember]

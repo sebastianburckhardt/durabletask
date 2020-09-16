@@ -468,7 +468,7 @@ namespace DurableTask.EventSourced.Tests
                     await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
                     // Don't send any notification - let the internal timeout expire
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     System.Diagnostics.Trace.TraceInformation($"Error in orchestration: {e}");
                 }
@@ -490,7 +490,7 @@ namespace DurableTask.EventSourced.Tests
             Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
 
             Task winner = await Task.WhenAny(parallelOrchestrations, timeoutTask);
-            foreach(var t in tasks)
+            foreach (var t in tasks)
             {
                 await t;
             }
@@ -560,25 +560,25 @@ namespace DurableTask.EventSourced.Tests
         [Fact]
         public async Task SmallTextMessagePayloads()
         {
-                // Generate a small random string payload
-                const int TargetPayloadSize = 1 * 1024; // 1 KB
-                const string Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 {}/<>.-";
-                var sb = new StringBuilder();
-                var random = new Random();
-                while (Encoding.Unicode.GetByteCount(sb.ToString()) < TargetPayloadSize)
+            // Generate a small random string payload
+            const int TargetPayloadSize = 1 * 1024; // 1 KB
+            const string Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 {}/<>.-";
+            var sb = new StringBuilder();
+            var random = new Random();
+            while (Encoding.Unicode.GetByteCount(sb.ToString()) < TargetPayloadSize)
+            {
+                for (int i = 0; i < 1000; i++)
                 {
-                    for (int i = 0; i < 1000; i++)
-                    {
-                        sb.Append(Chars[random.Next(Chars.Length)]);
-                    }
+                    sb.Append(Chars[random.Next(Chars.Length)]);
                 }
+            }
 
-                string message = sb.ToString();
-                var client = await host.StartOrchestrationAsync(typeof(Orchestrations.Echo), message);
-                var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+            string message = sb.ToString();
+            var client = await host.StartOrchestrationAsync(typeof(Orchestrations.Echo), message);
+            var status = await client.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
 
-                Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
-                Assert.Equal(message, JToken.Parse(status?.Output));
+            Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
+            Assert.Equal(message, JToken.Parse(status?.Output));
         }
 
         private StringBuilder GenerateMediumRandomStringPayload()
@@ -611,6 +611,110 @@ namespace DurableTask.EventSourced.Tests
 
             Assert.Equal(OrchestrationStatus.Completed, status?.OrchestrationStatus);
         }
+
+        /// <summary>
+        /// Validates scheduled starts. Runs three tests in parallel because they each wait so long.
+        /// </summary>
+        /// <param name="enableExtendedSessions"></param>
+        /// <returns></returns>
+        [Fact]
+        public async Task ScheduledStart_All()
+        {
+            // run these three tests in parallel because they each wait so long
+
+            var test1 = ScheduledStart_Activity();
+            var test2 = ScheduledStart_Activity_GetStatus_Returns_ScheduledStart();
+            var test3 = ScheduledStart_Activity_GetStatus_Returns_ScheduledStart();
+
+            await Task.WhenAll(test1, test2, test3);
+        }
+
+        /// <summary>
+        /// Validates scheduled starts, ensuring they are executed according to defined start date time
+        /// </summary>
+        /// <param name="enableExtendedSessions"></param>
+        /// <returns></returns>
+        private async Task ScheduledStart_Inline()
+        {
+            var expectedStartTime = DateTime.UtcNow.AddSeconds(10);
+            var clientStartingIn10Seconds = await host.StartOrchestrationAsync(typeof(Orchestrations.CurrentTimeInline), "Current Time!", startAt: expectedStartTime);
+            var clientStartingNow = await host.StartOrchestrationAsync(typeof(Orchestrations.CurrentTimeInline), "Current Time!");
+
+            var statusStartingNow = clientStartingNow.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+            var statusStartingIn10Seconds = clientStartingIn10Seconds.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+
+            await Task.WhenAll(statusStartingNow, statusStartingIn10Seconds);
+
+            Assert.Equal(OrchestrationStatus.Completed, statusStartingNow.Result?.OrchestrationStatus);
+            Assert.Equal("Current Time!", JToken.Parse(statusStartingNow.Result?.Input));
+            Assert.Null(statusStartingNow.Result.ScheduledStartTime);
+
+            Assert.Equal(OrchestrationStatus.Completed, statusStartingIn10Seconds.Result?.OrchestrationStatus);
+            Assert.Equal("Current Time!", JToken.Parse(statusStartingIn10Seconds.Result?.Input));
+            Assert.Equal(expectedStartTime, statusStartingIn10Seconds.Result.ScheduledStartTime);
+
+            var startNowResult = (DateTime)JToken.Parse(statusStartingNow.Result?.Output);
+            var startIn10SecondsResult = (DateTime)JToken.Parse(statusStartingIn10Seconds.Result?.Output);
+
+            Assert.True(startIn10SecondsResult > startNowResult);
+            Assert.True(startIn10SecondsResult >= expectedStartTime);
+        }
+
+        /// <summary>
+        /// Validates scheduled starts, ensuring they are executed according to defined start date time
+        /// </summary>
+        /// <param name="enableExtendedSessions"></param>
+        /// <returns></returns>
+        private async Task ScheduledStart_Activity()
+        {
+            var expectedStartTime = DateTime.UtcNow.AddSeconds(10);
+            var clientStartingIn10Seconds = await host.StartOrchestrationAsync(typeof(Orchestrations.CurrentTimeActivity), "Current Time!", startAt: expectedStartTime);
+            var clientStartingNow = await host.StartOrchestrationAsync(typeof(Orchestrations.CurrentTimeActivity), "Current Time!");
+
+            var statusStartingNow = clientStartingNow.WaitForCompletionAsync(TimeSpan.FromSeconds(30));
+            var statusStartingIn10Seconds = clientStartingIn10Seconds.WaitForCompletionAsync(TimeSpan.FromSeconds(60));
+
+            await Task.WhenAll(statusStartingNow, statusStartingIn10Seconds);
+
+            Assert.Equal(OrchestrationStatus.Completed, statusStartingNow.Result?.OrchestrationStatus);
+            Assert.Equal("Current Time!", JToken.Parse(statusStartingNow.Result?.Input));
+            Assert.Null(statusStartingNow.Result.ScheduledStartTime);
+
+            Assert.Equal(OrchestrationStatus.Completed, statusStartingIn10Seconds.Result?.OrchestrationStatus);
+            Assert.Equal("Current Time!", JToken.Parse(statusStartingIn10Seconds.Result?.Input));
+            Assert.Equal(expectedStartTime, statusStartingIn10Seconds.Result.ScheduledStartTime);
+
+            var startNowResult = (DateTime)JToken.Parse(statusStartingNow.Result?.Output);
+            var startIn10SecondsResult = (DateTime)JToken.Parse(statusStartingIn10Seconds.Result?.Output);
+
+            Assert.True(startIn10SecondsResult > startNowResult);
+            Assert.True(startIn10SecondsResult >= expectedStartTime);
+        }
+
+        /// <summary>
+        /// Validates scheduled starts, ensuring they are executed according to defined start date time
+        /// </summary>
+        /// <param name="enableExtendedSessions"></param>
+        /// <returns></returns>
+        private async Task ScheduledStart_Activity_GetStatus_Returns_ScheduledStart()
+        {
+            var expectedStartTime = DateTime.UtcNow.AddSeconds(10);
+            var clientStartingIn10Seconds = await host.StartOrchestrationAsync(typeof(Orchestrations.DelayedCurrentTimeActivity), "Delayed Current Time!", startAt: expectedStartTime);
+            var clientStartingNow = await host.StartOrchestrationAsync(typeof(Orchestrations.DelayedCurrentTimeActivity), "Delayed Current Time!");
+
+            var statusStartingIn10Seconds = await clientStartingIn10Seconds.GetStatusAsync();
+            Assert.NotNull(statusStartingIn10Seconds.ScheduledStartTime);
+            Assert.Equal(expectedStartTime, statusStartingIn10Seconds.ScheduledStartTime);
+
+            var statusStartingNow = await clientStartingNow.GetStatusAsync();
+            Assert.Null(statusStartingNow.ScheduledStartTime);
+
+            await Task.WhenAll(
+                clientStartingNow.WaitForCompletionAsync(TimeSpan.FromSeconds(35)),
+                clientStartingIn10Seconds.WaitForCompletionAsync(TimeSpan.FromSeconds(65))
+                );
+        }
+
 
         internal static class Orchestrations
         {
@@ -1280,6 +1384,41 @@ namespace DurableTask.EventSourced.Tests
                     }
                 }
             }
+
+            internal class CurrentTimeInline : TaskOrchestration<DateTime, string>
+            {
+                public override Task<DateTime> RunTask(OrchestrationContext context, string input)
+                {
+                    return Task.FromResult(context.CurrentUtcDateTime);
+                }
+            }
+
+            [KnownType(typeof(Activities.CurrentTime))]
+            internal class CurrentTimeActivity : TaskOrchestration<DateTime, string>
+            {
+                public override Task<DateTime> RunTask(OrchestrationContext context, string input)
+                {
+                    return context.ScheduleTask<DateTime>(typeof(Activities.CurrentTime), input);
+                }
+            }
+
+            internal class DelayedCurrentTimeInline : TaskOrchestration<DateTime, string>
+            {
+                public override async Task<DateTime> RunTask(OrchestrationContext context, string input)
+                {
+                    await context.CreateTimer<bool>(context.CurrentUtcDateTime.Add(TimeSpan.FromSeconds(3)), true);
+                    return context.CurrentUtcDateTime;
+                }
+            }
+
+            [KnownType(typeof(Activities.DelayedCurrentTime))]
+            internal class DelayedCurrentTimeActivity : TaskOrchestration<DateTime, string>
+            {
+                public override Task<DateTime> RunTask(OrchestrationContext context, string input)
+                {
+                    return context.ScheduleTask<DateTime>(typeof(Activities.DelayedCurrentTime), input);
+                }
+            }
         }
 
         static class Activities
@@ -1515,6 +1654,33 @@ namespace DurableTask.EventSourced.Tests
                 protected override byte[] Execute(TaskContext context, byte[] input)
                 {
                     return input;
+                }
+            }
+
+            internal class CurrentTime : TaskActivity<string, DateTime>
+            {
+                protected override DateTime Execute(TaskContext context, string input)
+                {
+                    if (string.IsNullOrEmpty(input))
+                    {
+                        throw new ArgumentNullException(nameof(input));
+                    }
+                    return DateTime.UtcNow;
+                }
+            }
+
+            internal class DelayedCurrentTime : TaskActivity<string, DateTime>
+            {
+                protected override DateTime Execute(TaskContext context, string input)
+                {
+                    if (string.IsNullOrEmpty(input))
+                    {
+                        throw new ArgumentNullException(nameof(input));
+                    }
+
+                    Thread.Sleep(TimeSpan.FromSeconds(3));
+
+                    return DateTime.UtcNow;
                 }
             }
         }

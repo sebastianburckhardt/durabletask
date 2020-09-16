@@ -34,7 +34,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public uint OriginPartitionId { get; set; }
 
-        [IgnoreDataMember]
+        [DataMember]
         public int ReportedLoad { get; set; }
 
         [IgnoreDataMember]

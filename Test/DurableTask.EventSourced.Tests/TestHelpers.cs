@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced.Tests
             {
                 EventHubsConnectionString = GetEventHubsConnectionString(),
                 StorageConnectionString = GetStorageConnectionString(),
-                TaskHubName = GetTestTaskHubName(),
+                HubName = GetTestTaskHubName(),
                 TransportLogLevelLimit = LogLevel.Trace,
                 StorageLogLevelLimit = LogLevel.Trace,
                 LogLevelLimit = LogLevel.Trace,

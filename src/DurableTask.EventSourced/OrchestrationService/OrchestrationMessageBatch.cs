@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced
 
             session.CurrentBatch = this; 
 
-            partition.EventDetailTracer?.TraceEventProcessingDetail($"Prefetching instance={this.InstanceId} batch={this.WorkItemId}");
+            partition.EventDetailTracer?.TraceEventProcessingDetail($"OrchestrationMessageBatch is prefetching instance={this.InstanceId} batch={this.WorkItemId}");
 
             // continue when we have the history state loaded, which gives us the latest state and/or cursor
             partition.SubmitInternalEvent(this);
@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced
 
         public override TrackedObjectKey? Prefetch => TrackedObjectKey.Instance(this.InstanceId);
 
-        public double WaitTimeMs(double now) => this.WaitingSince.HasValue ? (now - this.WaitingSince.Value) : 0;
+        public double WaitTimeMs(double now) => (now - this.WaitingSince) ?? 0;
 
         public override void OnReadComplete(TrackedObject s, Partition partition)
         {

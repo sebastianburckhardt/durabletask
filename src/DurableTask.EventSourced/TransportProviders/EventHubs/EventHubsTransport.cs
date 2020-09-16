@@ -63,7 +63,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.settings = settings;
             this.cloudStorageAccount = CloudStorageAccount.Parse(this.settings.StorageConnectionString);
             string namespaceName = TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString);
-            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportLogLevelLimit, this.cloudStorageAccount.Credentials.AccountName, settings.TaskHubName, namespaceName);
+            this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportLogLevelLimit, this.cloudStorageAccount.Credentials.AccountName, settings.HubName, namespaceName);
             this.ClientId = Guid.NewGuid();
             this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper, settings.UseJsonPackets);
             var blobContainerName = $"{namespaceName}-processors";
@@ -90,7 +90,7 @@ namespace DurableTask.EventSourced.EventHubs
         async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
         {
             var parameters = await TryLoadExistingTaskhubAsync().ConfigureAwait(false);
-            return (parameters != null && parameters.TaskhubName == this.settings.TaskHubName);
+            return (parameters != null && parameters.TaskhubName == this.settings.HubName);
         }
 
         async Task TransportAbstraction.ITaskHub.CreateAsync()
@@ -106,7 +106,7 @@ namespace DurableTask.EventSourced.EventHubs
 
             var taskHubParameters = new
             {
-                TaskhubName = settings.TaskHubName,
+                TaskhubName = settings.HubName,
                 CreationTimestamp = DateTime.UtcNow,
                 StartPositions = startPositions
             };
@@ -152,7 +152,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.parameters = JsonConvert.DeserializeObject<TaskhubParameters>(jsonText);
 
             // check that we are the correct taskhub!
-            if (this.parameters.TaskhubName != this.settings.TaskHubName)
+            if (this.parameters.TaskhubName != this.settings.HubName)
             {
                 throw new InvalidOperationException("Only one taskhub is allowed per EventHub");
             }
@@ -162,6 +162,8 @@ namespace DurableTask.EventSourced.EventHubs
             this.client = host.AddClient(this.ClientId, this);
 
             this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
+
+            await this.connections.StartAsync();
 
             // Use standard eventProcessor offered by EventHubs or a custom one
             if (this.settings.EventProcessorManagement == "EventHubs")

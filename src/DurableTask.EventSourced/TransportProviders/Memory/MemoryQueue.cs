@@ -29,7 +29,7 @@ namespace DurableTask.EventSourced.Emulated
         private long position = 0;
         private readonly ILogger logger;
 
-        public MemoryQueue(CancellationToken cancellationToken, ILogger logger) : base(cancellationToken, true)
+        public MemoryQueue(CancellationToken cancellationToken, ILogger logger) : base(nameof(MemoryQueue<T,B>), cancellationToken, true)
         {
             this.logger = logger;
         }

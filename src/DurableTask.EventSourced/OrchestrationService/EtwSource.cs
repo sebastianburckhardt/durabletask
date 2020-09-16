@@ -317,9 +317,15 @@ namespace DurableTask.EventSourced
         public void FasterStorageProgress(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(259, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+            this.WriteEvent(264, Account, TaskHub, PartitionId, Details, ExtensionVersion);
         }
 
+        [Event(265, Level = EventLevel.Warning, Version = 1)]
+        public void FasterPerfWarning(string Account, string TaskHub, int PartitionId, string Details, string ExtensionVersion)
+        {
+            SetCurrentThreadActivityId(serviceInstanceId);
+            this.WriteEvent(265, Account, TaskHub, PartitionId, Details, ExtensionVersion);
+        }
 
 
         // ----- EventHubs Transport
