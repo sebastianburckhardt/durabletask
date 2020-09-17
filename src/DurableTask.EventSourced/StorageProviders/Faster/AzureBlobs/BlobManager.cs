@@ -165,22 +165,33 @@ namespace DurableTask.EventSourced.Faster
 
         public const int MaxRetries = 5;
 
-        public BlobRequestOptions BlobRequestOptionsUnderLease => new BlobRequestOptions()
+        public static BlobRequestOptions BlobRequestOptionsAggressiveTimeout = new BlobRequestOptions()
         {
-            RetryPolicy = default, // we handle retries explicitly so we can ensure successful lease renewal between retries
-            NetworkTimeout = TimeSpan.FromSeconds(30),
-            ServerTimeout = TimeSpan.FromSeconds(20), 
-            MaximumExecutionTime = TimeSpan.FromSeconds(30),
+            RetryPolicy = default, // no automatic retry
+            NetworkTimeout = TimeSpan.FromSeconds(2),
+            ServerTimeout = TimeSpan.FromSeconds(2),
+            MaximumExecutionTime = TimeSpan.FromSeconds(2),
         };
 
-        public BlobRequestOptions BlobRequestOptionsNotUnderLease => new BlobRequestOptions()
+        public static BlobRequestOptions BlobRequestOptionsDefault => new BlobRequestOptions()
+        {
+            RetryPolicy = default, // no automatic retry
+            NetworkTimeout = TimeSpan.FromSeconds(15),
+            ServerTimeout = TimeSpan.FromSeconds(15), 
+            MaximumExecutionTime = TimeSpan.FromSeconds(15),
+        };
+
+        public static BlobRequestOptions BlobRequestOptionsWithRetry => new BlobRequestOptions()
         {
             RetryPolicy = new ExponentialRetry(TimeSpan.FromSeconds(2), MaxRetries),
-            NetworkTimeout = TimeSpan.FromSeconds(120),
-            ServerTimeout = TimeSpan.FromSeconds(120),
-            MaximumExecutionTime = TimeSpan.FromSeconds(120),
+            NetworkTimeout = TimeSpan.FromSeconds(15),
+            ServerTimeout = TimeSpan.FromSeconds(15),
+            MaximumExecutionTime = TimeSpan.FromSeconds(15),
         };
 
+        public static TimeSpan GetDelayBetweenRetries(int numAttempts)
+            => TimeSpan.FromSeconds(Math.Pow(2, (numAttempts - 1)));
+       
         // For tests only; TODO consider adding PSFs
         internal BlobManager(CloudStorageAccount storageAccount, CloudStorageAccount secondaryStorageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel logLevelLimit, uint partitionId, IPartitionErrorHandler errorHandler)
             : this(storageAccount, secondaryStorageAccount, taskHubName, logger, logLevelLimit, partitionId, errorHandler, 0)
@@ -390,7 +401,7 @@ namespace DurableTask.EventSourced.Faster
 
                     if (!this.UseLocalFilesForTestingAndDebugging)
                     {
-                        this.leaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null, accessCondition: null, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                        this.leaseId = await this.eventLogCommitBlob.AcquireLeaseAsync(LeaseDuration, null, accessCondition: null, options: BlobManager.BlobRequestOptionsDefault, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
                             .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
                         this.TraceHelper.LeaseAcquired();
                     }
@@ -525,7 +536,7 @@ namespace DurableTask.EventSourced.Faster
 
                         AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
 
-                        await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc, options: this.BlobRequestOptionsUnderLease, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
+                        await this.eventLogCommitBlob.ReleaseLeaseAsync(accessCondition: acc, options: BlobManager.BlobRequestOptionsDefault, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
                             .ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);
 
                         this.TraceHelper.LeaseReleased();
@@ -572,27 +583,40 @@ namespace DurableTask.EventSourced.Faster
         void ILogCommitManager.Commit(long beginAddress, long untilAddress, byte[] commitMetadata)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Called beginAddress={beginAddress} untilAddress={untilAddress}");
+            var stopwatch = new Stopwatch();
+            int numAttempts = 0;
 
             while (true)
             {
+                numAttempts++;
+
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
                     SynchronousStorageAccessMaxConcurrency.Wait();
+
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
-                    var stopwatch = new Stopwatch();
-                    stopwatch.Start();
-                    this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, this.BlobRequestOptionsUnderLease);
+                    var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                    stopwatch.Restart();
+                    this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, blobRequestOptions);
                     stopwatch.Stop();
                     this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.Commit Returned latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
-                    if (stopwatch.ElapsedMilliseconds > 5000)
+
+                    if (stopwatch.ElapsedMilliseconds > 1000)
                     {
-                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob} length={commitMetadata.Length}");
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob.Name} length={commitMetadata.Length}");
                     }
 
                     return;
                 }
-                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                {
+                    // We lost the lease to someone else. Terminate ownership immediately.
+                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
+                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
+                    throw;
+                }
+                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex) && numAttempts < BlobManager.MaxRetries)
                 {
                     // if we get here, the lease renewal task did not complete in time
                     // wait for it to complete or throw
@@ -601,12 +625,20 @@ namespace DurableTask.EventSourced.Faster
                     this.TraceHelper.LeaseProgress("ILogCommitManager.Commit: renewal complete");
                     continue;
                 }
-                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
                 {
-                    // We lost the lease to someone else. Terminate ownership immediately.
-                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.Commit));
-                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
-                    throw;
+                    stopwatch.Stop();
+                    if (BlobUtils.IsTimeout(e))
+                    {
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={eventLogCommitBlob.Name} length={commitMetadata.Length}");
+                    }
+                    else
+                    {
+                        TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not write to commit blob, will retry in {nextRetryIn}s", eventLogCommitBlob.Name, e, false, true);
+                        Thread.Sleep(nextRetryIn);
+                    }
+                    continue;
                 }
                 catch (Exception e)
                 {
@@ -629,28 +661,39 @@ namespace DurableTask.EventSourced.Faster
         byte[] ILogCommitManager.GetCommitMetadata(long commitNum)
         {
             this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Called (thread={Thread.CurrentThread.ManagedThreadId})");
+            var stopwatch = new Stopwatch();
+            int numAttempts = 0;
 
             while (true)
             {
+                numAttempts++;
+
                 AccessCondition acc = new AccessCondition() { LeaseId = this.leaseId };
                 try
                 {
                     SynchronousStorageAccessMaxConcurrency.Wait();
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     using var stream = new MemoryStream();
-                    var stopwatch = new Stopwatch();
-                    stopwatch.Start();
-                    this.eventLogCommitBlob.DownloadToStream(stream, acc, this.BlobRequestOptionsUnderLease);
+                    var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                    stopwatch.Restart();
+                    this.eventLogCommitBlob.DownloadToStream(stream, acc, blobRequestOptions);
                     stopwatch.Stop();
-                    if (stopwatch.ElapsedMilliseconds > 5000)
+                    if (stopwatch.ElapsedMilliseconds > 1000)
                     {
-                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob} length={stream.Position}");
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={eventLogCommitBlob.Name} length={stream.Position}");
                     }
                     var bytes = stream.ToArray();
                     this.StorageTracer?.FasterStorageProgress($"ILogCommitManager.GetCommitMetadata Returned {bytes?.Length ?? null} bytes, latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
                     return bytes.Length == 0 ? null : bytes;
                 }
-                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex))
+                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                {
+                    // We lost the lease to someone else. Terminate ownership immediately.
+                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.GetCommitMetadata));
+                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
+                    throw;
+                }
+                catch (StorageException ex) when (BlobUtils.LeaseExpired(ex) && numAttempts < BlobManager.MaxRetries)
                 {
                     // if we get here, the lease renewal task did not complete in time
                     // wait for it to complete or throw
@@ -659,12 +702,20 @@ namespace DurableTask.EventSourced.Faster
                     this.TraceHelper.LeaseProgress("ILogCommitManager.GetCommitMetadata: renewal complete");
                     continue;
                 }
-                catch (StorageException ex) when (BlobUtils.LeaseConflict(ex))
+                catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
                 {
-                    // We lost the lease to someone else. Terminate ownership immediately.
-                    this.TraceHelper.LeaseLost(nameof(ILogCommitManager.GetCommitMetadata));
-                    this.HandleBlobError(nameof(ILogCommitManager.Commit), "lease lost", this.eventLogCommitBlob?.Name, ex, true, this.PartitionErrorHandler.IsTerminated);
-                    throw;
+                    stopwatch.Stop();
+                    if (BlobUtils.IsTimeout(e))
+                    {
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={eventLogCommitBlob.Name}");
+                    }
+                    else
+                    {
+                        TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not read commit blob, will retry in {nextRetryIn}s", eventLogCommitBlob.Name, e, false, true);
+                        Thread.Sleep(nextRetryIn);
+                    }
+                    continue;
                 }
                 catch (Exception e)
                 {
