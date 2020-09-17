@@ -35,14 +35,17 @@ namespace DurableTask.EventSourced
         public string EventProcessorManagement { get; set; } = "EventHubs";
 
         /// <summary>
-        /// Gets or sets the connection string for the Azure storage account.
+        /// Gets or sets the connection string for the Azure storage account, supporting all types of blobs, and table storage.
         /// </summary>
         public string StorageConnectionString { get; set; }
 
         /// <summary>
-        /// Gets or sets the connection string for a second Azure storage account.
+        /// Gets or sets the connection string for a premium Azure storage account supporting page blobs only.
         /// </summary>
-        public string SecondaryStorageConnectionString { get; set; }
+        public string PremiumStorageConnectionString { get; set; }
+
+        [JsonIgnore]
+        internal bool UsePremiumStorage => !string.IsNullOrEmpty(PremiumStorageConnectionString);
 
         /// <summary>
         /// The name of the taskhub. Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.

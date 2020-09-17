@@ -24,9 +24,9 @@ namespace DurableTask.EventSourced.Faster
         private readonly FASTER.core.FasterLog log;
         private readonly CancellationToken terminationToken;
 
-        public FasterLog(BlobManager blobManager)
+        public FasterLog(BlobManager blobManager, EventSourcedOrchestrationServiceSettings settings)
         {
-            this.log = new FASTER.core.FasterLog(blobManager.EventLogSettings);
+            this.log = new FASTER.core.FasterLog(blobManager.EventLogSettings(settings.UsePremiumStorage));
             this.terminationToken = blobManager.PartitionErrorHandler.Token;
 
             var _ = terminationToken.Register(

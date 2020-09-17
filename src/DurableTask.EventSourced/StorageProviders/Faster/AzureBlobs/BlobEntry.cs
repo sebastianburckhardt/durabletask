@@ -14,9 +14,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core.Common;
+using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 
 namespace DurableTask.EventSourced.Faster
@@ -67,41 +68,88 @@ namespace DurableTask.EventSourced.Faster
         /// <param name="pageBlob">The page blob to create</param>
         public async Task CreateAsync(long size, CloudPageBlob pageBlob)
         {
+            if (this.waitingCount != 0)
+            {
+                this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "expect to be called on blobs that don't already exist and exactly once", pageBlob?.Name, null, false, false);
+            }
+
             try
             {
-                if (this.waitingCount != 0)
+                await BlobManager.AsynchronousStorageReadMaxConcurrency.WaitAsync();
+
+                var stopwatch = new Stopwatch();
+                int numAttempts = 0;
+
+                while (true) // retry loop
                 {
-                    this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "expect to be called on blobs that don't already exist and exactly once", pageBlob?.Name, null, false, false);
+                    numAttempts++;
+
+                    try
+                    {
+                        var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+
+                        this.azureStorageDevice.BlobManager?.StorageTracer?.FasterStorageProgress($"starting create page blob target={pageBlob.Name} size={size}");
+                        stopwatch.Restart();
+
+                        await pageBlob.CreateAsync(size,
+                            accessCondition: null, options: blobRequestOptions, operationContext: null, this.azureStorageDevice.PartitionErrorHandler.Token);
+
+                        stopwatch.Stop();
+                        this.azureStorageDevice.BlobManager?.StorageTracer?.FasterStorageProgress($"finished create page blob target={pageBlob.Name} size={size} latencyMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
+
+                        if (stopwatch.ElapsedMilliseconds > 1000)
+                        {
+                            this.azureStorageDevice.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.CreateAsync took {stopwatch.ElapsedMilliseconds / 1000}s, which is excessive; target={pageBlob.Name} size={size}");
+                        }
+
+                        break;
+                    }
+                    catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
+                    {
+                        stopwatch.Stop();
+                        if (BlobUtils.IsTimeout(e))
+                        {
+                            this.azureStorageDevice.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.CreateAsync timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={pageBlob.Name} size={size}");
+                        }
+                        else
+                        {
+                            TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
+                            this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), $"could not create page blob, will retry in {nextRetryIn}s", pageBlob.Name, e, false, true);
+                            await Task.Delay(nextRetryIn);
+                        }
+                        continue;
+                    }
+                    catch (Exception e) when (!Utils.IsFatal(e))
+                    {
+                        this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "could not create page blob", pageBlob.Name, e, true, this.azureStorageDevice.PartitionErrorHandler.IsTerminated);
+                        throw;
+                    }
                 }
-
-                await pageBlob.CreateAsync(size,
-                    accessCondition: null, options: this.azureStorageDevice.BlobRequestOptions, operationContext: null, this.azureStorageDevice.PartitionErrorHandler.Token);
-
-                // At this point the blob is fully created. After this line all consequent writers will write immediately. We just
-                // need to clear the queue of pending writers.
-                this.PageBlob = pageBlob;
-
-                // Take a snapshot of the current waiting count. Exactly this many actions will be cleared.
-                // Swapping in -1 will inform any stragglers that we are not taking their actions and prompt them to retry (and call write directly)
-                int waitingCountSnapshot = Interlocked.Exchange(ref waitingCount, -1);
-                Action<CloudPageBlob> action;
-                // Clear actions
-                for (int i = 0; i < waitingCountSnapshot; i++)
-                {
-                    // inserts into the queue may lag behind the creation thread. We have to wait until that happens.
-                    // This is so rare, that we are probably okay with a busy wait.
-                    while (!pendingWrites.TryDequeue(out action)) { }
-                    action(pageBlob);
-                }
-
-                // Mark for deallocation for the GC
-                pendingWrites = null;
             }
-            catch (Exception e)
+            finally
             {
-                this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), "could not create page blob", pageBlob?.Name, e, true, this.azureStorageDevice.PartitionErrorHandler.IsTerminated);
-                throw;
+                BlobManager.AsynchronousStorageReadMaxConcurrency.Release();
             }
+
+            // At this point the blob is fully created. After this line all consequent writers will write immediately. We just
+            // need to clear the queue of pending writers.
+            this.PageBlob = pageBlob;
+
+            // Take a snapshot of the current waiting count. Exactly this many actions will be cleared.
+            // Swapping in -1 will inform any stragglers that we are not taking their actions and prompt them to retry (and call write directly)
+            int waitingCountSnapshot = Interlocked.Exchange(ref waitingCount, -1);
+            Action<CloudPageBlob> action;
+            // Clear actions
+            for (int i = 0; i < waitingCountSnapshot; i++)
+            {
+                // inserts into the queue may lag behind the creation thread. We have to wait until that happens.
+                // This is so rare, that we are probably okay with a busy wait.
+                while (!pendingWrites.TryDequeue(out action)) { }
+                action(pageBlob);
+            }
+
+            // Mark for deallocation for the GC
+            pendingWrites = null;
         }
 
         /// <summary>

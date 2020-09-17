@@ -40,10 +40,7 @@ namespace DurableTask.EventSourced.Faster
         private readonly bool underLease;
 
         internal IPartitionErrorHandler PartitionErrorHandler { get; private set; }
-        internal BlobRequestOptions BlobRequestOptions { get; private set; }
 
-        // Page Blobs permit blobs of max size 8 TB, but the emulator permits only 2 GB
-        private const long MAX_BLOB_SIZE = (long)(2 * 10e8);
         // Azure Page Blobs have a fixed sector size of 512 bytes.
         private const uint PAGE_BLOB_SECTOR_SIZE = 512;
         // Max upload size must be at most 4MB
@@ -71,7 +68,7 @@ namespace DurableTask.EventSourced.Faster
             this.PartitionErrorHandler = blobManager.PartitionErrorHandler;
             this.BlobManager = blobManager;
             this.underLease = underLease;
-            this.BlobRequestOptions = underLease ? blobManager.BlobRequestOptionsUnderLease : blobManager.BlobRequestOptionsNotUnderLease; 
+            this.segmentSize = DEFAULT_SEGMENT_SIZE;
         }
 
         public async Task StartAsync()
@@ -234,10 +231,8 @@ namespace DurableTask.EventSourced.Faster
                 {
                     CloudPageBlob pageBlob = this.pageBlobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
 
-                    // If segment size is -1, which denotes absence, we request the largest possible blob. This is okay because
-                    // page blobs are not backed by real pages on creation, and the given size is only a the physical limit of 
-                    // how large it can grow to.
-                    var size = segmentSize == -1 ? MAX_BLOB_SIZE : segmentSize;
+                    // If segment size is -1 we use a default
+                    var size = segmentSize == -1 ? AzureStorageDevice.DEFAULT_SEGMENT_SIZE : segmentSize;
 
                     // If no blob exists for the segment, we must first create the segment asynchronouly. (Create call takes ~70 ms by measurement)
                     // After creation is done, we can call write.
@@ -283,7 +278,7 @@ namespace DurableTask.EventSourced.Faster
 
                         if (length > 0)
                         {
-                            var blobRequestOptions = (numAttempts == 1) ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                            var blobRequestOptions = numAttempts > 2 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
 
                             await blob.WritePagesAsync(stream, destinationAddress + offset,
                                 contentChecksum: null, accessCondition: null, options: blobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
@@ -316,7 +311,7 @@ namespace DurableTask.EventSourced.Faster
                     }
                     catch (Exception exception) when (!Utils.IsFatal(exception))
                     {
-                        this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), "could not write to page blob", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
+                        this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob target={blob.Name} length={length} destinationAddress={destinationAddress + offset}", blob?.Name, exception, true, this.PartitionErrorHandler.IsTerminated);
                         throw;
                     }
                 };

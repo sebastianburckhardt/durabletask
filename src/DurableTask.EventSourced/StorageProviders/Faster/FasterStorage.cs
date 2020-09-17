@@ -44,15 +44,15 @@ namespace DurableTask.EventSourced.Faster
 
         internal FasterTraceHelper TraceHelper { get; private set; }
 
-        public FasterStorage(string connectionString, string secondaryConnectionString, string taskHubName, ILoggerFactory loggerFactory)
+        public FasterStorage(string connectionString, string premiumStorageConnectionString, string taskHubName, ILoggerFactory loggerFactory)
         {
             if (connectionString != LocalFileStorageConnectionString)
             {
                 this.storageAccount = CloudStorageAccount.Parse(connectionString);
             }
-            if (!string.IsNullOrEmpty(secondaryConnectionString))
+            if (!string.IsNullOrEmpty(premiumStorageConnectionString))
             {
-                this.secondaryStorageAccount = CloudStorageAccount.Parse(secondaryConnectionString);
+                this.secondaryStorageAccount = CloudStorageAccount.Parse(premiumStorageConnectionString);
             }
             else
             {
@@ -84,7 +84,7 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Start();
 
             this.TraceHelper.FasterProgress("Creating FasterLog");
-            this.log = new FasterLog(this.blobManager);
+            this.log = new FasterLog(this.blobManager, partition.Settings);
 
             if (partition.Settings.UseAlternateObjectStore)
             {

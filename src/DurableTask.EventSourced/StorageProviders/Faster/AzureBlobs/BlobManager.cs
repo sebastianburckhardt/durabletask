@@ -81,14 +81,16 @@ namespace DurableTask.EventSourced.Faster
 
         private volatile System.Diagnostics.Stopwatch leaseTimer;
 
-        public FasterLogSettings EventLogSettings => new FasterLogSettings
+        public FasterLogSettings EventLogSettings(bool usePremiumStorage) => new FasterLogSettings
         {
             LogDevice = this.EventLogDevice,
             LogCommitManager = this.UseLocalFilesForTestingAndDebugging
                 ? new LocalLogCommitManager($"{this.LocalDirectoryPath}\\{this.PartitionFolderName}\\{CommitBlobName}")
                 : (ILogCommitManager)this,
             PageSizeBits = 21, // 2MB
-            SegmentSizeBits = 30, // 1 GB
+            SegmentSizeBits =
+                usePremiumStorage ? 37  // 127 GB
+                                  : 30, // 1 GB
             MemorySizeBits = 23, // 8MB
         };
 
@@ -103,13 +105,15 @@ namespace DurableTask.EventSourced.Faster
         //    MemorySizeBits = 24, // 16MB
         //};
 
-        public LogSettings StoreLogSettings(uint numPartitions) => new LogSettings
+        public LogSettings StoreLogSettings(bool usePremiumStorage, uint numPartitions) => new LogSettings
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
             PageSizeBits = 13, // 8kB
             MutableFraction = 0.9,
-            SegmentSizeBits = 28, // 256 MB
+            SegmentSizeBits = 
+                usePremiumStorage ? 37 // 127 GB
+                                  : 28, // 256 MB
             CopyReadsToTail = true,
             MemorySizeBits =
                 (numPartitions <=  1) ? 25 : // 32MB
@@ -140,7 +144,7 @@ namespace DurableTask.EventSourced.Faster
 
         internal PSFRegistrationSettings<TKey> CreatePSFRegistrationSettings<TKey>(uint numberPartitions, int groupOrdinal)
         {
-            var storeLogSettings = this.StoreLogSettings(numberPartitions);
+            var storeLogSettings = this.StoreLogSettings(false, numberPartitions);
             return new PSFRegistrationSettings<TKey>
             {
                 HashTableSize = FasterKV.HashTableSize,
@@ -287,9 +291,8 @@ namespace DurableTask.EventSourced.Faster
                 var hybridLogDevice = createDevice(HybridLogBlobName);
                 var objectLogDevice = createDevice(ObjectLogBlobName);
                 var psfLogDevices = (from groupOrdinal in Enumerable.Range(0, this.PsfGroupCount)
-                                     let psfDirectoryBlob = this.blockBlobPartitionDirectory.GetDirectoryReference(this.PsfGroupFolderName(groupOrdinal))
-                                     let psfDirectoryPage = this.pageBlobPartitionDirectory.GetDirectoryReference(this.PsfGroupFolderName(groupOrdinal))
-                                     select new AzureStorageDevice(PsfHybridLogBlobName, psfDirectoryBlob.GetDirectoryReference(PsfHybridLogBlobName), psfDirectoryPage.GetDirectoryReference(PsfHybridLogBlobName), this, true)).ToArray();
+                                     let psfDirectory = this.blockBlobPartitionDirectory.GetDirectoryReference(this.PsfGroupFolderName(groupOrdinal))
+                                     select new AzureStorageDevice(PsfHybridLogBlobName, psfDirectory.GetDirectoryReference(PsfHybridLogBlobName), psfDirectory.GetDirectoryReference(PsfHybridLogBlobName), this, true)).ToArray();
 
                 await this.AcquireOwnership();
 
@@ -596,7 +599,7 @@ namespace DurableTask.EventSourced.Faster
                     SynchronousStorageAccessMaxConcurrency.Wait();
 
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
-                    var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                    var blobRequestOptions = numAttempts > 2 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
                     stopwatch.Restart();
                     this.eventLogCommitBlob.UploadFromByteArray(commitMetadata, 0, commitMetadata.Length, acc, blobRequestOptions);
                     stopwatch.Stop();
@@ -674,7 +677,7 @@ namespace DurableTask.EventSourced.Faster
                     SynchronousStorageAccessMaxConcurrency.Wait();
                     this.PartitionErrorHandler.Token.ThrowIfCancellationRequested();
                     using var stream = new MemoryStream();
-                    var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                    var blobRequestOptions = numAttempts > 2 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
                     stopwatch.Restart();
                     this.eventLogCommitBlob.DownloadToStream(stream, acc, blobRequestOptions);
                     stopwatch.Stop();
@@ -929,13 +932,11 @@ namespace DurableTask.EventSourced.Faster
                 SynchronousStorageAccessMaxConcurrency.Wait();
 
                 var (path, blobName) = this.GetPrimaryHashTableBlobName(indexToken);
-                var ppartDir = isPsf ? this.pageBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.pageBlobPartitionDirectory;
-                var pblobDirectory = ppartDir.GetDirectoryReference(path);
-                var bpartDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
-                var bblobDirectory = bpartDir.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, bblobDirectory, pblobDirectory, this, false); // we don't need a lease since the token provides isolation
+                var partDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
+                var blobDirectory = partDir.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory, blobDirectory, this, false); // we don't need a lease since the token provides isolation
                 device.StartAsync().Wait();
-                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexDevice Returned from {tag}, blobDirectory={pblobDirectory.Prefix} blobName={blobName}");
+                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetIndexDevice Returned from {tag}, blobDirectory={blobDirectory.Prefix} blobName={blobName}");
                 return device;
             }
             catch (Exception e)
@@ -958,14 +959,12 @@ namespace DurableTask.EventSourced.Faster
                 SynchronousStorageAccessMaxConcurrency.Wait();
 
                 var (path, blobName) = this.GetLogSnapshotBlobName(token);
-                var ppartDir = isPsf ? this.pageBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.pageBlobPartitionDirectory;
-                var pblobDirectory = ppartDir.GetDirectoryReference(path);
-                var bpartDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
-                var bblobDirectory = bpartDir.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, bblobDirectory, pblobDirectory, this, false); // we don't need a lease since the token provides isolation
+                var partDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
+                var blobDirectory = partDir.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory, blobDirectory, this, false); // we don't need a lease since the token provides isolation
 
                 device.StartAsync().Wait();
-                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotLogDevice Returned from {tag}, blobDirectory={pblobDirectory} blobName={blobName}");
+                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotLogDevice Returned from {tag}, blobDirectory={blobDirectory} blobName={blobName}");
                 return device;
             }
             catch (Exception e)
@@ -988,13 +987,11 @@ namespace DurableTask.EventSourced.Faster
                 SynchronousStorageAccessMaxConcurrency.Wait();
 
                 var (path, blobName) = this.GetObjectLogSnapshotBlobName(token);
-                var ppartDir = isPsf ? this.pageBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.pageBlobPartitionDirectory;
-                var pblobDirectory = ppartDir.GetDirectoryReference(path);
-                var bpartDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
-                var bblobDirectory = bpartDir.GetDirectoryReference(path);
-                var device = new AzureStorageDevice(blobName, bblobDirectory, pblobDirectory, this, false); // we don't need a lease since the token provides isolation
+                var partDir = isPsf ? this.blockBlobPartitionDirectory.GetDirectoryReference(PsfGroupFolderName(psfGroupOrdinal)) : this.blockBlobPartitionDirectory;
+                var blobDirectory = partDir.GetDirectoryReference(path);
+                var device = new AzureStorageDevice(blobName, blobDirectory, blobDirectory, this, false); // we don't need a lease since the token provides isolation
                 device.StartAsync().Wait();
-                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotObjectLogDevice Returned from {tag}, blobDirectory={pblobDirectory} blobName={blobName}");
+                this.StorageTracer?.FasterStorageProgress($"ICheckpointManager.GetSnapshotObjectLogDevice Returned from {tag}, blobDirectory={blobDirectory} blobName={blobName}");
                 return device;
             }
             catch (Exception e)

@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper = traceHelper;
             this.intakeWorker = new IntakeWorker(cancellationToken, this);
 
-            this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
+            this.maxFragmentSize = (1 << this.blobManager.EventLogSettings(partition.Settings.UsePremiumStorage).PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
 
         public const byte first = 0x1;

@@ -49,7 +49,7 @@ namespace DurableTask.EventSourced.Faster
 
             this.fht = new FasterKV<Key, Value>(
                 HashTableSize,
-                blobManager.StoreLogSettings(partition.NumberPartitions()),
+                blobManager.StoreLogSettings(partition.Settings.UsePremiumStorage, partition.NumberPartitions()),
                 blobManager.StoreCheckpointSettings,
                 new SerializerSettings<Key, Value>
                 {
