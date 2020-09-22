@@ -65,17 +65,30 @@ namespace DurableTask.EventSourced
         /// <summary>Implement this member in derived classes to process a batch</summary>
         protected abstract Task Process(IList<T> batch);
 
-        public virtual void Submit(T entry)
+        public void Submit(T entry)
         {
             work.Enqueue(entry);
             this.NotifyInternal();
         }
 
-        public virtual void SubmitBatch(IList<T> entries)
+        public void SubmitBatch(IList<T> entries)
         {
             foreach (var e in entries)
             {
                 work.Enqueue(e);
+            }
+            this.NotifyInternal();
+        }
+
+        public void SubmitBatch(IList<T> entries, SemaphoreSlim credits)
+        {
+            foreach (var e in entries)
+            {
+                work.Enqueue(e);
+            }
+            if (credits != null)
+            {
+                work.Enqueue(credits);
             }
             this.NotifyInternal();
         }
@@ -133,6 +146,11 @@ namespace DurableTask.EventSourced
                 {
                     runAgain = true;
                     continue;
+                }
+                else if (entry is SemaphoreSlim credits)
+                {
+                    runAgain = true;
+                    credits.Release();
                 }
                 else
                 {

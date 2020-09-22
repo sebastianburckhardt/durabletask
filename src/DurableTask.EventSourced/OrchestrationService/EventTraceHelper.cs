@@ -16,7 +16,6 @@ using Dynamitey;
 using Dynamitey.DynamicObjects;
 using FASTER.core;
 using Microsoft.Extensions.Logging;
-using Mono.Unix.Native;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -68,65 +67,65 @@ namespace DurableTask.EventSourced
             }
 
             // TODO remove this for production, it is here for benchmarking only      
-            if (this.logLevelLimit <= LogLevel.Warning && !replaying)
-            {
-                // This is here for measuring response times
-                if (this.benchmarkLogger.IsEnabled(LogLevel.Warning))
-                {
-                    string eventType;
-                    switch (evt)
-                    {
-                        case CreationRequestReceived creationRequestEvent:
-                            // Q: Is the receivedTimestamp the correct point to measure response time?
-                            var startTimestamp = creationRequestEvent.ReceivedTimestamp;
-                            var instanceId = creationRequestEvent.InstanceId;
-                            eventType = "CreationRequestReceived";
-                            this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
-                            break;
+            //if (this.logLevelLimit <= LogLevel.Warning && !replaying)
+            //{
+            //    // This is here for measuring response times
+            //    if (this.benchmarkLogger.IsEnabled(LogLevel.Warning))
+            //    {
+            //        string eventType;
+            //        switch (evt)
+            //        {
+            //            case CreationRequestReceived creationRequestEvent:
+            //                // Q: Is the receivedTimestamp the correct point to measure response time?
+            //                var startTimestamp = creationRequestEvent.ReceivedTimestamp;
+            //                var instanceId = creationRequestEvent.InstanceId;
+            //                eventType = "CreationRequestReceived";
+            //                this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} at {timestamp}", this.partitionId, commitLogPosition, eventType, instanceId, startTimestamp);
+            //                break;
 
-                        // Old way of measuring orchestration completion time that involves noise due to client polling times
-                        //case StateRequestReceived readEvent:
-                        //    // Q: Is this how all our benchmarks end? It seems so.
-                        //    var endTimestamp = finishedTimestamp;
-                        //    var readTarget = readEvent.ReadTarget.InstanceId;
-                        //    eventType = "StateRequestReceived";
-                        //    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
-                        //    break;
+            //            // Old way of measuring orchestration completion time that involves noise due to client polling times
+            //            //case StateRequestReceived readEvent:
+            //            //    // Q: Is this how all our benchmarks end? It seems so.
+            //            //    var endTimestamp = finishedTimestamp;
+            //            //    var readTarget = readEvent.ReadTarget.InstanceId;
+            //            //    eventType = "StateRequestReceived";
+            //            //    this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, readTarget, endTimestamp);
+            //            //    break;
 
-                        case BatchProcessed batchProcessedEvent:
-                            var state = batchProcessedEvent.State;
-                            if (state != null)
-                            {
-                                var instanceStatus = state.OrchestrationStatus;
-                                if (instanceStatus == OrchestrationStatus.Canceled ||
-                                    instanceStatus == OrchestrationStatus.Completed ||
-                                    instanceStatus == OrchestrationStatus.Failed ||
-                                    instanceStatus == OrchestrationStatus.Terminated)
-                                {
-                                    var targetInstanceId = batchProcessedEvent.InstanceId;
-                                    var finalTimestamp = finishedTimestamp;
-                                    var creationTime = batchProcessedEvent.State.CreatedTime.Ticks;
-                                    var completionTime = batchProcessedEvent.State.CompletedTime.Ticks;
-                                    var elapsedTime = new TimeSpan(completionTime - creationTime);
-                                    eventType = "BatchProcessed";
-                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
-                                    //this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} with creation time: {creationTime} and completionTime: {completionTime} was {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, creationTime, completionTime, instanceStatus, finalTimestamp);
-                                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
-                                }
+            //            case BatchProcessed batchProcessedEvent:
+            //                var state = batchProcessedEvent.State;
+            //                if (state != null)
+            //                {
+            //                    var instanceStatus = state.OrchestrationStatus;
+            //                    if (instanceStatus == OrchestrationStatus.Canceled ||
+            //                        instanceStatus == OrchestrationStatus.Completed ||
+            //                        instanceStatus == OrchestrationStatus.Failed ||
+            //                        instanceStatus == OrchestrationStatus.Terminated)
+            //                    {
+            //                        var targetInstanceId = batchProcessedEvent.InstanceId;
+            //                        var finalTimestamp = finishedTimestamp;
+            //                        var creationTime = batchProcessedEvent.State.CreatedTime.Ticks;
+            //                        var completionTime = batchProcessedEvent.State.CompletedTime.Ticks;
+            //                        var elapsedTime = new TimeSpan(completionTime - creationTime);
+            //                        eventType = "BatchProcessed";
+            //                        this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {status} {eventType} for {instanceId} was processed at {timestamp}", this.partitionId, commitLogPosition, instanceStatus, eventType, targetInstanceId, finalTimestamp);
+            //                        //this.logger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} with creation time: {creationTime} and completionTime: {completionTime} was {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, creationTime, completionTime, instanceStatus, finalTimestamp);
+            //                        this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} {instanceId} took {elapsedMilliseconds} ms from its creation to completion with status: {status} at {timestamp}", this.partitionId, commitLogPosition, targetInstanceId, elapsedTime.TotalMilliseconds, instanceStatus, finalTimestamp);
+            //                    }
 
-                            }
-                            else
-                            {
-                                // This could be `null` if the instance is not executable (e.g. when the messages where for an existing completed executionID).
-                                var targetInstanceId = batchProcessedEvent.InstanceId;
-                                var eventIdString = batchProcessedEvent.EventIdString;
-                                eventType = "BatchProcessed";
-                                this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
-                            }
-                            break;
-                    }
-                }
-            }
+            //                }
+            //                else
+            //                {
+            //                    // This could be `null` if the instance is not executable (e.g. when the messages where for an existing completed executionID).
+            //                    var targetInstanceId = batchProcessedEvent.InstanceId;
+            //                    var eventIdString = batchProcessedEvent.EventIdString;
+            //                    eventType = "BatchProcessed";
+            //                    this.benchmarkLogger.LogWarning("Part{partition:D2}.{commitLogPosition:D10} State was NULL in {eventType}:{eventId} for {instanceId} that was processed at {timestamp}", this.partitionId, commitLogPosition, eventType, eventIdString, targetInstanceId, finishedTimestamp);
+            //                }
+            //                break;
+            //        }
+            //    }
+            //}
         }
 
         public void TraceTaskMessageReceived(TaskMessage message, string sessionPosition)
@@ -354,15 +353,15 @@ namespace DurableTask.EventSourced
 
         public void TraceEventSentDetail(PartitionUpdateEvent evt)
         {
-            if (this.logLevelLimit <= LogLevel.Warning)
+            if (this.logLevelLimit <= LogLevel.Debug)
             {
                 (long commitLogPosition, string eventId) = EventTraceContext.Current;
                 double sentTimestamp = evt.SentTimestamp;
                 double noSpeculationDelay = sentTimestamp - ((PartitionUpdateEvent)evt).ReadyToSendTimestamp;
-                if (this.logger.IsEnabled(LogLevel.Warning))
+                if (this.logger.IsEnabled(LogLevel.Debug))
                 {
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogWarning("Part{partition:D2}{prefix} Event sent with delay: {noSpeculationDelay} ms", this.partitionId, prefix, noSpeculationDelay);
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Event sent with delay: {noSpeculationDelay} ms", this.partitionId, prefix, noSpeculationDelay);
                 }
                 etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", $"Event sent with delay: {noSpeculationDelay} ms", TraceUtils.ExtensionVersion);
             }

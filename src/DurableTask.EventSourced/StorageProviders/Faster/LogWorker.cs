@@ -47,7 +47,7 @@ namespace DurableTask.EventSourced.Faster
             this.traceHelper = traceHelper;
             this.intakeWorker = new IntakeWorker(cancellationToken, this);
 
-            this.maxFragmentSize = (1 << this.blobManager.EventLogSettings.PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
+            this.maxFragmentSize = (1 << this.blobManager.EventLogSettings(partition.Settings.UsePremiumStorage).PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
 
         public const byte first = 0x1;
@@ -62,6 +62,8 @@ namespace DurableTask.EventSourced.Faster
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
+            private readonly SemaphoreSlim logWorkerCredits = new SemaphoreSlim(10);
+            private readonly SemaphoreSlim storeWorkerCredits = new SemaphoreSlim(10);
 
             // I assume that this list contains pointers to the events
             public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
@@ -72,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
                 this.updateEvents = new List<PartitionUpdateEvent>();
             }
 
-            protected override Task Process(IList<PartitionEvent> batch)
+            protected override async Task Process(IList<PartitionEvent> batch)
             {
                 if (batch.Count > 0 && !this.logWorker.isShuttingDown)
                 {
@@ -129,13 +131,15 @@ namespace DurableTask.EventSourced.Faster
 
                     // the store worker and the log worker can now process these events in parallel
                     // Persistence Confirmation events are not submitted to any of the workers.
-                    this.logWorker.storeWorker.SubmitBatch(batch.Where(e => !(e is PersistenceConfirmationEvent)).ToList());
-                    this.logWorker.SubmitBatch(updateEvents);
+                    this.logWorker.storeWorker.SubmitBatch(batch.Where(e => !(e is PersistenceConfirmationEvent)).ToList(), this.storeWorkerCredits);
+                    this.logWorker.SubmitBatch(updateEvents, this.logWorkerCredits);
 
                     this.updateEvents.Clear();
-                }
 
-                return Task.CompletedTask;
+                    // do not continue the processing loop until we have enough credits
+                    await this.storeWorkerCredits.WaitAsync(this.cancellationToken);
+                    await this.logWorkerCredits.WaitAsync(this.cancellationToken);
+                }
             }
 
             private void SetConfirmationWaiter(PartitionMessageEvent evt)
@@ -188,9 +192,9 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IList<PartitionEvent> events)
+        public void SubmitExternalEvents(IList<PartitionEvent> events, SemaphoreSlim credits)
         {
-            this.intakeWorker.SubmitBatch(events);
+            this.intakeWorker.SubmitBatch(events, credits);
         }
 
       

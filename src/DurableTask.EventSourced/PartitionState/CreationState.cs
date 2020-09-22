@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core.History;
 using DurableTask.EventSourced.Scaling;
 using System;
 using System.Collections.Generic;
@@ -83,6 +84,11 @@ namespace DurableTask.EventSourced
                     && this.request.DedupeStatuses != null
                     && this.request.DedupeStatuses.Contains(instanceState.OrchestrationState.OrchestrationStatus);
 
+                // Use this moment of time as the creation timestamp, replacing the original timestamp taken on the client.
+                // This is preferrable because it avoids clock synchronization issues (which can result in negative orchestration durations)
+                // and means the timestamp is consistently ordered with respect to timestamps of other events on this partition.
+                ((ExecutionStartedEvent)this.request.TaskMessage.Event).Timestamp = DateTime.UtcNow;
+
                 partition.SubmitInternalEvent(new CreationRequestProcessed()
                 {
                     PartitionId = partition.PartitionId,
@@ -90,7 +96,6 @@ namespace DurableTask.EventSourced
                     RequestId = this.request.RequestId,
                     TaskMessage = this.request.TaskMessage,
                     CreationRequestEventId = this.request.EventIdString,
-                    Timestamp = DateTime.UtcNow,
                     FilteredDuplicate = filterDuplicate,
                 });
             }

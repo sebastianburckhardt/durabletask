@@ -28,7 +28,7 @@ using Dynamitey;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class SessionsState : TrackedObject
+    internal class SessionsState : TrackedObject, TransportAbstraction.IDurabilityListener
     {
         [DataMember]
         public Dictionary<string, Session> Sessions { get; private set; } = new Dictionary<string, Session>();
@@ -55,6 +55,9 @@ namespace DurableTask.EventSourced
             public OrchestrationMessageBatch CurrentBatch { get; set; }
         }
 
+        [DataMember]
+        public Dictionary<string, BatchProcessed> StepsAwaitingPersistence { get; private set; } = new Dictionary<string, BatchProcessed>();
+
         [IgnoreDataMember]
         public HashSet<OrchestrationMessageBatch> PendingMessageBatches { get; set; } = new HashSet<OrchestrationMessageBatch>();
 
@@ -70,6 +73,12 @@ namespace DurableTask.EventSourced
             foreach (var kvp in Sessions)
             {
                 new OrchestrationMessageBatch(kvp.Key, kvp.Value, this.Partition);
+            }
+            
+            // handle all steps that were awaiting persistence
+            foreach(var kvp in this.StepsAwaitingPersistence)
+            {
+                this.ConfirmDurable(kvp.Value);
             }
         }        
 
@@ -226,9 +235,34 @@ namespace DurableTask.EventSourced
             // queues the execution started message
             this.AddMessageToSession(creationRequestProcessed.TaskMessage, effects.IsReplaying);
         }
-        
+
+        public void ConfirmDurable(Event evt)
+        {
+            var evtCopy = (BatchProcessed) evt.Clone();
+            evtCopy.IsPersisted = true;
+            this.Partition.SubmitInternalEvent(evtCopy);
+        }
+
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
+            // if speculation is disabled, 
+            if (effects.Partition.Settings.PersistStepsFirst)
+            {
+                if (!evt.IsPersisted)
+                {
+                    // we do not process this event right away
+                    // but persist it first, and then submit it again, before processing it.
+                    this.StepsAwaitingPersistence.Add(evt.WorkItemId, evt);
+                    DurabilityListeners.Register(evt, this);
+                    return;
+                }
+                else
+                {
+                    bool success = this.StepsAwaitingPersistence.Remove(evt.WorkItemId);
+
+                }
+            }
+
             // updates the session and other state
 
             // our instance may already be obsolete if it has been forcefully replaced.

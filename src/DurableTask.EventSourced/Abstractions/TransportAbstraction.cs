@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
@@ -139,7 +140,8 @@ namespace DurableTask.EventSourced
             /// Queues a batch of incoming external events for processing on this partition.
             /// </summary>
             /// <param name="partitionEvents">The events to process.</param>
-            void SubmitExternalEvents(IList<PartitionEvent> partitionEvents);
+            /// <param name="credits">A semaphore that releases a credit when the batch is processed.</param>
+            void SubmitExternalEvents(IList<PartitionEvent> partitionEvents, SemaphoreSlim credits);
 
             /// <summary>
             /// The error handler for this partition.

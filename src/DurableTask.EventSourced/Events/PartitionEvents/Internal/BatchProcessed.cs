@@ -56,6 +56,9 @@ namespace DurableTask.EventSourced
         [DataMember]
         public DateTime Timestamp { get; set; }
 
+        [DataMember]
+        public bool IsPersisted { get; set; }
+
         [IgnoreDataMember]
         public OrchestrationWorkItem WorkItemForReuse { get; set; }
 
@@ -63,7 +66,7 @@ namespace DurableTask.EventSourced
         public string WorkItemId => SessionsState.GetWorkItemId(this.PartitionId, this.SessionId, this.BatchStartPosition, this.BatchLength);
 
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakePartitionInternalEventId(this.WorkItemId);
+        public override EventId EventId => EventId.MakePartitionInternalEventId(this.IsPersisted ? this.WorkItemId + "P" : this.WorkItemId);
 
         [IgnoreDataMember]
         public override IEnumerable<TaskMessage> TracedTaskMessages 

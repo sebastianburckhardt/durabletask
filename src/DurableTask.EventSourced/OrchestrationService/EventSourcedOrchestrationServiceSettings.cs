@@ -35,9 +35,17 @@ namespace DurableTask.EventSourced
         public string EventProcessorManagement { get; set; } = "EventHubs";
 
         /// <summary>
-        /// Gets or sets the connection string for the Azure storage account.
+        /// Gets or sets the connection string for the Azure storage account, supporting all types of blobs, and table storage.
         /// </summary>
         public string StorageConnectionString { get; set; }
+
+        /// <summary>
+        /// Gets or sets the connection string for a premium Azure storage account supporting page blobs only.
+        /// </summary>
+        public string PremiumStorageConnectionString { get; set; }
+
+        [JsonIgnore]
+        internal bool UsePremiumStorage => !string.IsNullOrEmpty(PremiumStorageConnectionString);
 
         /// <summary>
         /// The name of the taskhub. Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
@@ -110,6 +118,11 @@ namespace DurableTask.EventSourced
         /// Whether to use the alternate object store implementation.
         /// </summary>
         public bool UseAlternateObjectStore { get; set; } = false;
+
+        /// <summary>
+        /// Forces steps to pe persisted before applying their effects, thus disabling all speculation.
+        /// </summary>
+        public bool PersistStepsFirst { get; set; } = false;
 
         /// <summary>
         /// Whether to use JSON serialization for eventhubs packets.

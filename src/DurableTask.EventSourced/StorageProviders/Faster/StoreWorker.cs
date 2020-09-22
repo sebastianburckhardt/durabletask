@@ -197,8 +197,8 @@ namespace DurableTask.EventSourced.Faster
             this.partition.TraceHelper.TracePartitionLoad(info);
 
             // trace top load
-            this.partition.TraceHelper.TraceProgress($"LockMonitor top {LockMonitor.TopN}: {LockMonitor.Instance.Report()}");
-            LockMonitor.Instance.Reset();
+            // this.partition.TraceHelper.TraceProgress($"LockMonitor top {LockMonitor.TopN}: {LockMonitor.Instance.Report()}");
+            // LockMonitor.Instance.Reset();
         }
 
         private void UpdateLatencyTrend(PartitionLoadInfo info)

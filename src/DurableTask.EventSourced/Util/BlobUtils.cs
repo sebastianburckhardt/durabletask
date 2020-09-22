@@ -57,6 +57,11 @@ namespace DurableTask.EventSourced
                 || (e.RequestInformation.HttpStatusCode == 504); //504 Gateway Timeout
         }
 
+        public static bool IsTimeout(StorageException e)
+        {
+            return (e.RequestInformation.HttpStatusCode == 408);  //408 Request Timeout
+        }
+
         // Lease error codes are documented at https://docs.microsoft.com/en-us/rest/api/storageservices/lease-blob
 
         public static bool LeaseConflictOrExpired(StorageException e)

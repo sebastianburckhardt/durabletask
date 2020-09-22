@@ -29,6 +29,7 @@ namespace DurableTask.EventSourced.Faster
         public const string LocalFileStorageConnectionString = "UseLocalFileStorage";
 
         private CloudStorageAccount storageAccount;
+        private CloudStorageAccount secondaryStorageAccount;
         private readonly string taskHubName;
         private readonly ILogger logger;
 
@@ -43,11 +44,19 @@ namespace DurableTask.EventSourced.Faster
 
         internal FasterTraceHelper TraceHelper { get; private set; }
 
-        public FasterStorage(string connectionString, string taskHubName, ILoggerFactory loggerFactory)
+        public FasterStorage(string connectionString, string premiumStorageConnectionString, string taskHubName, ILoggerFactory loggerFactory)
         {
             if (connectionString != LocalFileStorageConnectionString)
             {
                 this.storageAccount = CloudStorageAccount.Parse(connectionString);
+            }
+            if (!string.IsNullOrEmpty(premiumStorageConnectionString))
+            {
+                this.secondaryStorageAccount = CloudStorageAccount.Parse(premiumStorageConnectionString);
+            }
+            else
+            {
+                this.secondaryStorageAccount = this.storageAccount;
             }
             this.taskHubName = taskHubName;
             this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.FasterStorage");
@@ -65,7 +74,7 @@ namespace DurableTask.EventSourced.Faster
             this.terminationToken = errorHandler.Token;
 
 
-            this.blobManager = new BlobManager(this.storageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler, FasterKV.PSFCount);
+            this.blobManager = new BlobManager(this.storageAccount, this.secondaryStorageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler, FasterKV.PSFCount);
             this.TraceHelper = blobManager.TraceHelper;
 
             this.TraceHelper.FasterProgress("Starting BlobManager");
@@ -75,7 +84,7 @@ namespace DurableTask.EventSourced.Faster
             stopwatch.Start();
 
             this.TraceHelper.FasterProgress("Creating FasterLog");
-            this.log = new FasterLog(this.blobManager);
+            this.log = new FasterLog(this.blobManager, partition.Settings);
 
             if (partition.Settings.UseAlternateObjectStore)
             {
@@ -203,9 +212,9 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
-        public void SubmitExternalEvents(IList<PartitionEvent> evts)
+        public void SubmitExternalEvents(IList<PartitionEvent> evts, SemaphoreSlim credits)
         {
-            this.logWorker.SubmitExternalEvents(evts);
+            this.logWorker.SubmitExternalEvents(evts, credits);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)
@@ -245,7 +254,7 @@ namespace DurableTask.EventSourced.Faster
         private async Task TestStorageLatency()
         {
             Stopwatch stopwatch = new Stopwatch();
-            var blob = this.blobManager.BlobContainer.GetBlockBlobReference("test");
+            var blob = this.blobManager.BlockBlobContainer.GetBlockBlobReference("test");
             var text = DateTime.UtcNow.ToString("o");
             stopwatch.Start();
             await blob.UploadTextAsync(text).ConfigureAwait(BlobManager.CONFIGURE_AWAIT_FOR_STORAGE_CALLS);

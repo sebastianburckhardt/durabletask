@@ -55,6 +55,14 @@ namespace DurableTask.EventSourced
             // subclasses can override this to add extra information to the trace
         }
 
+        public Event Clone()
+        {
+            var evt = (Event)this.MemberwiseClone();
+            evt.eventIdString = null;
+            evt.DurabilityListeners.Clear();
+            return evt;
+        }
+
         public static IEnumerable<Type> KnownTypes()
         {
             yield return typeof(ClientEventFragment);

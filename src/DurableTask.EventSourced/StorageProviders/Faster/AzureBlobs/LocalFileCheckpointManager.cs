@@ -15,6 +15,7 @@ using DurableTask.EventSourced.Faster;
 using FASTER.core;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace DurableTask.EventSourced.Faster
@@ -49,12 +50,11 @@ namespace DurableTask.EventSourced.Faster
             this.localCheckpointManager.CommitLogCheckpoint(logToken, commitMetadata);
             this.checkpointInfo.LogToken = logToken;
         }
+        byte[] ICheckpointManager.GetIndexCheckpointMetadata(Guid indexToken)
+            => this.localCheckpointManager.GetIndexCheckpointMetadata(indexToken);
 
-        byte[] ICheckpointManager.GetIndexCommitMetadata(Guid indexToken)
-            => this.localCheckpointManager.GetIndexCommitMetadata(indexToken);
-
-        byte[] ICheckpointManager.GetLogCommitMetadata(Guid logToken)
-            => this.localCheckpointManager.GetLogCommitMetadata(logToken);
+        byte[] ICheckpointManager.GetLogCheckpointMetadata(Guid logToken)
+                 => this.localCheckpointManager.GetLogCheckpointMetadata(logToken);
 
         IDevice ICheckpointManager.GetIndexDevice(Guid indexToken)
             => this.localCheckpointManager.GetIndexDevice(indexToken);
@@ -65,7 +65,7 @@ namespace DurableTask.EventSourced.Faster
         IDevice ICheckpointManager.GetSnapshotObjectLogDevice(Guid token)
             => this.localCheckpointManager.GetSnapshotObjectLogDevice(token);
 
-        bool ICheckpointManager.GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
+        bool GetLatestCheckpoint(out Guid indexToken, out Guid logToken)
         {
             if (!File.Exists(this.checkpointCompletedFilename))
                 return false;
@@ -77,5 +77,27 @@ namespace DurableTask.EventSourced.Faster
             logToken = this.checkpointInfo.LogToken;
             return indexToken != default && logToken != default;
         }
+
+        IEnumerable<Guid> ICheckpointManager.GetIndexCheckpointTokens()
+        {
+            if (this.GetLatestCheckpoint(out Guid indexToken, out Guid _))
+            {
+                yield return indexToken;
+            }
+        }
+
+        IEnumerable<Guid> ICheckpointManager.GetLogCheckpointTokens()
+        {
+            if (this.GetLatestCheckpoint(out Guid _, out Guid logToken))
+            {
+                yield return logToken;
+            }
+        }
+
+        void ICheckpointManager.PurgeAll()
+            => this.localCheckpointManager.PurgeAll();
+
+        void IDisposable.Dispose()
+            => this.localCheckpointManager.Dispose();
     }
 }
