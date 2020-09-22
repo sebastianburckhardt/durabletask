@@ -133,7 +133,7 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 Incarnation = (prior != null) ? (prior.Incarnation + 1) : 1,
                 ErrorHandler = this.host.CreateErrorHandler(this.partitionId),
-                Credits = new SemaphoreSlim(10),
+                Credits = new SemaphoreSlim(10000),
             };
 
             // if this is not the first incarnation, stay on standby until the previous incarnation is terminated.

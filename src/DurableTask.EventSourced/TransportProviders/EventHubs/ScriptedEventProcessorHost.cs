@@ -198,7 +198,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         {
             private readonly uint partitionId;
             private readonly ScriptedEventProcessorHost host;
-            private readonly SemaphoreSlim credits = new SemaphoreSlim(10);
+            private readonly SemaphoreSlim credits = new SemaphoreSlim(10000);
 
             private TransportAbstraction.IPartition partition;
             private Task partitionEventLoop;

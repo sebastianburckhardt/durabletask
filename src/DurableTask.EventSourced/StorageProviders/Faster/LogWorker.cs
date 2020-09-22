@@ -62,8 +62,8 @@ namespace DurableTask.EventSourced.Faster
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
-            private readonly SemaphoreSlim logWorkerCredits = new SemaphoreSlim(10);
-            private readonly SemaphoreSlim storeWorkerCredits = new SemaphoreSlim(10);
+            private readonly SemaphoreSlim logWorkerCredits = new SemaphoreSlim(10000);
+            private readonly SemaphoreSlim storeWorkerCredits = new SemaphoreSlim(10000);
 
             // I assume that this list contains pointers to the events
             public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
