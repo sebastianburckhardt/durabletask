@@ -122,5 +122,10 @@ namespace DurableTask.EventSourced
                 }
             }
         }
+
+        public void Clear()
+        {
+            this.status = default;
+        }
     }
 }

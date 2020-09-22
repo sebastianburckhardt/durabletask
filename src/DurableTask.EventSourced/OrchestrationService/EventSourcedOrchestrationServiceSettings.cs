@@ -120,6 +120,11 @@ namespace DurableTask.EventSourced
         public bool UseAlternateObjectStore { get; set; } = false;
 
         /// <summary>
+        /// Forces steps to pe persisted before applying their effects, thus disabling all speculation.
+        /// </summary>
+        public bool PersistStepsFirst { get; set; } = false;
+
+        /// <summary>
         /// Whether to use JSON serialization for eventhubs packets.
         /// </summary>
         [JsonConverter(typeof(StringEnumConverter))]
