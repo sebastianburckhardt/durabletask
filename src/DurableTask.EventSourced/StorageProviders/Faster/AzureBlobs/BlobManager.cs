@@ -113,7 +113,7 @@ namespace DurableTask.EventSourced.Faster
             MutableFraction = 0.9,
             SegmentSizeBits = 
                 usePremiumStorage ? 37 // 127 GB
-                                  : 28, // 256 MB
+                                  : 32, // 4 GB
             CopyReadsToTail = true,
             MemorySizeBits =
                 (numPartitions <=  1) ? 25 : // 32MB

@@ -48,7 +48,7 @@ namespace DurableTask.EventSourced.Faster
         // Also, this allows us to use aggressive timeouts to kill stragglers
         private const uint MAX_UPLOAD_SIZE = 1024 * 1024;
 
-        private const uint DEFAULT_SEGMENT_SIZE = 256 * 1024 * 1024; // 256 MB
+        private const long MAX_PAGEBLOB_SIZE = 512L * 1024 * 1024 * 1024; // set this at 512 GB for now TODO consider implications
 
         /// <summary>
         /// Constructs a new AzureStorageDevice instance, backed by Azure Page Blobs
@@ -68,7 +68,6 @@ namespace DurableTask.EventSourced.Faster
             this.PartitionErrorHandler = blobManager.PartitionErrorHandler;
             this.BlobManager = blobManager;
             this.underLease = underLease;
-            this.segmentSize = DEFAULT_SEGMENT_SIZE;
         }
 
         public async Task StartAsync()
@@ -232,7 +231,7 @@ namespace DurableTask.EventSourced.Faster
                     CloudPageBlob pageBlob = this.pageBlobDirectory.GetPageBlobReference(GetSegmentBlobName(segmentId));
 
                     // If segment size is -1 we use a default
-                    var size = segmentSize == -1 ? AzureStorageDevice.DEFAULT_SEGMENT_SIZE : segmentSize;
+                    var size = segmentSize == -1 ? AzureStorageDevice.MAX_PAGEBLOB_SIZE : segmentSize;
 
                     // If no blob exists for the segment, we must first create the segment asynchronouly. (Create call takes ~70 ms by measurement)
                     // After creation is done, we can call write.
@@ -355,7 +354,8 @@ namespace DurableTask.EventSourced.Faster
 
                         if (readLength > 0)
                         {
-                            var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                            var blobRequestOptions = (numAttempts > 1 || readLength > MAX_UPLOAD_SIZE)
+                                ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
 
                             await blob
                                 .DownloadRangeToStreamAsync(stream, sourceAddress, readLength, accessCondition: null, options: blobRequestOptions, operationContext: null, cancellationToken: this.PartitionErrorHandler.Token)
