@@ -598,6 +598,9 @@ namespace DurableTask.EventSourced.Faster
         {
             lock (this)
             {
+                int numAttempts = 0;
+                var stopwatch = new Stopwatch();
+
                 while (true)
                 {
                     numAttempts++;
