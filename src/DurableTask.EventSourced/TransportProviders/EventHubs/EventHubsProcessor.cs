@@ -307,11 +307,11 @@ namespace DurableTask.EventSourced.EventHubs
                             partitionEvent.ReceivedTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
                             // Output the time it took for the event to go through eventhubs.
-                            if (partitionEvent.SentTimestampUnixMs != 0)
-                            {
-                                long duration = partitionEvent.ReceivedTimestampUnixMs - partitionEvent.SentTimestampUnixMs;
-                                this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, partitionEvent.EventIdString, duration);
-                            }
+                            //if (partitionEvent.SentTimestampUnixMs != 0)
+                            //{
+                            //    long duration = partitionEvent.ReceivedTimestampUnixMs - partitionEvent.SentTimestampUnixMs;
+                            //    this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} eventId={eventId} with {eventHubsLatencyMs} ms latency", this.eventHubName, this.eventHubPartition, seqno, partitionEvent.EventIdString, duration);
+                            //}
                         }
                         else if (seqno > current.NextPacketToReceive)
                         {
