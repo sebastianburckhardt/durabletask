@@ -75,7 +75,16 @@ namespace DurableTask.EventSourced
 
             if (!effects.IsReplaying)
             {
-                DurabilityListeners.Register(evt, this); // we need to continue the send after this event is durable
+                if (!this.Partition.Settings.PersistStepsFirst)
+                {
+                    // we must not send messages until this step has been persisted
+                    DurabilityListeners.Register(evt, this);
+                }
+                else
+                {
+                    // we can send the messages now
+                    this.Send(batch);
+                }
             }
         }
 
