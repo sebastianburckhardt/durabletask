@@ -29,6 +29,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         private readonly TransportAbstraction.ISender sender;
         private readonly EventHubsConnections connections;
         private readonly EventHubsTransport.TaskhubParameters parameters;
+        private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsTraceHelper logger;
         private readonly List<PartitionInstance> partitionInstances = new List<PartitionInstance>();
 
@@ -44,6 +45,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             TransportAbstraction.ISender sender,
             EventHubsConnections connections,
             EventHubsTransport.TaskhubParameters parameters,
+            EventSourcedOrchestrationServiceSettings settings,
             EventHubsTraceHelper logger,
             string workerId)
         {
@@ -56,6 +58,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.sender = sender;
             this.connections = connections;
             this.parameters = parameters;
+            this.settings = settings;
             this.logger = logger;
             this.workerId = workerId;
         }
@@ -198,7 +201,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         {
             private readonly uint partitionId;
             private readonly ScriptedEventProcessorHost host;
-            private readonly SemaphoreSlim credits = new SemaphoreSlim(10000);
+            private readonly SemaphoreSlim credits;
 
             private TransportAbstraction.IPartition partition;
             private Task partitionEventLoop;
@@ -212,6 +215,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 this.partitionId = partitionId;
                 this.Incarnation = incarnation;
                 this.host = eventProcessorHost;
+                this.credits = new SemaphoreSlim(eventProcessorHost.settings.PipelineCredits);
             }
 
             public int Incarnation { get; }

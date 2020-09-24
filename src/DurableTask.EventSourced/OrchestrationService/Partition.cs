@@ -261,7 +261,7 @@ namespace DurableTask.EventSourced
 
         public void SubmitExternalEvents(IList<PartitionEvent> partitionEvents, SemaphoreSlim credits)
         {
-            foreach(PartitionEvent partitionEvent in partitionEvents)
+            foreach (PartitionEvent partitionEvent in partitionEvents)
             {
                 partitionEvent.ReceivedTimestamp = this.CurrentTimeMs;
             }

@@ -38,6 +38,7 @@ namespace DurableTask.EventSourced.EventHubs
         private readonly TransportAbstraction.ISender sender;
         private readonly EventHubsTransport.TaskhubParameters parameters;
         private readonly EventHubsTraceHelper traceHelper;
+        private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly PartitionContext partitionContext;
         private readonly string eventHubName;
         private readonly string eventHubPartition;
@@ -82,6 +83,7 @@ namespace DurableTask.EventSourced.EventHubs
             TransportAbstraction.ISender sender,
             EventHubsTransport.TaskhubParameters parameters,
             PartitionContext partitionContext,
+            EventSourcedOrchestrationServiceSettings settings,
             EventHubsTraceHelper logger)
         {
             this.host = host;
@@ -89,6 +91,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.parameters = parameters;
             this.pendingDelivery = new ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)>();
             this.partitionContext = partitionContext;
+            this.settings = settings;
             this.eventHubName = this.partitionContext.EventHubPath;
             this.eventHubPartition = this.partitionContext.PartitionId;
             this.partitionId = uint.Parse(this.eventHubPartition);
@@ -133,7 +136,7 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 Incarnation = (prior != null) ? (prior.Incarnation + 1) : 1,
                 ErrorHandler = this.host.CreateErrorHandler(this.partitionId),
-                Credits = new SemaphoreSlim(10000),
+                Credits = new SemaphoreSlim(this.settings.PipelineCredits),
             };
 
             // if this is not the first incarnation, stay on standby until the previous incarnation is terminated.
