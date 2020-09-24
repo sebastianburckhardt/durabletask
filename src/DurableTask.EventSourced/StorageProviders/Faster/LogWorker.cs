@@ -45,7 +45,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
-            this.intakeWorker = new IntakeWorker(cancellationToken, this);
+            this.intakeWorker = new IntakeWorker(cancellationToken, this, partition.Settings.PipelineCredits);
 
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings(partition.Settings.UsePremiumStorage).PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
@@ -62,11 +62,13 @@ namespace DurableTask.EventSourced.Faster
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
-            private readonly SemaphoreSlim logWorkerCredits = new SemaphoreSlim(10);
-            private readonly SemaphoreSlim storeWorkerCredits = new SemaphoreSlim(10);
+            private readonly SemaphoreSlim logWorkerCredits;
+            private readonly SemaphoreSlim storeWorkerCredits;
 
-            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(nameof(IntakeWorker), token)
+            public IntakeWorker(CancellationToken token, LogWorker logWorker, int pipelineCredits) : base(nameof(IntakeWorker), token)
             {
+                this.logWorkerCredits = new SemaphoreSlim(pipelineCredits);
+                this.storeWorkerCredits = new SemaphoreSlim(pipelineCredits);
                 this.logWorker = logWorker;
                 this.updateEvents = new List<PartitionUpdateEvent>();
             }

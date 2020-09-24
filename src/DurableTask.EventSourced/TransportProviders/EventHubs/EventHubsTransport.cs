@@ -196,6 +196,7 @@ namespace DurableTask.EventSourced.EventHubs
                         this, 
                         this.connections,
                         this.parameters, 
+                        this.settings,
                         this.traceHelper,
                         settings.WorkerId);
 
@@ -230,7 +231,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         IEventProcessor IEventProcessorFactory.CreateEventProcessor(PartitionContext partitionContext)
         {
-            var processor = new EventHubsProcessor(this.host, this, this.parameters, partitionContext, this.traceHelper);
+            var processor = new EventHubsProcessor(this.host, this, this.parameters, partitionContext, this.settings, this.traceHelper);
             return processor;
         }
 
