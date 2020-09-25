@@ -65,6 +65,9 @@ namespace DurableTask.EventSourced.Faster
             private readonly SemaphoreSlim logWorkerCredits;
             private readonly SemaphoreSlim storeWorkerCredits;
 
+            // I assume that this list contains pointers to the events
+            public Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>> WaitingForConfirmation = new Dictionary<uint, List<Tuple<long, PartitionUpdateEvent>>>();
+
             public IntakeWorker(CancellationToken token, LogWorker logWorker, int pipelineCredits) : base(nameof(IntakeWorker), token)
             {
                 this.logWorkerCredits = new SemaphoreSlim(pipelineCredits);
