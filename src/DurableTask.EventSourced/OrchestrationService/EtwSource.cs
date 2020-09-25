@@ -156,10 +156,10 @@ namespace DurableTask.EventSourced
         }
 
         [Event(226, Level = EventLevel.Verbose, Version = 1)]
-        public void InstanceStatusFetched(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, string EventId, double LatencyMs, string ExtensionVersion)
+        public void InstanceStatusFetched(string Account, string TaskHub, int PartitionId, string InstanceId, string ExecutionId, string status, string EventId, double LatencyMs, string ExtensionVersion)
         {
             SetCurrentThreadActivityId(serviceInstanceId);
-            this.WriteEvent(226, Account, TaskHub, PartitionId, InstanceId, ExecutionId, EventId, LatencyMs, ExtensionVersion);
+            this.WriteEvent(226, Account, TaskHub, PartitionId, InstanceId, ExecutionId, status, EventId, LatencyMs, ExtensionVersion);
         }
 
         [Event(227, Level = EventLevel.Verbose, Version = 1)]

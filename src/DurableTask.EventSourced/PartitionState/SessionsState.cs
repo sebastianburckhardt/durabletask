@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Sessions);
 
-        public static string GetWorkItemId(uint partition, long session, long position, int length) => $"{partition:D2}-S{session}:{position}[{length}]";
+        public static string GetWorkItemId(uint partition, long session, long position) => $"{partition:D2}-S{session}:{position}";
 
 
         public override void OnRecoveryCompleted()
@@ -258,8 +258,7 @@ namespace DurableTask.EventSourced
                 }
                 else
                 {
-                    bool success = this.StepsAwaitingPersistence.Remove(evt.WorkItemId);
-
+                    this.StepsAwaitingPersistence.Remove(evt.WorkItemId);
                 }
             }
 

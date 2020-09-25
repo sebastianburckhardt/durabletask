@@ -63,7 +63,7 @@ namespace DurableTask.EventSourced
         public OrchestrationWorkItem WorkItemForReuse { get; set; }
 
         [IgnoreDataMember]
-        public string WorkItemId => SessionsState.GetWorkItemId(this.PartitionId, this.SessionId, this.BatchStartPosition, this.BatchLength);
+        public string WorkItemId => SessionsState.GetWorkItemId(this.PartitionId, this.SessionId, this.BatchStartPosition);
 
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakePartitionInternalEventId(this.IsPersisted ? this.WorkItemId + "P" : this.WorkItemId);

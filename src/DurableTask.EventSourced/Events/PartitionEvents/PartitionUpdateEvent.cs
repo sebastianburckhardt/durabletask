@@ -32,6 +32,9 @@ namespace DurableTask.EventSourced
         public long NextCommitLogPosition { get; set; }
 
         [IgnoreDataMember]
+        public OutboxState.Batch OutboxBatch { get; set; }
+
+        [IgnoreDataMember]
         public virtual IEnumerable<TaskMessage> TracedTaskMessages => PartitionUpdateEvent.noTaskMessages;
 
         private static IEnumerable<TaskMessage> noTaskMessages = Enumerable.Empty<TaskMessage>();

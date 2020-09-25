@@ -272,7 +272,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void TraceFetchedInstanceStatus(PartitionReadEvent evt, string instanceId, string executionId, double latencyMs)
+        public void TraceFetchedInstanceStatus(PartitionReadEvent evt, string instanceId, string executionId, string status, double latencyMs)
         {
             if (this.logLevelLimit <= LogLevel.Debug)
             {
@@ -281,11 +281,11 @@ namespace DurableTask.EventSourced
                     (long commitLogPosition, string eventId) = EventTraceContext.Current;
 
                     string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
-                    this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance status instanceId={instanceId} executionId={executionId} eventId={eventId} latencyMs={latencyMs:F0}",
-                        this.partitionId, prefix, instanceId, executionId, evt.EventIdString, latencyMs);
+                    this.logger.LogDebug("Part{partition:D2}{prefix} Fetched instance status instanceId={instanceId} executionId={executionId} status={status} eventId={eventId} latencyMs={latencyMs:F0}",
+                        this.partitionId, prefix, instanceId, executionId, status, evt.EventIdString, latencyMs);
                 }
 
-                etw?.InstanceStatusFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
+                etw?.InstanceStatusFetched(this.account, this.taskHub, this.partitionId, instanceId, executionId, status, evt.EventIdString, latencyMs, TraceUtils.ExtensionVersion);
             }
         }
 
@@ -364,6 +364,21 @@ namespace DurableTask.EventSourced
                     this.logger.LogDebug("Part{partition:D2}{prefix} Event sent with delay: {noSpeculationDelay} ms", this.partitionId, prefix, noSpeculationDelay);
                 }
                 etw?.PartitionEventDetail(this.account, this.taskHub, this.partitionId, commitLogPosition, eventId ?? "", $"Event sent with delay: {noSpeculationDelay} ms", TraceUtils.ExtensionVersion);
+            }
+        }
+
+        public void TraceWarning(string details)
+        {
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                (long commitLogPosition, string eventId) = EventTraceContext.Current;
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    string prefix = commitLogPosition > 0 ? $".{commitLogPosition:D10}   " : "";
+                    this.logger.LogWarning("Part{partition:D2}{prefix} {details}", this.partitionId, prefix, details);
+                }
+
+                // for now no ETW, TODO
             }
         }
     }

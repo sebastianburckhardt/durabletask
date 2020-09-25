@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
             this.BatchLength = session.Batch.Count;
             this.ForceNewExecution = session.ForceNewExecution && session.BatchStartPosition == 0;
             this.MessagesToProcess = session.Batch.ToList(); // make a copy, because it can be modified when new messages arrive
-            this.WorkItemId = SessionsState.GetWorkItemId(partition.PartitionId, SessionId, BatchStartPosition, BatchLength);
+            this.WorkItemId = SessionsState.GetWorkItemId(partition.PartitionId, SessionId, BatchStartPosition);
             this.WaitingSince = partition.CurrentTimeMs;
 
             session.CurrentBatch = this; 
@@ -77,6 +77,18 @@ namespace DurableTask.EventSourced
                 workItem = historyState.CachedOrchestrationWorkItem;
                 workItem.SetNextMessageBatch(this);
                 workItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromCursor;
+
+                // sanity check: it appears cursor is sometimes corrupted, in that case, construct fresh
+                // TODO investigate reasons and fix root cause
+                if (workItem.OrchestrationRuntimeState?.Events?.Count != historyState.History?.Count
+                    || workItem.OrchestrationRuntimeState?.OrchestrationInstance?.ExecutionId != historyState.ExecutionId)
+                {
+                    partition.EventTraceHelper.TraceWarning($"Fixing bad workitem cache instance={this.InstanceId} batch={this.WorkItemId} expected_size={historyState.History?.Count} actual_size={workItem.OrchestrationRuntimeState?.Events?.Count} expected_executionid={historyState.ExecutionId} actual_executionid={workItem.OrchestrationRuntimeState?.OrchestrationInstance?.ExecutionId}");
+
+                    // we create a new work item and rehydrate the instance from its history
+                    workItem = new OrchestrationWorkItem(partition, this, previousHistory: historyState.History);
+                    workItem.Type = OrchestrationWorkItem.ExecutionType.ContinueFromHistory;
+                }
             }
             else
             {

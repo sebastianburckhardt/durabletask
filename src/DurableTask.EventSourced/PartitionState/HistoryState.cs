@@ -92,6 +92,12 @@ namespace DurableTask.EventSourced
 
                 // if present, we keep the work item so we can reuse the execution cursor
                 this.CachedOrchestrationWorkItem = evt.WorkItemForReuse;
+
+                if (this.CachedOrchestrationWorkItem != null && this.CachedOrchestrationWorkItem.OrchestrationRuntimeState?.OrchestrationInstance?.ExecutionId != evt.State.OrchestrationInstance.ExecutionId)
+                {
+                    effects.Partition.EventTraceHelper.TraceWarning($"Dropping bad workitem cache instance={this.InstanceId} expected_executionid={evt.State.OrchestrationInstance.ExecutionId} actual_executionid={CachedOrchestrationWorkItem.OrchestrationRuntimeState?.OrchestrationInstance?.ExecutionId}");
+                    this.CachedOrchestrationWorkItem = null;
+                }
             }
         }
     }
