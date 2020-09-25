@@ -84,7 +84,6 @@ namespace DurableTask.EventSourced.Faster
                     // and assigned a commit log position
                     foreach (var evt in batch)
                     {
-
                         // We don't need to submit PersistenceConfirmationEvents further down, since they don't need to be actually committed.
                         // Commiting the events implies that persistence of their dependencies was confirmed.
                         if (evt is PersistenceConfirmationEvent persistenceConfirmationEvent)

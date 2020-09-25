@@ -173,8 +173,7 @@ namespace DurableTask.EventSourced.Faster
                         {
                             PartitionId = partitionId,
                             OriginPartition = this.partition.PartitionId,
-                            OriginPosition = this.log.CommittedUntilAddress
-
+                            OriginPosition = this.log.CommittedUntilAddress,
                         };
                         this.partition.Send(persistenceConfirmationEvent);
                     }

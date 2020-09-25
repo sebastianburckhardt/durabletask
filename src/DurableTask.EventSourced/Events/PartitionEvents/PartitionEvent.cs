@@ -50,8 +50,8 @@ namespace DurableTask.EventSourced
         /// It is compared with the local unix time at the receiver's end.
         /// Warning: If there is clock skew, the result might not be very accurate.
         /// </summary>
-        [DataMember]
-        public long SentTimestampUnixMs { get; set; } = 0;
+        //[DataMember]
+        //public long SentTimestampUnixMs { get; set; } = 0;
 
         [IgnoreDataMember]
         public long ReceivedTimestampUnixMs { get; set; }

@@ -28,14 +28,10 @@ using DurableTask.EventSourced.Scaling;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class OutboxState : TrackedObject, TransportAbstraction.IDurabilityListener
+    internal class OutboxState : TrackedObject
     {
         [DataMember]
         public SortedDictionary<long, Batch> Outbox { get; private set; } = new SortedDictionary<long, Batch>();
-
-        // Contains the partition identifiers that we need to inform when events have been persisted
-        [DataMember]
-        public SortedDictionary<long, HashSet<uint>> WaitingForConfirmation { get; private set; } = new SortedDictionary<long, HashSet<uint>>();
 
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Outbox);
 
@@ -50,12 +46,8 @@ namespace DurableTask.EventSourced
 
                 // resend (anything we have recovered is of course persisted)
                 Partition.EventDetailTracer?.TraceEventProcessingDetail($"Resent {kvp.Key:D10} ({kvp.Value} messages)");
-                this.Send(kvp.Value);
-
-                // resend the persistence confirmation events (since ConfirmDurable won't be called)
-                // TODO: Make sure that it is safe to remove this now that we send PersistenceConfirmation events
-                //       at the end of recovery in FasterStorage
-                SendPersistenceConfirmation(kvp.Key);
+                kvp.Value.SendMessages();
+                kvp.Value.SendPersistenceConfirmation();
             }
         }
 
@@ -79,55 +71,10 @@ namespace DurableTask.EventSourced
 
             if (!effects.IsReplaying)
             {
-                this.Send(this.Outbox[commitPosition]);
-                DurabilityListeners.Register(evt, this); // we need to send a persistence confirmation after this event is durable
+                batch.SendMessages();
+                batch.Unpersisted = evt;
+                DurabilityListeners.Register(evt, batch);
             }
-        }
-
-
-        private void SendPersistenceConfirmation(long commitPosition)
-        {
-            var destinationPartitionIds = WaitingForConfirmation[commitPosition];
-            foreach (var destinationPartitionId in destinationPartitionIds)
-            {
-                var persistenceConfirmationEvent = new PersistenceConfirmationEvent
-                {
-                    PartitionId = destinationPartitionId,
-                    OriginPartition = this.Partition.PartitionId,
-                    OriginPosition = commitPosition
-
-                };
-
-                this.Partition.Send(persistenceConfirmationEvent);
-            }
-            WaitingForConfirmation.Remove(commitPosition);
-        }
-
-        public void ConfirmDurable(Event evt)
-        {
-            this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Log has persisted event {evt} id={evt.EventIdString}, now sending confirmation messages");
-            SendPersistenceConfirmation(((PartitionUpdateEvent)evt).NextCommitLogPosition);
-        }
-
-        private void Send(Batch batch)
-        {
-            // Gather all destination partitions in a list
-            var destinationPartitionIds = new HashSet<uint>();
-
-            // now that we know the sending event is persisted, we can send the messages
-            foreach (var outmessage in batch.OutgoingMessages)
-            {
-                DurabilityListeners.Register(outmessage, batch);
-                outmessage.OriginPartition = this.Partition.PartitionId;
-                outmessage.OriginPosition = batch.Position;
-                destinationPartitionIds.Add(outmessage.PartitionId);
-                outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-                Partition.Send(outmessage);
-            }
-            // Get the identifier of the update event that caused this batch to be sent
-            var nextCommitLogAddress = batch.Position;
-            WaitingForConfirmation.Add(nextCommitLogAddress, destinationPartitionIds);
-
         }
 
         [DataContract]
@@ -145,21 +92,59 @@ namespace DurableTask.EventSourced
             [IgnoreDataMember]
             private int numAcks = 0;
 
-            // Q: Maybe we should be able to serialize this? Is this necessary? Probably not
             [IgnoreDataMember]
-            public PartitionUpdateEvent Event { get; set; }
+            public Event Unpersisted;
 
             public void ConfirmDurable(Event evt)
             {
-                this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Transport has confirmed event {evt} id={evt.EventIdString}");
-
-                if (++numAcks == this.OutgoingMessages.Count)
+                if (evt == Unpersisted)
                 {
+                    this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"LogWorker has confirmed durability of event {evt} id={evt.EventIdString}");
+                    Unpersisted = null;
+                    this.SendPersistenceConfirmation();
+                }
+                else
+                {
+                    this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Transport has confirmed sending of event {evt} id={evt.EventIdString}");
+                    numAcks++;
+                }
+
+                if (numAcks == this.OutgoingMessages.Count && Unpersisted == null)
+                {
+                    // remove this batch safely from the outbox via an event
                     this.Partition.SubmitInternalEvent(new SendConfirmed()
                     {
                         PartitionId = this.Partition.PartitionId,
                         Position = Position,
                     });
+                }
+            }
+
+            public void SendMessages()
+            {
+                foreach (var outmessage in this.OutgoingMessages)
+                {
+                    DurabilityListeners.Register(outmessage, this);
+                    outmessage.OriginPartition = this.Partition.PartitionId;
+                    outmessage.OriginPosition = this.Position;
+                    //outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                    this.Partition.Send(outmessage);
+                }
+            }
+
+            public void SendPersistenceConfirmation()
+            {
+                var destinationPartitionIds = this.OutgoingMessages.Select(m => m.PartitionId).Distinct();
+                foreach (var destinationPartitionId in destinationPartitionIds)
+                {
+                    var persistenceConfirmationEvent = new PersistenceConfirmationEvent
+                    {
+                        PartitionId = destinationPartitionId,
+                        OriginPartition = this.Partition.PartitionId,
+                        OriginPosition = this.Position,
+                    };
+
+                    this.Partition.Send(persistenceConfirmationEvent);
                 }
             }
         }
