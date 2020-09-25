@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using DurableTask.Core;
 using DurableTask.EventSourced.Scaling;
 using Microsoft.Extensions.Logging;
 
@@ -45,6 +46,22 @@ namespace DurableTask.EventSourced
                 if (EtwSource.Log.IsEnabled())
                 {
                     EtwSource.Log.PartitionLoadPublished(this.account, this.taskHub, partitionId, info.WorkItems, info.Activities, info.Timers, info.Outbox, info.Wakeup?.ToString("o") ?? "", info.ActivityLatencyMs, info.WorkItemLatencyMs, info.WorkerId, info.LatencyTrend, info.MissRate, info.InputQueuePosition, info.CommitLogPosition, TraceUtils.ExtensionVersion);
+                }
+            }
+        }
+
+        public void TraceWorkItemProgress(string workItemId, string instanceId, string format, params object[] args)
+        {
+            if (this.logLevelLimit <= LogLevel.Debug)
+            {
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    object[] objarray = new object[3 + args.Length];
+                    objarray[0] = partitionId;
+                    objarray[1] = workItemId;
+                    objarray[2] = instanceId;
+                    Array.Copy(args, 0, objarray, 3, args.Length);
+                    logger.LogDebug("Part{partition:D2} OrchestrationWorkItem workItemId={workItemId} instanceId={instanceId} " + format, objarray);
                 }
             }
         }

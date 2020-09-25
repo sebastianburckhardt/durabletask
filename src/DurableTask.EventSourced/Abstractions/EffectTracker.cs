@@ -158,8 +158,10 @@ namespace DurableTask.EventSourced
                         switch (key.ObjectType)
                         {
                             case TrackedObjectKey.TrackedObjectType.Instance:
-                                string instanceExecutionId = (target as InstanceState)?.OrchestrationState?.OrchestrationInstance.ExecutionId;
-                                this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, startedTimestamp - readEvent.IssuedTimestamp);
+                                InstanceState instanceState = (InstanceState)target;
+                                string instanceExecutionId = instanceState?.OrchestrationState?.OrchestrationInstance.ExecutionId;
+                                string status = instanceState?.OrchestrationState?.OrchestrationStatus.ToString() ?? "null";
+                                this.Partition.EventTraceHelper.TraceFetchedInstanceStatus(readEvent, key.InstanceId, instanceExecutionId, status, startedTimestamp - readEvent.IssuedTimestamp);
                                 break;
 
                             case TrackedObjectKey.TrackedObjectType.History:

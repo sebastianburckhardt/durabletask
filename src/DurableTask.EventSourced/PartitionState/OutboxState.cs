@@ -78,6 +78,7 @@ namespace DurableTask.EventSourced
                 if (!this.Partition.Settings.PersistStepsFirst)
                 {
                     // we must not send messages until this step has been persisted
+                    evt.OutboxBatch = batch;
                     DurabilityListeners.Register(evt, this);
                 }
                 else
@@ -90,13 +91,15 @@ namespace DurableTask.EventSourced
 
         public void ConfirmDurable(Event evt)
         {
-            // Calculate the delay by not sending immediately
-            ((PartitionUpdateEvent)evt).SentTimestamp = this.Partition.CurrentTimeMs;
-            this.Partition.EventTraceHelper.TraceEventSentDetail((PartitionUpdateEvent)evt);
+            var partitionUpdateEvent = ((PartitionUpdateEvent)evt);
 
-            long commitPosition = ((PartitionUpdateEvent)evt).NextCommitLogPosition;
+            // Calculate the delay by not sending immediately
+            partitionUpdateEvent.SentTimestamp = this.Partition.CurrentTimeMs;
+            this.Partition.EventTraceHelper.TraceEventSentDetail(partitionUpdateEvent);
+
+            long commitPosition = partitionUpdateEvent.NextCommitLogPosition;
             this.Partition.EventDetailTracer?.TraceEventProcessingDetail($"Store has persisted event {evt} id={evt.EventIdString}, now sending messages");
-            this.Send(this.Outbox[commitPosition]);
+            this.Send(partitionUpdateEvent.OutboxBatch);
         }
 
         private void Send(Batch batch)
@@ -107,7 +110,7 @@ namespace DurableTask.EventSourced
                 DurabilityListeners.Register(outmessage, batch);
                 outmessage.OriginPartition = this.Partition.PartitionId;
                 outmessage.OriginPosition = batch.Position;
-                outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                //outmessage.SentTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
                 Partition.Send(outmessage);
             }
         }
