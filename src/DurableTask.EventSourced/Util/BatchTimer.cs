@@ -40,15 +40,16 @@ namespace DurableTask.EventSourced
             this.tracer = tracer;
             this.schedule = new SortedList<(DateTime due, int id), T>();
             this.notify = new SemaphoreSlim(0, int.MaxValue);
+            this.thisLock = new MonitoredLock();
 
             token.Register(() => this.notify.Release());
         }
 
         public void Start(string name)
         {
-            this.thisLock = new MonitoredLock(name);
             var thread = new Thread(ExpirationCheckLoop);
             thread.Name = name;
+            thisLock.Name = name;
             thread.Start();
         }
 
