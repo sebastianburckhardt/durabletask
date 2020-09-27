@@ -9,12 +9,12 @@ namespace DurableTask.EventSourced
     // serves as a standard lock but with monitoring built in
     internal class MonitoredLock
     {
-        private readonly string name;
+        public string Name { get; set; }
         private readonly Stopwatch stopWatch;
 
-        public MonitoredLock(string name) 
+        public MonitoredLock(string name = null) 
         {
-            this.name = name;
+            this.Name = name ?? "MonitoredLock";
             this.stopWatch = new Stopwatch();
             this.stopWatch.Start();
         }
@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced
             long startTime = stopWatch.ElapsedTicks;
             System.Threading.Monitor.Enter(this);
             long acquiredTime = stopWatch.ElapsedTicks;
-            LockMonitor.Instance.ReportAcquire(this.name, acquiredTime - startTime);
+            LockMonitor.Instance.ReportAcquire(this.Name, acquiredTime - startTime);
             return new AcquisitionToken()
             {
                 MonitoredLock = this,
@@ -39,7 +39,7 @@ namespace DurableTask.EventSourced
 
             public void Dispose()
             {
-                LockMonitor.Instance.ReportRelease(this.MonitoredLock.name, this.MonitoredLock.stopWatch.ElapsedTicks - this.AcquiredTime);
+                LockMonitor.Instance.ReportRelease(this.MonitoredLock.Name, this.MonitoredLock.stopWatch.ElapsedTicks - this.AcquiredTime);
                 System.Threading.Monitor.Exit(this.MonitoredLock);
             }
         }
