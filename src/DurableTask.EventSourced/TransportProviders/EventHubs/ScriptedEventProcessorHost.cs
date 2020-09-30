@@ -84,17 +84,24 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 this.partitionInstances.Add(null);
             }
 
-            List<PartitionScript.ProcessorHostEvent> timesteps;
+            List<PartitionScript.ProcessorHostEvent> timesteps = new List<PartitionScript.ProcessorHostEvent>(); ;
 
-            using (var memoryStream = new System.IO.MemoryStream())
+            try
             {
-                partitionScript.DownloadRangeToStream(memoryStream, null, null);
-                memoryStream.Seek(0, System.IO.SeekOrigin.Begin);
-                timesteps = PartitionScript.ParseEvents(scenarioStartTimeUtc, settings.WorkerId, this.numberOfPartitions, memoryStream).ToList();
+                using (var memoryStream = new System.IO.MemoryStream())
+                {
+                    partitionScript.DownloadRangeToStream(memoryStream, null, null);
+                    memoryStream.Seek(0, System.IO.SeekOrigin.Begin);
+                    timesteps.AddRange(PartitionScript.ParseEvents(scenarioStartTimeUtc, settings.WorkerId, this.numberOfPartitions, memoryStream));
+                }
+
+                this.logger.LogInformation("ScriptedEventProcessorHost workerId={workerId} started.", this.workerId);
+            }
+            catch(Exception e)
+            {
+                this.logger.LogError($"ScriptedEventProcessorHost workerId={workerId} failed to parse partitionscript: {e}");
             }
 
-            this.logger.LogInformation("ScriptedEventProcessorHost workerId={workerId} started.", this.workerId);
-      
             int nextTime = 0;
             List<PartitionScript.ProcessorHostEvent> nextGroup = new List<PartitionScript.ProcessorHostEvent>();
 
@@ -207,6 +214,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             private Task partitionEventLoop;
             private PartitionReceiver partitionReceiver;
             private CancellationTokenSource shutdownSource;
+            private Task shutdownTask;
             // Just copied from EventHubsTransport
             private const int MaxReceiveBatchSize = 1000; // actual batches are typically much smaller
 
@@ -223,6 +231,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             public async Task StartAsync()
             {
                 this.shutdownSource = new CancellationTokenSource();
+                this.shutdownTask = this.WaitForShutdownAsync();
 
                 try
                 {
@@ -245,6 +254,20 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 }
             }
 
+            private async Task WaitForShutdownAsync()
+            {
+                if (!this.shutdownSource.IsCancellationRequested)
+                {
+                    var tcs = new TaskCompletionSource<object>();
+                    var registration = this.shutdownSource.Token.Register(() =>
+                     {
+                         tcs.TrySetResult(true);
+                     });
+                    await tcs.Task;
+                    registration.Dispose();
+                }
+            }
+
             // TODO: Handle errors
             public async Task StopAsync()
             {
@@ -255,16 +278,16 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     await partition.StopAsync().ConfigureAwait(false);
                     this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped partition", this.host.eventHubPath, partitionId, this.Incarnation);
 
-                    // Stop the receiver loop
-                    this.shutdownSource.Cancel();
-
                     // wait for the receiver loop to terminate
-                    await this.partitionEventLoop;
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopping receiver loop", this.host.eventHubPath, partitionId, this.Incarnation);
+                    this.shutdownSource.Cancel();
+                    await this.partitionEventLoop.ConfigureAwait(false);
 
                     // shut down the partition receiver (eventHubs complains if more than 5 of these are active per partition)
-                    await this.partitionReceiver.CloseAsync();
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) closing the partition receiver", this.host.eventHubPath, partitionId, this.Incarnation);
+                    await this.partitionReceiver.CloseAsync().ConfigureAwait(false);
 
-                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped receive loop", this.host.eventHubPath, partitionId, this.Incarnation);
+                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped partition", this.host.eventHubPath, partitionId, this.Incarnation);
                 }
                 catch (Exception e) when (!Utils.IsFatal(e))
                 {
@@ -285,14 +308,14 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                     {
                         this.host.logger.LogTrace("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) trying to receive eventdata from position {position}", this.host.eventHubPath, partitionId, this.Incarnation, nextPacketToReceive);
 
-
-                        // TODO: Is there a way to cancel the receive async if there is a requested cancellation?
-
                         IEnumerable<EventData> eventData;
 
                         try
                         {
-                            eventData = await this.partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+                            var receiveTask = this.partitionReceiver.ReceiveAsync(MaxReceiveBatchSize, TimeSpan.FromMinutes(1));
+                            await Task.WhenAny(receiveTask, this.shutdownTask).ConfigureAwait(false);
+                            this.shutdownSource.Token.ThrowIfCancellationRequested();
+                            eventData = await receiveTask.ConfigureAwait(false);
                         }
                         catch (TimeoutException exception)
                         {
@@ -300,8 +323,6 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                             this.host.logger.LogWarning("Retrying after transient(?) TimeoutException in ReceiveAsync {exception}", exception);
                             eventData = null;
                         }
-
-                        this.shutdownSource.Token.ThrowIfCancellationRequested();
 
                         if (eventData != null)
                         {
