@@ -86,7 +86,7 @@ namespace DurableTask.EventSourced.Faster
 
                     try
                     {
-                        var blobRequestOptions = numAttempts > 1 ? BlobManager.BlobRequestOptionsDefault : BlobManager.BlobRequestOptionsAggressiveTimeout;
+                        var blobRequestOptions = BlobManager.BlobRequestOptionsDefault;
 
                         this.azureStorageDevice.BlobManager?.StorageTracer?.FasterStorageProgress($"starting create page blob target={pageBlob.Name} size={size}");
                         stopwatch.Restart();
@@ -109,12 +109,12 @@ namespace DurableTask.EventSourced.Faster
                         stopwatch.Stop();
                         if (BlobUtils.IsTimeout(e))
                         {
-                            this.azureStorageDevice.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.CreateAsync timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={pageBlob.Name} size={size}");
+                            this.azureStorageDevice.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.CreateAsync timed out after {stopwatch.ElapsedMilliseconds:f1}ms, retrying now; numAttempts={numAttempts} target={pageBlob.Name} size={size}");
                         }
                         else
                         {
                             TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                            this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), $"could not create page blob, will retry in {nextRetryIn}s", pageBlob.Name, e, false, true);
+                            this.azureStorageDevice.BlobManager?.HandleBlobError(nameof(CreateAsync), $"could not create page blob, will retry in {nextRetryIn}s, numAttempts={numAttempts}", pageBlob.Name, e, false, true);
                             await Task.Delay(nextRetryIn);
                         }
                         continue;

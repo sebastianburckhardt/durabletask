@@ -297,12 +297,12 @@ namespace DurableTask.EventSourced.Faster
                         stopwatch.Stop();
                         if (BlobUtils.IsTimeout(e))
                         {
-                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.WritePagesAsync timed out after {stopwatch.ElapsedMilliseconds:f1}ms, retrying now; numAttempts={numAttempts} target={blob.Name} length={length} destinationAddress={destinationAddress + offset}");
                         }
                         else
                         {
                             TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                            this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
+                            this.BlobManager?.HandleBlobError(nameof(WritePortionToBlobAsync), $"could not write to page blob, will retry in {nextRetryIn}s, numAttempts={numAttempts}", blob?.Name, e, false, true);
                             await Task.Delay(nextRetryIn);
                         }
                         stream.Seek(streamPosition, SeekOrigin.Begin); // must go back to original position before retry
@@ -381,12 +381,12 @@ namespace DurableTask.EventSourced.Faster
                         stopwatch.Stop();
                         if (BlobUtils.IsTimeout(e))
                         {
-                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.DownloadRangeToStreamAsync timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
+                            this.BlobManager?.TraceHelper.FasterPerfWarning($"CloudPageBlob.DownloadRangeToStreamAsync timed out after {stopwatch.ElapsedMilliseconds:f1}ms, retrying now; numAttempts={numAttempts} target={blob.Name} readLength={readLength} sourceAddress={sourceAddress}");
                         }
                         else
                         {
                             TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                            this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), $"could not read from page blob, will retry in {nextRetryIn}s", blob?.Name, e, false, true);
+                            this.BlobManager?.HandleBlobError(nameof(ReadFromBlobAsync), $"could not read from page blob, will retry in {nextRetryIn}s, numAttempts={numAttempts}", blob?.Name, e, false, true);
                             await Task.Delay(nextRetryIn);
                         }
                         stream.Seek(0, SeekOrigin.Begin); // must go back to original position before retrying

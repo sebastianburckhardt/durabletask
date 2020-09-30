@@ -633,12 +633,12 @@ namespace DurableTask.EventSourced.Faster
                     stopwatch.Stop();
                     if (BlobUtils.IsTimeout(e))
                     {
-                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={eventLogCommitBlob.Name} length={commitMetadata.Length}");
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.UploadFromByteArray timed out after {stopwatch.ElapsedMilliseconds:f1}ms, retrying now; numAttempts={numAttempts} target={eventLogCommitBlob.Name} length={commitMetadata.Length}");
                     }
                     else
                     {
                         TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not write to commit blob, will retry in {nextRetryIn}s", eventLogCommitBlob.Name, e, false, true);
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not write to commit blob, will retry in {nextRetryIn}s, numAttempts={numAttempts}", eventLogCommitBlob.Name, e, false, true);
                         Thread.Sleep(nextRetryIn);
                     }
                     continue;
@@ -710,12 +710,12 @@ namespace DurableTask.EventSourced.Faster
                     stopwatch.Stop();
                     if (BlobUtils.IsTimeout(e))
                     {
-                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream timed out, retry after {stopwatch.ElapsedMilliseconds:f1}ms; target={eventLogCommitBlob.Name}");
+                        this.TraceHelper.FasterPerfWarning($"CloudBlockBlob.DownloadToStream timed out after {stopwatch.ElapsedMilliseconds:f1}ms, retrying now; numAttempts={numAttempts} target={eventLogCommitBlob.Name}");
                     }
                     else
                     {
                         TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not read commit blob, will retry in {nextRetryIn}s", eventLogCommitBlob.Name, e, false, true);
+                        this.HandleBlobError(nameof(ILogCommitManager.Commit), $"could not read commit blob, will retry in {nextRetryIn}s, numAttempts={numAttempts}", eventLogCommitBlob.Name, e, false, true);
                         Thread.Sleep(nextRetryIn);
                     }
                     continue;

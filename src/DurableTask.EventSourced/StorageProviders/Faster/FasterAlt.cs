@@ -446,7 +446,7 @@ namespace DurableTask.EventSourced.Faster
                     catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
                     {
                         TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                        this.blobManager?.HandleBlobError(nameof(LoadAsync), $"Could not read object from storage, will retry in {nextRetryIn}s", blob.Name, e, false, true);
+                        this.blobManager?.HandleBlobError(nameof(LoadAsync), $"Could not read object from storage, will retry in {nextRetryIn}s, numAttempts={numAttempts}", blob.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
                         continue;
                     }
@@ -521,7 +521,7 @@ namespace DurableTask.EventSourced.Faster
                     catch (StorageException e) when (BlobUtils.IsTransientStorageError(e) && numAttempts < BlobManager.MaxRetries)
                     {
                         TimeSpan nextRetryIn = BlobManager.GetDelayBetweenRetries(numAttempts);
-                        this.blobManager?.HandleBlobError(nameof(StoreAsync), $"could not write object to storage, will retry in {nextRetryIn}s", blob.Name, e, false, true);
+                        this.blobManager?.HandleBlobError(nameof(StoreAsync), $"could not write object to storage, will retry in {nextRetryIn}s, numAttempts={numAttempts}", blob.Name, e, false, true);
                         await Task.Delay(nextRetryIn);
                         continue;
                     }
