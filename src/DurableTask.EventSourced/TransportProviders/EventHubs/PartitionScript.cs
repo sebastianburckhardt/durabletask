@@ -13,7 +13,7 @@ namespace DurableTask.EventSourced.EventHubs
 {
     internal static class PartitionScript
     {
-        private static char[] Separators = new char[] { ' ', '-' };
+        private static char[] Separators = new char[] { ' ' };
 
         public static IEnumerable<ProcessorHostEvent> ParseEvents(DateTime scenarioStartTimeUtc, string workerId, int numPartitions, Stream script)
         {
