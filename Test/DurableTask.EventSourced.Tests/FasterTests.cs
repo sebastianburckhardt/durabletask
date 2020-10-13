@@ -59,6 +59,7 @@ namespace DurableTask.EventSourced.Tests
             {
                 var blobManager = new BlobManager(
                     account, 
+                    account,
                     taskHubName, 
                     logger, 
                     Microsoft.Extensions.Logging.LogLevel.Trace, 
@@ -66,7 +67,7 @@ namespace DurableTask.EventSourced.Tests
                     new PartitionErrorHandler(0, logger, Microsoft.Extensions.Logging.LogLevel.Trace, "account", taskHubName));
 
                 await blobManager.StartAsync();
-                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
+                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager, new EventSourcedOrchestrationServiceSettings());
 
                 for (int i = 0; i < numEntries; i++)
                 {
@@ -83,7 +84,8 @@ namespace DurableTask.EventSourced.Tests
             // then, read back all the entries, and compare position and content
             {
                 var blobManager = new BlobManager(
-                    account, 
+                    account,
+                    account,
                     taskHubName, 
                     logger, 
                     Microsoft.Extensions.Logging.LogLevel.Trace, 
@@ -91,7 +93,7 @@ namespace DurableTask.EventSourced.Tests
                     new PartitionErrorHandler(0, logger, Microsoft.Extensions.Logging.LogLevel.Trace, "account", taskHubName));
 
                 await blobManager.StartAsync();
-                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager);
+                var log = new DurableTask.EventSourced.Faster.FasterLog(blobManager, new EventSourcedOrchestrationServiceSettings());
 
                 int iterationCount = 0;
                 await Iterate(0, positions[positions.Count - 1]);

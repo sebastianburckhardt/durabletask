@@ -311,8 +311,8 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, context:null, this.terminationToken).ConfigureAwait(false);
-                var (status, output) = result.CompleteRead();
+                var result = await this.mainSession.ReadAsync(ref key, ref effectTracker, context:null, token: this.terminationToken).ConfigureAwait(false);
+                var (status, output) = result.Complete();
                 return output;
             }
             catch (Exception exception)
@@ -323,15 +323,16 @@ namespace DurableTask.EventSourced.Faster
         }
 
         // create a tracked object on the main session (only one of these is executing at a time)
-        public override async ValueTask<TrackedObject> CreateAsync(Key key)
+        public override ValueTask<TrackedObject> CreateAsync(Key key)
         {
             try
             {              
                 TrackedObject newObject = TrackedObjectKey.Factory(key);
                 newObject.Partition = this.partition;
                 Value newValue = newObject;
-                await this.mainSession.UpsertAsync(ref key, ref newValue, null, false, this.terminationToken).ConfigureAwait(false);
-                return newObject;
+                // Note: there is no UpsertAsync().
+                this.mainSession.Upsert(ref key, ref newValue);
+                return new ValueTask<TrackedObject>(newObject);
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -340,11 +341,11 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override ValueTask ProcessEffectOnTrackedObject(Key k, EffectTracker tracker)
+        public async override ValueTask ProcessEffectOnTrackedObject(Key k, EffectTracker tracker)
         {
             try
             {
-                return this.mainSession.RMWAsync(ref k, ref tracker, null, false, this.terminationToken);
+                (await this.mainSession.RMWAsync(ref k, ref tracker, token: this.terminationToken)).Complete();
             }
             catch (Exception exception)
                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -532,6 +533,8 @@ namespace DurableTask.EventSourced.Faster
                 stats.Modify++;
                 return true;
             }
+
+            public bool NeedCopyUpdate(ref Key key, ref EffectTracker tracker, ref Value value) => true;
 
             public void CopyUpdater(ref Key key, ref EffectTracker tracker, ref Value oldValue, ref Value newValue)
             {
