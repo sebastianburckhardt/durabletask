@@ -14,6 +14,7 @@
 namespace DurableTask.EventSourced
 {
     using System;
+    using DurableTask.Core;
     using Microsoft.Extensions.Logging;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Converters;
@@ -83,10 +84,20 @@ namespace DurableTask.EventSourced
         public bool ExtendedSessionsEnabled { get; set; } = true;
 
         /// <summary>
+        ///  Should we carry over unexecuted raised events to the next iteration of an orchestration on ContinueAsNew
+        /// </summary>
+        public BehaviorOnContinueAsNew EventBehaviourForContinueAsNew { get; set; } = BehaviorOnContinueAsNew.Carryover;
+
+        /// <summary>
+        /// When true, will throw an exception when attempting to create an orchestration with an existing dedupe status.
+        /// </summary>
+        public bool ThrowExceptionOnInvalidDedupeStatus { get; set; } = false;
+
+        /// <summary>
         /// Limits the maximum number of batches that can be pending in the batchworkers, creating
         /// backpressure that improves scheduling quality under higher loads, but may increase latency.
         /// </summary>
-        public int PipelineCredits { get; set; } = 10;
+        public int PipelineCredits { get; set; } = 10000;
 
         /// <summary>
         ///  Whether to keep the orchestration service running even if stop is called.

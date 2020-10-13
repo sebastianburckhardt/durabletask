@@ -1,4 +1,7 @@
-﻿//  You may obtain a copy of the License at
+﻿//  Copyright Microsoft Corporation
+//  Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
 //  http://www.apache.org/licenses/LICENSE-2.0
 //  Unless required by applicable law or agreed to in writing, software
 //  distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,22 +14,18 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text;
+using DurableTask.Core;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class ClientReadRequestEvent : PartitionReadEvent, IClientRequestEvent
+    internal class HistoryResponseReceived : ClientEvent
     {
         [DataMember]
-        public Guid ClientId { get; set; }
+        public string ExecutionId { get; set; }
 
         [DataMember]
-        public long RequestId { get; set; }
-
-        [DataMember]
-        public DateTime TimeoutUtc { get; set; }
-
-        [IgnoreDataMember]
-        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
+        public List<HistoryEvent> History { get; set; }
     }
 }

@@ -18,6 +18,7 @@ using DurableTask.EventSourced.Faster;
 using DurableTask.EventSourced.Scaling;
 using Microsoft.Azure.Storage;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -326,27 +327,27 @@ namespace DurableTask.EventSourced
         /******************************/
 
         /// <inheritdoc />
-        public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage)
-            => Client.CreateTaskOrchestrationAsync(
+        Task IOrchestrationServiceClient.CreateTaskOrchestrationAsync(TaskMessage creationMessage)
+            => this.Client.CreateTaskOrchestrationAsync(
                 this.GetPartitionId(creationMessage.OrchestrationInstance.InstanceId),
                 creationMessage,
                 null);
 
         /// <inheritdoc />
-        public Task CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
-            => Client.CreateTaskOrchestrationAsync(
+        Task IOrchestrationServiceClient.CreateTaskOrchestrationAsync(TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
+            => this.Client.CreateTaskOrchestrationAsync(
                 this.GetPartitionId(creationMessage.OrchestrationInstance.InstanceId),
                 creationMessage,
                 dedupeStatuses);
 
         /// <inheritdoc />
-        public Task SendTaskOrchestrationMessageAsync(TaskMessage message)
+        Task IOrchestrationServiceClient.SendTaskOrchestrationMessageAsync(TaskMessage message)
             => Client.SendTaskOrchestrationMessageBatchAsync(
                 this.GetPartitionId(message.OrchestrationInstance.InstanceId),
                 new[] { message });
 
         /// <inheritdoc />
-        public Task SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
+        Task IOrchestrationServiceClient.SendTaskOrchestrationMessageBatchAsync(params TaskMessage[] messages)
             => messages.Length == 0
                 ? Task.CompletedTask
                 : Task.WhenAll(messages
@@ -354,7 +355,7 @@ namespace DurableTask.EventSourced
                     .Select(group => Client.SendTaskOrchestrationMessageBatchAsync(group.Key, group)));
 
         /// <inheritdoc />
-        public Task<OrchestrationState> WaitForOrchestrationAsync(
+        Task<OrchestrationState> IOrchestrationServiceClient.WaitForOrchestrationAsync(
                 string instanceId,
                 string executionId,
                 TimeSpan timeout,
@@ -367,33 +368,78 @@ namespace DurableTask.EventSourced
                 cancellationToken);
 
         /// <inheritdoc />
-        public async Task<OrchestrationState> GetOrchestrationStateAsync(
+        async Task<OrchestrationState> IOrchestrationServiceClient.GetOrchestrationStateAsync(
             string instanceId, 
             string executionId)
         {
-            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId).ConfigureAwait(false);
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId, true).ConfigureAwait(false);
             return state != null && (executionId == null || executionId == state.OrchestrationInstance.ExecutionId)
                 ? state
                 : null;
         }
 
         /// <inheritdoc />
-        public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(
+        async Task<IList<OrchestrationState>> IOrchestrationServiceClient.GetOrchestrationStateAsync(
             string instanceId, 
             bool allExecutions)
         {
-            // TODO: allExecutions is ignored both here and AzureStorageOrchestrationService?
-            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId).ConfigureAwait(false);
+            // note: allExecutions is always ignored because storage contains never more than one execution.
+            var state = await Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId, true).ConfigureAwait(false);
             return state != null 
                 ? (new[] { state }) 
                 : (new OrchestrationState[0]);
+        }
+
+        /// <inheritdoc />
+        Task IOrchestrationServiceClient.ForceTerminateTaskOrchestrationAsync(
+                string instanceId, 
+                string message)
+            => this.Client.ForceTerminateTaskOrchestrationAsync(this.GetPartitionId(instanceId), instanceId, message);
+
+        /// <inheritdoc />
+        async Task<string> IOrchestrationServiceClient.GetOrchestrationHistoryAsync(
+            string instanceId, 
+            string executionId)
+        {
+            (string actualExecutionId, IList<HistoryEvent> history) = 
+                await this.Client.GetOrchestrationHistoryAsync(this.GetPartitionId(instanceId), instanceId).ConfigureAwait(false);
+
+            if (history != null && (executionId == null || executionId == actualExecutionId))
+            {
+                return JsonConvert.SerializeObject(history);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        Task IOrchestrationServiceClient.PurgeOrchestrationHistoryAsync(
+            DateTime thresholdDateTimeUtc, 
+            OrchestrationStateTimeRangeFilterType 
+            timeRangeFilterType)
+        {
+            throw new NotSupportedException(); //TODO
+        }
+
+        /// <summary>
+        /// Gets the current state of an instance.
+        /// </summary>
+        /// <param name="instanceId">Instance ID of the orchestration.</param>
+        /// <param name="fetchInput">If set, fetch and return the input for the orchestration instance.</param>
+        /// <param name="fetchOutput">If set, fetch and return the output for the orchestration instance.</param>
+        /// <returns>The state of the instance, or null if not found.</returns>
+        public Task<OrchestrationState> GetOrchestrationStateAsync(string instanceId, bool fetchInput = true, bool fetchOutput = true)
+        {
+            return this.Client.GetOrchestrationStateAsync(this.GetPartitionId(instanceId), instanceId, fetchInput, fetchOutput);
         }
 
         /// <summary>
         /// Gets the state of all orchestration instances.
         /// </summary>
         /// <returns>List of <see cref="OrchestrationState"/></returns>
-        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken) 
+        public Task<IList<OrchestrationState>> GetAllOrchestrationStatesAsync(CancellationToken cancellationToken)
             => Client.GetOrchestrationStateAsync(cancellationToken);
 
         /// <summary>
@@ -407,28 +453,6 @@ namespace DurableTask.EventSourced
                                                                           CancellationToken CancellationToken = default)
             => Client.GetOrchestrationStateAsync(CreatedTimeFrom, CreatedTimeTo, RuntimeStatus, InstanceIdPrefix, CancellationToken);
 
-        /// <inheritdoc />
-        Task IOrchestrationServiceClient.ForceTerminateTaskOrchestrationAsync(
-                string instanceId, 
-                string message)
-            => this.Client.ForceTerminateTaskOrchestrationAsync(this.GetPartitionId(instanceId), instanceId, message);
-
-        /// <inheritdoc />
-        public Task<string> GetOrchestrationHistoryAsync(
-            string instanceId, 
-            string executionId)
-        {
-            throw new NotSupportedException(); //TODO
-        }
-
-        /// <inheritdoc />
-        public Task PurgeOrchestrationHistoryAsync(
-            DateTime thresholdDateTimeUtc, 
-            OrchestrationStateTimeRangeFilterType 
-            timeRangeFilterType)
-        {
-            throw new NotSupportedException(); //TODO
-        }
 
         /******************************/
         // Task orchestration methods
@@ -553,7 +577,8 @@ namespace DurableTask.EventSourced
             return Task.FromResult(workItem);
         }
 
-        BehaviorOnContinueAsNew IOrchestrationService.EventBehaviourForContinueAsNew => BehaviorOnContinueAsNew.Carryover;
+        BehaviorOnContinueAsNew IOrchestrationService.EventBehaviourForContinueAsNew 
+            => this.Settings.EventBehaviourForContinueAsNew;
 
         bool IOrchestrationService.IsMaxMessageCountExceeded(int currentMessageCount, OrchestrationRuntimeState runtimeState)
         {

@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class WaitRequestReceived : ClientReadRequestEvent
+    internal class WaitRequestReceived : ClientRequestEventWithPrefetch
     {
         [DataMember]
         public string InstanceId { get; set; }
@@ -25,7 +25,7 @@ namespace DurableTask.EventSourced
         [DataMember]
         public string ExecutionId { get; set; }
 
-        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(this.InstanceId);
+        public override TrackedObjectKey Target => TrackedObjectKey.Instance(this.InstanceId);
 
         protected override void ExtraTraceInformation(StringBuilder s)
         {
@@ -33,16 +33,18 @@ namespace DurableTask.EventSourced
             s.Append(this.InstanceId);
         }
 
-        public override void OnReadComplete(TrackedObject target, Partition partition)
-        {
-            partition.SubmitInternalEvent(new WaitRequestProcessed()
+        public static bool SatisfiesWaitCondition(OrchestrationState value)
+             => (value != null &&
+                 value.OrchestrationStatus != OrchestrationStatus.Running &&
+                 value.OrchestrationStatus != OrchestrationStatus.Pending &&
+                 value.OrchestrationStatus != OrchestrationStatus.ContinuedAsNew);
+
+        public WaitResponseReceived CreateResponse(OrchestrationState value)
+            => new WaitResponseReceived()
             {
                 ClientId = this.ClientId,
                 RequestId = this.RequestId,
-                TimeoutUtc = this.TimeoutUtc,
-                InstanceId = this.InstanceId,
-                ExecutionId = this.ExecutionId
-            });
-        }
+                OrchestrationState = value
+            };
     }
 }

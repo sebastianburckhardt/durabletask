@@ -230,7 +230,7 @@ namespace DurableTask.EventSourced
             this.AddMessageToSession(activityCompleted.Response, effects.IsReplaying);
         }
 
-        public void Process(CreationRequestProcessed creationRequestProcessed, EffectTracker effects)
+        public void Process(CreationRequestReceived creationRequestProcessed, EffectTracker effects)
         {
             // queues the execution started message
             this.AddMessageToSession(creationRequestProcessed.TaskMessage, effects.IsReplaying);

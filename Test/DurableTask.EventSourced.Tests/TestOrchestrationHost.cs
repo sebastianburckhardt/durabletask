@@ -130,7 +130,7 @@ namespace DurableTask.EventSourced.Tests
         public async Task<IList<OrchestrationState>> GetAllOrchestrationInstancesAsync()
         {
             // This API currently only exists in the service object and is not yet exposed on the TaskHubClient
-            var instances = await this.orchestrationService.GetOrchestrationStateAsync(CancellationToken.None);
+            var instances = await this.orchestrationService.GetAllOrchestrationStatesAsync(CancellationToken.None);
             Trace.TraceInformation($"Found {instances.Count} in the task hub instance store.");
             return instances;
         }

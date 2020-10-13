@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
         private BatchTimer<PendingRequest> ResponseTimeouts;
         private ConcurrentDictionary<long, PendingRequest> ResponseWaiters;
         private Dictionary<string, MemoryStream> Fragments;
-        
+
         public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
 
         public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
@@ -126,7 +126,7 @@ namespace DurableTask.EventSourced
         // we align timeouts into buckets so we can process timeout storms more efficiently
         private const long ticksPerBucket = 2 * TimeSpan.TicksPerSecond;
         private DateTime GetTimeoutBucket(TimeSpan timeout) => new DateTime((((DateTime.UtcNow + timeout).Ticks / ticksPerBucket) * ticksPerBucket), DateTimeKind.Utc);
-        
+
         private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, IClientRequestEvent request, bool doneWhenSent)
         {
             int timeoutId = this.ResponseTimeouts.GetFreshId();
@@ -136,7 +136,7 @@ namespace DurableTask.EventSourced
 
             if (doneWhenSent)
             {
-                DurabilityListeners.Register((Event) request, pendingRequest);
+                DurabilityListeners.Register((Event)request, pendingRequest);
             }
 
             this.Send(request);
@@ -192,7 +192,7 @@ namespace DurableTask.EventSourced
                 this.client.traceHelper.TraceTimerProgress($"firing ({timeoutKey.due:o},{timeoutKey.id})");
                 if (this.client.ResponseWaiters.TryRemove(this.requestId, out var _))
                 {
-                    this.continuation.TrySetException(timeoutException); 
+                    this.continuation.TrySetException(timeoutException);
                 }
             }
         }
@@ -201,8 +201,14 @@ namespace DurableTask.EventSourced
         // orchestration client methods
         /******************************/
 
-        public Task CreateTaskOrchestrationAsync(uint partitionId, TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
+        public async Task CreateTaskOrchestrationAsync(uint partitionId, TaskMessage creationMessage, OrchestrationStatus[] dedupeStatuses)
         {
+            ExecutionStartedEvent executionStartedEvent = creationMessage.Event as ExecutionStartedEvent;
+            if (executionStartedEvent == null)
+            {
+                throw new ArgumentException($"Only {nameof(EventType.ExecutionStarted)} messages are supported.", nameof(creationMessage));
+            }
+
             var request = new CreationRequestReceived()
             {
                 PartitionId = partitionId,
@@ -214,7 +220,16 @@ namespace DurableTask.EventSourced
                 TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
-            return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false);
+            var response = await PerformRequestWithTimeoutAndCancellation(this.shutdownToken, request, false).ConfigureAwait(false);
+            var creationResponseReceived = (CreationResponseReceived)response;
+            if (!creationResponseReceived.Succeeded)
+            {
+                // An instance in this state already exists.
+                if (this.host.Settings.ThrowExceptionOnInvalidDedupeStatus)
+                {
+                    throw new InvalidOperationException($"An Orchestration instance with the status {creationResponseReceived.ExistingInstanceOrchestrationStatus} already exists.");
+                }
+            }
         }
 
         public Task SendTaskOrchestrationMessageBatchAsync(uint partitionId, IEnumerable<TaskMessage> messages)
@@ -228,7 +243,7 @@ namespace DurableTask.EventSourced
                 TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
-            return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
+            return PerformRequestWithTimeoutAndCancellation(this.shutdownToken, request, true);
         }
 
         public async Task<OrchestrationState> WaitForOrchestrationAsync(
@@ -250,14 +265,14 @@ namespace DurableTask.EventSourced
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
                 ExecutionId = executionId,
-                TimeoutUtc = this.GetTimeoutBucket(timeout),         
+                TimeoutUtc = this.GetTimeoutBucket(timeout),
             };
 
             var response = await PerformRequestWithTimeoutAndCancellation(cancellationToken, request, false).ConfigureAwait(false);
             return ((WaitResponseReceived)response)?.OrchestrationState;
         }
 
-        public async Task<OrchestrationState> GetOrchestrationStateAsync(uint partitionId, string instanceId)
+        public async Task<OrchestrationState> GetOrchestrationStateAsync(uint partitionId, string instanceId, bool fetchInput = true, bool fetchOutput = true)
         {
             if (string.IsNullOrWhiteSpace(instanceId))
             {
@@ -270,35 +285,58 @@ namespace DurableTask.EventSourced
                 ClientId = this.ClientId,
                 RequestId = Interlocked.Increment(ref this.SequenceNumber),
                 InstanceId = instanceId,
+                IncludeInput = fetchInput,
+                IncludeOutput = fetchOutput,
                 TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
             };
 
-            var response = await PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, false).ConfigureAwait(false);
+            var response = await PerformRequestWithTimeoutAndCancellation(this.shutdownToken, request, false).ConfigureAwait(false);
             return ((StateResponseReceived)response)?.OrchestrationState;
         }
 
-        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken) 
+        public async Task<(string executionId, IList<HistoryEvent> history)> GetOrchestrationHistoryAsync(uint partitionId, string instanceId)
+        {
+            if (string.IsNullOrWhiteSpace(instanceId))
+            {
+                throw new ArgumentException(nameof(instanceId));
+            }
+
+            var request = new HistoryRequestReceived()
+            {
+                PartitionId = partitionId,
+                ClientId = this.ClientId,
+                RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                InstanceId = instanceId,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+            };
+
+            var response = (HistoryResponseReceived)await PerformRequestWithTimeoutAndCancellation(this.shutdownToken, request, false).ConfigureAwait(false);
+            return (response?.ExecutionId, response?.History);
+        }
+
+
+        public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken)
             => RunPartitionQueries(partitionId => new InstanceQueryReceived()
-                {
-                    PartitionId = partitionId,
-                    ClientId = this.ClientId,
-                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-                }, cancellationToken);
+            {
+                PartitionId = partitionId,
+                ClientId = this.ClientId,
+                RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+            }, cancellationToken);
 
         public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo,
                     IEnumerable<OrchestrationStatus> runtimeStatus, string instanceIdPrefix, CancellationToken cancellationToken = default)
             => RunPartitionQueries(partitionId => new InstanceQueryReceived()
-               {
-                   PartitionId = partitionId,
-                   ClientId = this.ClientId,
-                   RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                   TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-                   CreatedTimeFrom = createdTimeFrom,
-                   CreatedTimeTo = createdTimeTo,
-                   RuntimeStatus = runtimeStatus?.ToArray(),
-                   InstanceIdPrefix = instanceIdPrefix
-               }, cancellationToken);
+            {
+                PartitionId = partitionId,
+                ClientId = this.ClientId,
+                RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                CreatedTimeFrom = createdTimeFrom,
+                CreatedTimeTo = createdTimeTo,
+                RuntimeStatus = runtimeStatus?.ToArray(),
+                InstanceIdPrefix = instanceIdPrefix
+            }, cancellationToken);
 
         private async Task<IList<OrchestrationState>> RunPartitionQueries(Func<uint, InstanceQueryReceived> requestCreator, CancellationToken cancellationToken)
         {
@@ -333,14 +371,13 @@ namespace DurableTask.EventSourced
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
         }
 
-        public Task<string> GetOrchestrationHistoryAsync(uint partitionId, string instanceId, string executionId)
-        {
-            throw new NotSupportedException(); //TODO
-        }
-
         public Task PurgeOrchestrationHistoryAsync(uint partitionId, DateTime thresholdDateTimeUtc, OrchestrationStateTimeRangeFilterType timeRangeFilterType)
         {
             throw new NotSupportedException(); //TODO
         }
+
+        //public async Task DeleteAllDataForOrchestrationInstance(OrchestrationInstanceStatus orchestrationInstanceStatus)
+        //{
+        //}
     }
 }

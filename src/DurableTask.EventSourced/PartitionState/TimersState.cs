@@ -138,16 +138,16 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Process(CreationRequestProcessed creationRequestProcessed, EffectTracker effects)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
             // starts a new timer for the execution started event
             var timerId = this.SequenceNumber++;
-            var due = GetDueTime(creationRequestProcessed.TaskMessage);
-            this.PendingTimers.Add(timerId, (due, creationRequestProcessed.TaskMessage));
+            var due = GetDueTime(creationRequestReceived.TaskMessage);
+            this.PendingTimers.Add(timerId, (due, creationRequestReceived.TaskMessage));
 
             if (!effects.IsReplaying)
             {
-                this.Schedule(timerId, due, creationRequestProcessed.TaskMessage);
+                this.Schedule(timerId, due, creationRequestReceived.TaskMessage);
             }
         }
     }

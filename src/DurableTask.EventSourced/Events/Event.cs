@@ -67,18 +67,18 @@ namespace DurableTask.EventSourced
         {
             yield return typeof(ClientEventFragment);
             yield return typeof(CreationResponseReceived);
+            yield return typeof(HistoryResponseReceived);
             yield return typeof(QueryResponseReceived);
             yield return typeof(StateResponseReceived);
             yield return typeof(WaitResponseReceived);
             yield return typeof(ClientTaskMessagesReceived);
             yield return typeof(CreationRequestReceived);
+            yield return typeof(HistoryRequestReceived);
             yield return typeof(InstanceQueryReceived);
             yield return typeof(StateRequestReceived);
             yield return typeof(WaitRequestReceived);
             yield return typeof(ActivityCompleted);
             yield return typeof(BatchProcessed);
-            yield return typeof(CreationRequestProcessed);
-            yield return typeof(WaitRequestProcessed);
             yield return typeof(SendConfirmed);
             yield return typeof(TimerFired);
             yield return typeof(ActivityOffloadReceived);
@@ -90,7 +90,7 @@ namespace DurableTask.EventSourced
 
         public bool SafeToRetryFailedSend()
         {
-            if (this is ClientUpdateRequestEvent)
+            if (this is ClientRequestEvent)
             {
                 // these are not safe to duplicate as they could restart an orchestration or deliver a message twice
                 return false;

@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,19 +25,13 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class StateRequestReceived : ClientReadonlyRequestEvent
+    internal class HistoryRequestReceived : ClientReadonlyRequestEvent
     {
         [DataMember]
         public string InstanceId { get; set; }
 
-        [DataMember]
-        public bool IncludeInput { get; set; }
-
-        [DataMember]
-        public bool IncludeOutput { get; set; }
-
         [IgnoreDataMember]
-        public override TrackedObjectKey ReadTarget => TrackedObjectKey.Instance(InstanceId);
+        public override TrackedObjectKey ReadTarget => TrackedObjectKey.History(InstanceId);
 
         protected override void ExtraTraceInformation(StringBuilder s)
         {
@@ -46,21 +41,14 @@ namespace DurableTask.EventSourced
 
         public override void OnReadComplete(TrackedObject target, Partition partition)
         {
-            var orchestrationState = ((InstanceState)target)?.OrchestrationState;
+            var historyState = (HistoryState)target;
 
-            if (! (this.IncludeInput && this.IncludeOutput) && orchestrationState != null)
-            {
-                // we must not modify the orchestration state object, so to blank out fields we need to copy it first
-                orchestrationState = orchestrationState.MakeShallowCopy();
-                orchestrationState.Input = this.IncludeInput ? orchestrationState.Input : null;
-                orchestrationState.Output = this.IncludeOutput ? orchestrationState.Output : null;
-            }
-
-            var response = new StateResponseReceived()
+            var response = new HistoryResponseReceived()
             {
                 ClientId = this.ClientId,
                 RequestId = this.RequestId,
-                OrchestrationState = orchestrationState,
+                ExecutionId = historyState?.ExecutionId,
+                History = historyState?.History?.ToList(),
             };
 
             partition.Send(response);

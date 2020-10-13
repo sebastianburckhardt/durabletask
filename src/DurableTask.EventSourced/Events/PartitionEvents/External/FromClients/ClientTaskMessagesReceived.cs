@@ -22,7 +22,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class ClientTaskMessagesReceived : ClientUpdateRequestEvent
+    internal class ClientTaskMessagesReceived : ClientRequestEvent
     {
         [DataMember]
         public TaskMessage[] TaskMessages { get; set; }

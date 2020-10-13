@@ -32,7 +32,7 @@ namespace DurableTask.EventSourced
         public OrchestrationState OrchestrationState { get; set; }
 
         [DataMember]
-        public List<WaitRequestProcessed> Waiters { get; set; }
+        public List<WaitRequestReceived> Waiters { get; set; }
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Instance, this.InstanceId);
@@ -42,29 +42,62 @@ namespace DurableTask.EventSourced
             return $"History InstanceId={this.InstanceId} Status={this.OrchestrationState?.OrchestrationStatus}";
         }
 
-        public void Process(CreationRequestProcessed evt, EffectTracker effects)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
-            effects.Partition.Assert(!evt.FilteredDuplicate);
+            bool filterDuplicate = this.OrchestrationState != null
+                && creationRequestReceived.DedupeStatuses != null
+                && creationRequestReceived.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus);
 
-            var ee = evt.ExecutionStartedEvent;
+            // Use this moment of time as the creation timestamp, replacing the original timestamp taken on the client.
+            // This is preferrable because it avoids clock synchronization issues (which can result in negative orchestration durations)
+            // and means the timestamp is consistently ordered with respect to timestamps of other events on this partition.
+            ((ExecutionStartedEvent)creationRequestReceived.TaskMessage.Event).Timestamp = DateTime.UtcNow;
 
-            // set the orchestration state now (before processing the creation in the history)
-            // so that this new instance is "on record" immediately - it is guaranteed to replace whatever is in flight
-            this.OrchestrationState = new OrchestrationState
+            if (!filterDuplicate)
             {
-                Name = ee.Name,
-                Version = ee.Version,
-                OrchestrationInstance = ee.OrchestrationInstance,
-                OrchestrationStatus = OrchestrationStatus.Pending,
-                ParentInstance = ee.ParentInstance,
-                Input = ee.Input,
-                Tags = ee.Tags,
-                CreatedTime = ee.Timestamp,
-                LastUpdatedTime = DateTime.UtcNow,
-                CompletedTime = Core.Common.DateTimeUtils.MinDateTime,
-                ScheduledStartTime = ee.ScheduledStartTime
-            };
+                var ee = creationRequestReceived.ExecutionStartedEvent;
+
+                // set the orchestration state now (before processing the creation in the history)
+                // so that this new instance is "on record" immediately - it is guaranteed to replace whatever is in flight
+                this.OrchestrationState = new OrchestrationState
+                {
+                    Name = ee.Name,
+                    Version = ee.Version,
+                    OrchestrationInstance = ee.OrchestrationInstance,
+                    OrchestrationStatus = OrchestrationStatus.Pending,
+                    ParentInstance = ee.ParentInstance,
+                    Input = ee.Input,
+                    Tags = ee.Tags,
+                    CreatedTime = ee.Timestamp,
+                    LastUpdatedTime = DateTime.UtcNow,
+                    CompletedTime = Core.Common.DateTimeUtils.MinDateTime,
+                    ScheduledStartTime = ee.ScheduledStartTime
+                };
+
+                // queue the message in the session, or start a timer if delayed
+                if (!ee.ScheduledStartTime.HasValue)
+                {
+                    effects.Add(TrackedObjectKey.Sessions);
+                }
+                else
+                {
+                    effects.Add(TrackedObjectKey.Timers);
+                }
+            }
+
+            if (!effects.IsReplaying)
+            {
+                // send response to client
+                effects.Partition.Send(new CreationResponseReceived()
+                {
+                    ClientId = creationRequestReceived.ClientId,
+                    RequestId = creationRequestReceived.RequestId,
+                    Succeeded = !filterDuplicate,
+                    ExistingInstanceOrchestrationStatus = this.OrchestrationState?.OrchestrationStatus,
+                });
+            }
         }
+
 
         public void Process(BatchProcessed evt, EffectTracker effects)
         {
@@ -72,7 +105,7 @@ namespace DurableTask.EventSourced
             this.OrchestrationState = evt.State;
 
             // if the orchestration is complete, notify clients that are waiting for it
-            if (this.Waiters != null && WaitRequestProcessed.SatisfiesWaitCondition(this.OrchestrationState))
+            if (this.Waiters != null && WaitRequestReceived.SatisfiesWaitCondition(this.OrchestrationState))
             {
                 if (!effects.IsReplaying)
                 {
@@ -86,9 +119,9 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Process(WaitRequestProcessed evt, EffectTracker effects)
+        public void Process(WaitRequestReceived evt, EffectTracker effects)
         {
-            if (WaitRequestProcessed.SatisfiesWaitCondition(this.OrchestrationState))
+            if (WaitRequestReceived.SatisfiesWaitCondition(this.OrchestrationState))
             {
                 if (!effects.IsReplaying)
                 {
@@ -99,7 +132,7 @@ namespace DurableTask.EventSourced
             {
                 if (this.Waiters == null)
                 {
-                    this.Waiters = new List<WaitRequestProcessed>();
+                    this.Waiters = new List<WaitRequestReceived>();
                 }
                 else
                 {

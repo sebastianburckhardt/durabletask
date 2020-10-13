@@ -15,18 +15,32 @@ using System.Text;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class ClientUpdateRequestEvent : PartitionUpdateEvent, IClientRequestEvent
+    internal abstract class ClientRequestEventWithPrefetch : ClientRequestEvent, IClientRequestEvent
     {
         [DataMember]
-        public Guid ClientId { get; set; }
-
-        [DataMember]
-        public long RequestId { get; set; }
-
-        [DataMember]
-        public DateTime TimeoutUtc { get; set; }
+        public ProcessingPhase Phase { get; set; }
 
         [IgnoreDataMember]
-        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
+        public abstract TrackedObjectKey Target { get; }
+
+        public virtual bool OnReadComplete(TrackedObject target, Partition partition)
+        {
+            return true;
+        }
+
+        [IgnoreDataMember]
+        public virtual TrackedObjectKey? Prefetch => null;
+
+        public sealed override void DetermineEffects(EffectTracker effects)
+        {
+            effects.Add(TrackedObjectKey.Prefetch);
+        }
+
+        public enum ProcessingPhase
+        { 
+             Read,
+             Confirm,
+             ConfirmAndProcess,
+        }
     }
 }

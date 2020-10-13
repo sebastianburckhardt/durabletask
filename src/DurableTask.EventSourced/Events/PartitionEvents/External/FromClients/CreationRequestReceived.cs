@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Text;
 using DurableTask.Core;
@@ -22,7 +23,7 @@ using DurableTask.Core.History;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class CreationRequestReceived : ClientUpdateRequestEvent
+    internal class CreationRequestReceived : ClientRequestEventWithPrefetch
     {
         [DataMember]
         public OrchestrationStatus[] DedupeStatuses { get; set; }
@@ -32,21 +33,23 @@ namespace DurableTask.EventSourced
 
         [DataMember]
         public TaskMessage TaskMessage { get; set; }
+        
+        [DataMember]
+        public bool FilteredDuplicate { get; set; }
+
+        [DataMember]
+        public OrchestrationStatus? ExistingInstanceOrchestrationStatus { get; set; }
 
         [IgnoreDataMember]
         public ExecutionStartedEvent ExecutionStartedEvent => this.TaskMessage.Event as ExecutionStartedEvent;
 
         [IgnoreDataMember]
-        public string InstanceId => ExecutionStartedEvent.OrchestrationInstance.InstanceId;
+        public string InstanceId => this.ExecutionStartedEvent.OrchestrationInstance.InstanceId;
 
         [IgnoreDataMember]
         public override IEnumerable<TaskMessage> TracedTaskMessages { get { yield return this.TaskMessage; } }
 
-        public override void DetermineEffects(EffectTracker effects)
-        {
-            // the creation request is first buffered in the prefetch state while the instance info is loaded
-            effects.Add(TrackedObjectKey.Creation);
-        }
+        [IgnoreDataMember]
+        public override TrackedObjectKey Target => TrackedObjectKey.Instance(this.InstanceId);
     }
-
 }

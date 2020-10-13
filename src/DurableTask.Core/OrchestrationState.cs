@@ -114,6 +114,15 @@ namespace DurableTask.Core
         public DateTime? ScheduledStartTime { get; set; }
 
         /// <summary>
+        /// Create a shallow copy of this object.
+        /// </summary>
+        /// <returns></returns>
+        public OrchestrationState MakeShallowCopy()
+        {
+            return (OrchestrationState) this.MemberwiseClone();
+        }
+
+        /// <summary>
         /// Implementation for <see cref="IExtensibleDataObject.ExtensionData"/>.
         /// </summary>
         public ExtensionDataObject ExtensionData { get; set; }

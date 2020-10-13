@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced
             Reassembly,
             Sessions,
             Timers,
-            Creation,
+            Prefetch,
 
             // non-singletons
             History,
@@ -53,7 +53,7 @@ namespace DurableTask.EventSourced
             { TrackedObjectType.Reassembly, typeof(ReassemblyState) },
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
-            { TrackedObjectType.Creation, typeof(CreationState) },
+            { TrackedObjectType.Prefetch, typeof(PrefetchState) },
             
             // non-singletons
             { TrackedObjectType.History, typeof(HistoryState) },
@@ -93,7 +93,7 @@ namespace DurableTask.EventSourced
         public static TrackedObjectKey Reassembly = new TrackedObjectKey() { ObjectType = TrackedObjectType.Reassembly };
         public static TrackedObjectKey Sessions = new TrackedObjectKey() { ObjectType = TrackedObjectType.Sessions };
         public static TrackedObjectKey Timers = new TrackedObjectKey() { ObjectType = TrackedObjectType.Timers };
-        public static TrackedObjectKey Creation = new TrackedObjectKey() { ObjectType = TrackedObjectType.Creation };
+        public static TrackedObjectKey Prefetch = new TrackedObjectKey() { ObjectType = TrackedObjectType.Prefetch };
 
         // convenient constructors for non-singletons
 
@@ -116,7 +116,7 @@ namespace DurableTask.EventSourced
                 TrackedObjectType.Reassembly => new ReassemblyState(),
                 TrackedObjectType.Sessions => new SessionsState(),
                 TrackedObjectType.Timers => new TimersState(),
-                TrackedObjectType.Creation => new CreationState(),
+                TrackedObjectType.Prefetch => new PrefetchState(),
                 TrackedObjectType.History => new HistoryState() { InstanceId = key.InstanceId },
                 TrackedObjectType.Instance => new InstanceState() { InstanceId = key.InstanceId },
                 _ => throw new ArgumentException("invalid key", nameof(key)),
