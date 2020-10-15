@@ -18,6 +18,7 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core;
 using Microsoft.Azure.Cosmos.Table;
 using Microsoft.Extensions.Logging;
 
@@ -101,12 +102,14 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        private IAsyncEnumerable<InstanceState> GetAllInstances()
+        private IList<OrchestrationState> GetAllInstances()
         {
             return trackedObjects
                 .Values
                 .Select(trackedObject => trackedObject as InstanceState)
-                .Where(instanceState => instanceState != null).ToList().ToAsyncEnumerable();
+                .Where(instanceState => instanceState != null)
+                .Select(instanceState => instanceState.OrchestrationState)
+                .ToList();
         }
 
         protected override async Task Process(IList<PartitionEvent> batch)
@@ -153,7 +156,8 @@ namespace DurableTask.EventSourced
                                     break;
 
                                 case PartitionQueryEvent queryEvent:
-                                    await effects.ProcessQueryResultAsync(queryEvent, this.GetAllInstances());
+                                    var instances = this.GetAllInstances().ToAsyncEnumerable();
+                                    var backgroundTask = Task.Run(() => effects.ProcessQueryResultAsync(queryEvent, instances));
                                     break;
 
                                 default:

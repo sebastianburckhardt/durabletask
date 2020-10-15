@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using DurableTask.Core.Common;
 using Dynamitey.DynamicObjects;
 using FASTER.core;
@@ -196,7 +197,7 @@ namespace DurableTask.EventSourced
             }
         }
         
-        public async Task ProcessQueryResultAsync(PartitionQueryEvent queryEvent, IAsyncEnumerable<TrackedObject> instances)
+        public async Task ProcessQueryResultAsync(PartitionQueryEvent queryEvent, IAsyncEnumerable<OrchestrationState> instances)
         {
             (long commitLogPosition, long inputQueuePosition) = this.getPositions();
             this.Partition.Assert(!this.IsReplaying); // query events are never part of the replay

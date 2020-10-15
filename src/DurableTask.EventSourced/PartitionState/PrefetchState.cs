@@ -11,12 +11,15 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using DurableTask.Core.History;
 using DurableTask.EventSourced.Scaling;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
@@ -24,7 +27,7 @@ namespace DurableTask.EventSourced
     internal class PrefetchState : TrackedObject
     {
         [DataMember]
-        public Dictionary<string, ClientRequestEventWithPrefetch> PendingRequests { get; private set; } = new Dictionary<string, ClientRequestEventWithPrefetch>();
+        public Dictionary<string, ClientRequestEventWithPrefetch> PendingPrefetches { get; private set; } = new Dictionary<string, ClientRequestEventWithPrefetch>();
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.Prefetch);
@@ -32,41 +35,41 @@ namespace DurableTask.EventSourced
         public override void OnRecoveryCompleted()
         {
             // reissue prefetch tasks for what did not complete prior to crash/recovery
-            foreach (var kvp in PendingRequests)
+            foreach (var kvp in PendingPrefetches)
             {
-                this.Partition.SubmitInternalEvent(new InstanceLoopkup(kvp.Value));
+                this.Partition.SubmitInternalEvent(new InstanceLookup(kvp.Value));
             }
         }
 
         public override void UpdateLoadInfo(PartitionLoadInfo info)
         {
-            info.WorkItems += this.PendingRequests.Count;
+            info.Requests += this.PendingPrefetches.Count;
         }
 
         public override string ToString()
         {
-            return $"Prefetch ({this.PendingRequests.Count} pending)";
+            return $"Prefetch ({this.PendingPrefetches.Count} pending)";
         }
 
         public void Process(ClientRequestEventWithPrefetch clientRequestEvent, EffectTracker effects)
         {
             if (clientRequestEvent.Phase == ClientRequestEventWithPrefetch.ProcessingPhase.Read)
             {           
-                this.Partition.Assert(!this.PendingRequests.ContainsKey(clientRequestEvent.EventIdString));
+                this.Partition.Assert(!this.PendingPrefetches.ContainsKey(clientRequestEvent.EventIdString));
 
                 // Issue a read request that fetches the instance state.
                 // We have to buffer this request in the pending list so we can recover it.
 
-                this.PendingRequests.Add(clientRequestEvent.EventIdString, clientRequestEvent);
+                this.PendingPrefetches.Add(clientRequestEvent.EventIdString, clientRequestEvent);
 
                 if (!effects.IsReplaying)
                 {
-                    this.Partition.SubmitInternalEvent(new InstanceLoopkup(clientRequestEvent));
+                    this.Partition.SubmitInternalEvent(new InstanceLookup(clientRequestEvent));
                 }
             }
             else 
             {
-                if (this.PendingRequests.Remove(clientRequestEvent.EventIdString))
+                if (this.PendingPrefetches.Remove(clientRequestEvent.EventIdString))
                 {
                     if (clientRequestEvent.Phase == ClientRequestEventWithPrefetch.ProcessingPhase.ConfirmAndProcess)
                     {
@@ -76,15 +79,21 @@ namespace DurableTask.EventSourced
             }
         }
 
-        internal class InstanceLoopkup : InternalReadEvent
+        internal class InstanceLookup : InternalReadEvent
         {
             private readonly ClientRequestEventWithPrefetch request;
 
-            public InstanceLoopkup(ClientRequestEventWithPrefetch clientRequest)
+            public InstanceLookup(ClientRequestEventWithPrefetch clientRequest)
             {
                 this.request = clientRequest;
             }
-            
+
+            protected override void ExtraTraceInformation(StringBuilder s)
+            {
+                s.Append(':');
+                s.Append(this.request.ToString());
+            }
+
             public override TrackedObjectKey ReadTarget => this.request.Target;
 
             public override TrackedObjectKey? Prefetch => this.request.Prefetch;
@@ -97,10 +106,14 @@ namespace DurableTask.EventSourced
 
                 bool requiresProcessing = this.request.OnReadComplete(target, partition);
 
-                this.request.Phase = requiresProcessing ?
+                var again = (ClientRequestEventWithPrefetch) this.request.Clone();
+
+                again.NextInputQueuePosition = 0; // this event is no longer considered an external event
+
+                again.Phase = requiresProcessing ?
                     ClientRequestEventWithPrefetch.ProcessingPhase.ConfirmAndProcess : ClientRequestEventWithPrefetch.ProcessingPhase.Confirm;
                  
-                partition.SubmitInternalEvent(this.request);
+                partition.SubmitInternalEvent(again);
             }
         }
     }

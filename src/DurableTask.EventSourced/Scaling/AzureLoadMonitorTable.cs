@@ -99,6 +99,7 @@ namespace DurableTask.EventSourced.Scaling
                         WorkItems = e.WorkItems,
                         Activities = e.Activities,
                         Timers = e.Timers,
+                        Requests = e.Requests,
                         Wakeup = e.NextTimer,
                         Outbox = e.Outbox,
                         InputQueuePosition = e.InputQueuePosition,
@@ -120,8 +121,9 @@ namespace DurableTask.EventSourced.Scaling
             public int WorkItems { get; set; }
             public int Activities { get; set; }
             public int Timers { get; set; }
-            public DateTime? NextTimer { get; set; }
+            public int Requests { get; set; }
             public int Outbox { get; set; }
+            public DateTime? NextTimer { get; set; }
             public long InputQueuePosition { get; set; }
             public long CommitLogPosition { get; set; }
             public long ActivityLatencyMs { get; set; }
@@ -148,6 +150,7 @@ namespace DurableTask.EventSourced.Scaling
                 this.WorkItems = info.WorkItems;
                 this.Activities = info.Activities;
                 this.Timers = info.Timers;
+                this.Requests = info.Requests;
                 this.NextTimer = info.Wakeup;
                 this.Outbox = info.Outbox;
                 this.InputQueuePosition = info.InputQueuePosition;

@@ -36,6 +36,11 @@ namespace DurableTask.EventSourced.Scaling
         public int Timers { get; set; }
 
         /// <summary>
+        /// The number of client requests waiting to be processed.
+        /// </summary>
+        public int Requests { get; set; }
+
+        /// <summary>
         /// The number of work items that have messages waiting to be sent.
         /// </summary>
         public int Outbox { get; set; }

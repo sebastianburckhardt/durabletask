@@ -22,12 +22,14 @@ namespace DurableTask.EventSourced
 {
     internal class BatchTimer<T>
     {
-        private MonitoredLock thisLock;
         private readonly CancellationToken cancellationToken;
         private readonly Action<List<T>> handler;
         private readonly SortedList<(DateTime due, int id), T> schedule;
         private readonly SemaphoreSlim notify;
         private readonly Action<string> tracer;
+
+        private MonitoredLock thisLock;
+        private string name;
 
         private volatile int sequenceNumber;
 
@@ -50,6 +52,7 @@ namespace DurableTask.EventSourced
             var thread = new Thread(ExpirationCheckLoop);
             thread.Name = name;
             thisLock.Name = name;
+            this.name = name;
             thread.Start();
         }
 
@@ -69,7 +72,7 @@ namespace DurableTask.EventSourced
 
                 this.schedule.Add(key, what);
 
-                tracer?.Invoke($"scheduled ({key.Item1:o},{key.Item2})");
+                tracer?.Invoke($"{this.name} scheduled ({key.Item1:o},{key.Item2})");
 
                 // notify the expiration check loop
                 if (key == this.schedule.First().Key)
@@ -85,7 +88,7 @@ namespace DurableTask.EventSourced
             {
                 if (this.schedule.Remove(key))
                 {
-                    tracer?.Invoke($"canceled ({key.due:o},{key.id})");
+                    tracer?.Invoke($"{this.name} canceled ({key.due:o},{key.id})");
                     return true;
                 }
                 else
@@ -108,7 +111,7 @@ namespace DurableTask.EventSourced
                 {
                     var startWait = DateTime.UtcNow;
                     this.notify.Wait(delay); // blocks thread until delay is over, or until notified                 
-                    tracer?.Invoke($"awakening at {(DateTime.UtcNow - due).TotalSeconds}s");
+                    tracer?.Invoke($"{this.name} is awakening at {(DateTime.UtcNow - due).TotalSeconds}s");
                 }
 
                 using (thisLock.Lock())
@@ -135,14 +138,14 @@ namespace DurableTask.EventSourced
 
                 if (batch.Count > 0)
                 {
-                    tracer?.Invoke($"starting timer batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
+                    tracer?.Invoke($"starting {this.name} batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
 
                     // it is expected that the handler catches 
                     // all exceptions, since it has more meaningful ways to report errors
                     handler(batch);
                     batch.Clear();
                     
-                    tracer?.Invoke($"completed timer batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
+                    tracer?.Invoke($"completed {this.name} batch size={batch.Count} first=({firstInBatch.due:o},{firstInBatch.id}) next=({nextAfterBatch.due:o},{nextAfterBatch.id})");
                 }
             }
         }

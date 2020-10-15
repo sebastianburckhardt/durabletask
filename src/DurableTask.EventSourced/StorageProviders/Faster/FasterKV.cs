@@ -11,6 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using DurableTask.Core;
 using DurableTask.Core.Common;
 using FASTER.core;
 using System;
@@ -218,7 +219,7 @@ namespace DurableTask.EventSourced.Faster
                 {
                     // Issue the PSF query. Note that pending operations will be completed before this returns.
                     var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
-                    if (queryEvent.HasRuntimeStatus)
+                    if (queryEvent.HasRuntimeStatus())
                         querySpec.Add((this.RuntimeStatusPsf, queryEvent.RuntimeStatus.Select(s => new PSFKey(s))));
                     if (queryEvent.CreatedTimeFrom.HasValue || queryEvent.CreatedTimeTo.HasValue)
                     {
@@ -251,11 +252,22 @@ namespace DurableTask.EventSourced.Faster
                 // create a individual session for this query so the main session can be used
                 // while the query is progressing.
                 using var session = this.CreateASession();
-                var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet)
+                var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet())
                     ? queryPSFsAsync()
                     : this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true);
 
-                await effectTracker.ProcessQueryResultAsync(queryEvent, trackedObjects);
+                async IAsyncEnumerable<OrchestrationState> orchestrationStates()
+                {
+                    await foreach(TrackedObject trackedObject in trackedObjects)
+                    {
+                        if (trackedObject is InstanceState instanceState && instanceState.OrchestrationState != null)
+                        {
+                            yield return instanceState.OrchestrationState;
+                        }
+                    }
+                }
+
+                await effectTracker.ProcessQueryResultAsync(queryEvent, orchestrationStates());
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))

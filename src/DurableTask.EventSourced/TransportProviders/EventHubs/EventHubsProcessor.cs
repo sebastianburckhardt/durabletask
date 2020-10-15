@@ -307,7 +307,7 @@ namespace DurableTask.EventSourced.EventHubs
                             pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));
                             DurabilityListeners.Register(partitionEvent, this);
                             partitionEvent.ReceivedTimestamp = current.Partition.CurrentTimeMs;
-                            partitionEvent.ReceivedTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                            //partitionEvent.ReceivedTimestampUnixMs = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
                             // Output the time it took for the event to go through eventhubs.
                             //if (partitionEvent.SentTimestampUnixMs != 0)

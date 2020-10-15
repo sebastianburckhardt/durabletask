@@ -21,21 +21,9 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal class InstanceQueryReceived : PartitionQueryEvent, IClientRequestEvent
+    internal class InstanceQueryReceived : ClientRequestEventWithQuery
     {
-        [DataMember]
-        public Guid ClientId { get; set; }
-
-        [DataMember]
-        public long RequestId { get; set; }
-
-        [DataMember]
-        public DateTime TimeoutUtc { get; set; }
-
-        [IgnoreDataMember]
-        public override EventId EventId => EventId.MakeClientRequestEventId(ClientId, RequestId);
-
-        public async override Task OnQueryCompleteAsync(IAsyncEnumerable<TrackedObject> instances, Partition partition)
+        public async override Task OnQueryCompleteAsync(IAsyncEnumerable<OrchestrationState> instances, Partition partition)
         {
             var response = new QueryResponseReceived
             {
@@ -44,14 +32,11 @@ namespace DurableTask.EventSourced
                 OrchestrationStates = new List<OrchestrationState>()
             };
 
-            await foreach (var trackedObject in instances)
+            await foreach (var orchestrationState in instances)
             {
-                var instanceState = trackedObject as InstanceState;
-                partition.Assert(instanceState != null);
-
-                if (this.Matches(instanceState.OrchestrationState))
+                if (this.Matches(orchestrationState))
                 {
-                    response.OrchestrationStates.Add(instanceState.OrchestrationState);
+                    response.OrchestrationStates.Add(orchestrationState);
                 }
             }
 

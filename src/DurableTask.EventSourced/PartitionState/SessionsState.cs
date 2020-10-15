@@ -230,15 +230,30 @@ namespace DurableTask.EventSourced
             this.AddMessageToSession(activityCompleted.Response, effects.IsReplaying);
         }
 
-        public void Process(CreationRequestReceived creationRequestProcessed, EffectTracker effects)
+        public void Process(CreationRequestReceived creationRequestReceived, EffectTracker effects)
         {
             // queues the execution started message
-            this.AddMessageToSession(creationRequestProcessed.TaskMessage, effects.IsReplaying);
+            this.AddMessageToSession(creationRequestReceived.TaskMessage, effects.IsReplaying);
+        }
+
+        public void Process(DeletionRequestReceived deletionRequestReceived, EffectTracker effects)
+        {
+            // removing the session means that all pending messages will be deleted also.
+            this.Sessions.Remove(deletionRequestReceived.InstanceId);
+        }
+
+        public void Process(PurgeBatchIssued purgeBatchIssued, EffectTracker effects)
+        {
+            foreach (string instanceId in purgeBatchIssued.Purged)
+            {
+                // removing the session means that all pending messages will be deleted also.
+                this.Sessions.Remove(instanceId);
+            }
         }
 
         public void ConfirmDurable(Event evt)
         {
-            var evtCopy = (BatchProcessed) evt.Clone();
+            var evtCopy = (BatchProcessed) ((BatchProcessed) evt).Clone();
             evtCopy.IsPersisted = true;
             this.Partition.SubmitInternalEvent(evtCopy);
         }

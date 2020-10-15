@@ -43,7 +43,7 @@ namespace DurableTask.EventSourced
         /// We cache this so we can resume the execution at the execution cursor.
         /// </summary>
         [IgnoreDataMember]
-        public OrchestrationWorkItem CachedOrchestrationWorkItem { get; set; } 
+        public OrchestrationWorkItem CachedOrchestrationWorkItem { get; set; }
 
         [IgnoreDataMember]
         public override TrackedObjectKey Key => new TrackedObjectKey(TrackedObjectKey.TrackedObjectType.History, this.InstanceId);
@@ -51,6 +51,14 @@ namespace DurableTask.EventSourced
         public override string ToString()
         {
             return $"History InstanceId={InstanceId} ExecutionId={ExecutionId} Events={History.Count}";
+        }
+
+        private void DeleteHistory()
+        {
+            this.History = null;
+            this.Episode = 0;
+            this.ExecutionId = null;
+            this.CachedOrchestrationWorkItem = null;
         }
 
         public void Process(BatchProcessed evt, EffectTracker effects)
@@ -84,10 +92,10 @@ namespace DurableTask.EventSourced
             if (!effects.IsReplaying)
             {
                 this.Partition.EventTraceHelper.TraceInstanceUpdate(
-                    evt.WorkItemId, 
-                    evt.State.OrchestrationInstance.InstanceId, 
-                    evt.State.OrchestrationInstance.ExecutionId, 
-                    this.History.Count, 
+                    evt.WorkItemId,
+                    evt.State.OrchestrationInstance.InstanceId,
+                    evt.State.OrchestrationInstance.ExecutionId,
+                    this.History.Count,
                     evt.NewEvents, this.Episode);
 
                 // if present, we keep the work item so we can reuse the execution cursor
@@ -99,6 +107,16 @@ namespace DurableTask.EventSourced
                     this.CachedOrchestrationWorkItem = null;
                 }
             }
+        }
+
+        public void Process(DeletionRequestReceived deletionRequestReceived, EffectTracker effects)
+        {
+            this.DeleteHistory();
+        }
+
+        public void Process(PurgeBatchIssued purgeBatchIssued, EffectTracker effects)
+        {
+            this.DeleteHistory();
         }
     }
 }

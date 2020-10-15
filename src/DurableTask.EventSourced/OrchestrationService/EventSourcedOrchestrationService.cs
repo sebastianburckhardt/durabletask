@@ -420,7 +420,12 @@ namespace DurableTask.EventSourced
             OrchestrationStateTimeRangeFilterType 
             timeRangeFilterType)
         {
-            throw new NotSupportedException(); //TODO
+            if (timeRangeFilterType != OrchestrationStateTimeRangeFilterType.OrchestrationCreatedTimeFilter)
+            {
+                throw new NotSupportedException("Purging is supported only for Orchestration created time filter.");
+            }
+
+            return Client.PurgeInstanceHistoryAsync(thresholdDateTimeUtc, null, null);
         }
 
         /// <summary>
@@ -453,6 +458,24 @@ namespace DurableTask.EventSourced
                                                                           CancellationToken CancellationToken = default)
             => Client.GetOrchestrationStateAsync(CreatedTimeFrom, CreatedTimeTo, RuntimeStatus, InstanceIdPrefix, CancellationToken);
 
+
+        /// <summary>
+        /// Purge history for an orchestration with a specified instance id.
+        /// </summary>
+        /// <param name="instanceId">Instance ID of the orchestration.</param>
+        /// <returns>Class containing number of storage requests sent, along with instances and rows deleted/purged</returns>
+        public Task<int> PurgeInstanceHistoryAsync(string instanceId)
+            => Client.DeleteAllDataForOrchestrationInstance(this.GetPartitionId(instanceId), instanceId);
+
+        /// <summary>
+        /// Purge history for orchestrations that match the specified parameters.
+        /// </summary>
+        /// <param name="createdTimeFrom">CreatedTime of orchestrations. Purges history grater than this value.</param>
+        /// <param name="createdTimeTo">CreatedTime of orchestrations. Purges history less than this value.</param>
+        /// <param name="runtimeStatus">RuntimeStatus of orchestrations. You can specify several status.</param>
+        /// <returns>Class containing number of storage requests sent, along with instances and rows deleted/purged</returns>
+        public Task<int> PurgeInstanceHistoryAsync(DateTime createdTimeFrom, DateTime? createdTimeTo, IEnumerable<OrchestrationStatus> runtimeStatus)
+            => Client.PurgeInstanceHistoryAsync(createdTimeFrom, createdTimeTo, runtimeStatus);
 
         /******************************/
         // Task orchestration methods

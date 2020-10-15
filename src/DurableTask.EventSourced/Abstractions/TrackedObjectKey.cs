@@ -39,6 +39,7 @@ namespace DurableTask.EventSourced
             Sessions,
             Timers,
             Prefetch,
+            Queries,
 
             // non-singletons
             History,
@@ -54,6 +55,7 @@ namespace DurableTask.EventSourced
             { TrackedObjectType.Sessions, typeof(SessionsState) },
             { TrackedObjectType.Timers, typeof(TimersState) },
             { TrackedObjectType.Prefetch, typeof(PrefetchState) },
+            { TrackedObjectType.Queries, typeof(QueriesState) },
             
             // non-singletons
             { TrackedObjectType.History, typeof(HistoryState) },
@@ -94,6 +96,7 @@ namespace DurableTask.EventSourced
         public static TrackedObjectKey Sessions = new TrackedObjectKey() { ObjectType = TrackedObjectType.Sessions };
         public static TrackedObjectKey Timers = new TrackedObjectKey() { ObjectType = TrackedObjectType.Timers };
         public static TrackedObjectKey Prefetch = new TrackedObjectKey() { ObjectType = TrackedObjectType.Prefetch };
+        public static TrackedObjectKey Queries = new TrackedObjectKey() { ObjectType = TrackedObjectType.Queries };
 
         // convenient constructors for non-singletons
 
@@ -117,6 +120,7 @@ namespace DurableTask.EventSourced
                 TrackedObjectType.Sessions => new SessionsState(),
                 TrackedObjectType.Timers => new TimersState(),
                 TrackedObjectType.Prefetch => new PrefetchState(),
+                TrackedObjectType.Queries => new QueriesState(),
                 TrackedObjectType.History => new HistoryState() { InstanceId = key.InstanceId },
                 TrackedObjectType.Instance => new InstanceState() { InstanceId = key.InstanceId },
                 _ => throw new ArgumentException("invalid key", nameof(key)),

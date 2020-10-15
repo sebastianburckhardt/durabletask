@@ -314,31 +314,53 @@ namespace DurableTask.EventSourced
             return (response?.ExecutionId, response?.History);
         }
 
-
         public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(CancellationToken cancellationToken)
-            => RunPartitionQueries(partitionId => new InstanceQueryReceived()
-            {
-                PartitionId = partitionId,
-                ClientId = this.ClientId,
-                RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-            }, cancellationToken);
+            => RunPartitionQueries<InstanceQueryReceived, QueryResponseReceived, IList<OrchestrationState>>(
+                partitionId => new InstanceQueryReceived() {
+                    PartitionId = partitionId,
+                    ClientId = this.ClientId,
+                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                },
+                (IEnumerable<QueryResponseReceived> responses) => responses.SelectMany(response => response.OrchestrationStates).ToList(),
+                cancellationToken);
 
         public Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo,
                     IEnumerable<OrchestrationStatus> runtimeStatus, string instanceIdPrefix, CancellationToken cancellationToken = default)
-            => RunPartitionQueries(partitionId => new InstanceQueryReceived()
-            {
-                PartitionId = partitionId,
-                ClientId = this.ClientId,
-                RequestId = Interlocked.Increment(ref this.SequenceNumber),
-                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-                CreatedTimeFrom = createdTimeFrom,
-                CreatedTimeTo = createdTimeTo,
-                RuntimeStatus = runtimeStatus?.ToArray(),
-                InstanceIdPrefix = instanceIdPrefix
-            }, cancellationToken);
+            => RunPartitionQueries<InstanceQueryReceived,QueryResponseReceived,IList<OrchestrationState>>(
+                partitionId => new InstanceQueryReceived() {
+                    PartitionId = partitionId,
+                    ClientId = this.ClientId,
+                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                    CreatedTimeFrom = createdTimeFrom?.ToUniversalTime(),
+                    CreatedTimeTo = createdTimeTo?.ToUniversalTime(),
+                    RuntimeStatus = runtimeStatus?.ToArray(),
+                    InstanceIdPrefix = instanceIdPrefix
+                },
+                (IEnumerable<QueryResponseReceived> responses) => responses.SelectMany(response => response.OrchestrationStates).ToList(),
+                cancellationToken);
 
-        private async Task<IList<OrchestrationState>> RunPartitionQueries(Func<uint, InstanceQueryReceived> requestCreator, CancellationToken cancellationToken)
+        public Task<int> PurgeInstanceHistoryAsync(DateTime? createdTimeFrom, DateTime? createdTimeTo, IEnumerable<OrchestrationStatus> runtimeStatus, CancellationToken cancellationToken = default)
+            => RunPartitionQueries<PurgeRequestReceived, PurgeResponseReceived, int>(
+                partitionId => new PurgeRequestReceived()
+                {
+                    PartitionId = partitionId,
+                    ClientId = this.ClientId,
+                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                    CreatedTimeFrom = createdTimeFrom?.ToUniversalTime(),
+                    CreatedTimeTo = createdTimeTo?.ToUniversalTime(),
+                    RuntimeStatus = runtimeStatus?.ToArray(),
+                },
+                (IEnumerable<PurgeResponseReceived> responses) => responses.Sum(response => response.NumberInstancesPurged),
+                cancellationToken);
+
+        private async Task<TResult> RunPartitionQueries<TRequest,TResponse,TResult>(
+            Func<uint, TRequest> requestCreator, 
+            Func<IEnumerable<TResponse>,TResult> responseAggregator,
+            CancellationToken cancellationToken)
+            where TRequest: IClientRequestEvent
         {
             IEnumerable<Task<ClientEvent>> launchQueries()
             {
@@ -348,7 +370,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            return (await Task.WhenAll(launchQueries()).ConfigureAwait(false)).Cast<QueryResponseReceived>().SelectMany(response => response.OrchestrationStates).ToList();
+            return responseAggregator((await Task.WhenAll(launchQueries()).ConfigureAwait(false)).Cast<TResponse>());
         }
 
         public Task ForceTerminateTaskOrchestrationAsync(uint partitionId, string instanceId, string message)
@@ -371,13 +393,24 @@ namespace DurableTask.EventSourced
             return PerformRequestWithTimeoutAndCancellation(CancellationToken.None, request, true);
         }
 
-        public Task PurgeOrchestrationHistoryAsync(uint partitionId, DateTime thresholdDateTimeUtc, OrchestrationStateTimeRangeFilterType timeRangeFilterType)
+        public async Task<int> DeleteAllDataForOrchestrationInstance(uint partitionId, string instanceId)
         {
-            throw new NotSupportedException(); //TODO
-        }
+            if (string.IsNullOrWhiteSpace(instanceId))
+            {
+                throw new ArgumentException(nameof(instanceId));
+            }
 
-        //public async Task DeleteAllDataForOrchestrationInstance(OrchestrationInstanceStatus orchestrationInstanceStatus)
-        //{
-        //}
+            var request = new DeletionRequestReceived()
+            {
+                PartitionId = partitionId,
+                ClientId = this.ClientId,
+                RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                InstanceId = instanceId,
+                TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+            };
+
+            var response = await PerformRequestWithTimeoutAndCancellation(this.shutdownToken, request, false).ConfigureAwait(false);
+            return ((DeletionResponseReceived)response).NumberInstancesDeleted;
+        }
     }
 }

@@ -13,34 +13,35 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 using DurableTask.Core;
+using DurableTask.Core.Exceptions;
+using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class PartitionQueryEvent : PartitionEvent, InstanceQueries.IQuerySpec
+    internal class DeletionRequestReceived : ClientRequestEventWithPrefetch
     {
-        public abstract OrchestrationStatus[] RuntimeStatus { get; }
+        [DataMember]
+        public string InstanceId { get; set; }
 
-        public abstract DateTime? CreatedTimeFrom { get; }
+        [DataMember]
+        public DateTime? CreatedTime { get; set; }  // works like an e-tag, if specified
 
-        public abstract DateTime? CreatedTimeTo { get; }
+        [IgnoreDataMember]
+        public override TrackedObjectKey Target => TrackedObjectKey.Instance(this.InstanceId);
 
-        public abstract string InstanceIdPrefix { get; }
+        [IgnoreDataMember]
+        public override TrackedObjectKey? Prefetch => TrackedObjectKey.History(this.InstanceId);
 
-        public bool PrefetchInstance { get; set; }
-
-        public bool PrefetchHistory { get; set; }
-
-        /// <summary>
-        /// The continuation for the query operation.
-        /// </summary>
-        /// <param name="result">The tracked objects returned by this query</param>
-        /// <param name="partition">The partition</param>
-        public abstract Task OnQueryCompleteAsync(IAsyncEnumerable<OrchestrationState> result, Partition partition);
+        protected override void ExtraTraceInformation(StringBuilder s)
+        {
+            s.Append(' ');
+            s.Append(this.InstanceId);
+        }
     }
 }

@@ -134,7 +134,7 @@ namespace DurableTask.EventSourced.Scaling
             // first, check if any of the partitions have queued work or are scheduled to wake up
             foreach (var p in loadInformation.Values)
             {
-                if (p.Activities > 0 || p.WorkItems > 0 || p.Outbox > 0)
+                if (p.Activities > 0 || p.WorkItems > 0 || p.Requests > 0 || p.Outbox > 0)
                 {
                     return false;
                 }

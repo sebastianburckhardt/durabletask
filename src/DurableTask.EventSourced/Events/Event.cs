@@ -55,26 +55,22 @@ namespace DurableTask.EventSourced
             // subclasses can override this to add extra information to the trace
         }
 
-        public Event Clone()
-        {
-            var evt = (Event)this.MemberwiseClone();
-            evt.eventIdString = null;
-            evt.DurabilityListeners.Clear();
-            return evt;
-        }
-
         public static IEnumerable<Type> KnownTypes()
         {
             yield return typeof(ClientEventFragment);
             yield return typeof(CreationResponseReceived);
+            yield return typeof(DeletionResponseReceived);
             yield return typeof(HistoryResponseReceived);
+            yield return typeof(PurgeResponseReceived);
             yield return typeof(QueryResponseReceived);
             yield return typeof(StateResponseReceived);
             yield return typeof(WaitResponseReceived);
             yield return typeof(ClientTaskMessagesReceived);
             yield return typeof(CreationRequestReceived);
+            yield return typeof(DeletionRequestReceived);
             yield return typeof(HistoryRequestReceived);
             yield return typeof(InstanceQueryReceived);
+            yield return typeof(PurgeRequestReceived);
             yield return typeof(StateRequestReceived);
             yield return typeof(WaitRequestReceived);
             yield return typeof(ActivityCompleted);
@@ -85,6 +81,7 @@ namespace DurableTask.EventSourced
             yield return typeof(RemoteActivityResultReceived);
             yield return typeof(TaskMessagesReceived);
             yield return typeof(OffloadDecision);
+            yield return typeof(PurgeBatchIssued);
             yield return typeof(PartitionEventFragment);
         }
 

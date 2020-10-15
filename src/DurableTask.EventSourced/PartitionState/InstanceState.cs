@@ -48,11 +48,6 @@ namespace DurableTask.EventSourced
                 && creationRequestReceived.DedupeStatuses != null
                 && creationRequestReceived.DedupeStatuses.Contains(this.OrchestrationState.OrchestrationStatus);
 
-            // Use this moment of time as the creation timestamp, replacing the original timestamp taken on the client.
-            // This is preferrable because it avoids clock synchronization issues (which can result in negative orchestration durations)
-            // and means the timestamp is consistently ordered with respect to timestamps of other events on this partition.
-            ((ExecutionStartedEvent)creationRequestReceived.TaskMessage.Event).Timestamp = DateTime.UtcNow;
-
             if (!filterDuplicate)
             {
                 var ee = creationRequestReceived.ExecutionStartedEvent;
@@ -143,6 +138,45 @@ namespace DurableTask.EventSourced
                 }
                 
                 this.Waiters.Add(evt);
+            }
+        }
+
+        public void Process(DeletionRequestReceived deletionRequest, EffectTracker effects)
+        {
+            int numberInstancesDeleted = 0;
+
+            if (this.OrchestrationState != null 
+                && (!deletionRequest.CreatedTime.HasValue || deletionRequest.CreatedTime.Value == this.OrchestrationState.CreatedTime))
+            {
+                this.OrchestrationState = null;
+                numberInstancesDeleted++;
+
+                // we also delete this instance's history, and pending operations on it
+                effects.Add(TrackedObjectKey.History(this.InstanceId));
+                effects.Add(TrackedObjectKey.Sessions);
+            }
+
+            if (!effects.IsReplaying)
+            {
+                this.Partition.Send(new DeletionResponseReceived()
+                {
+                    ClientId = deletionRequest.ClientId,
+                    RequestId = deletionRequest.RequestId,
+                    NumberInstancesDeleted = numberInstancesDeleted,
+                });
+            }
+        }
+
+        public void Process(PurgeBatchIssued purgeBatchIssued, EffectTracker effects)
+        {
+            OrchestrationState state = this.OrchestrationState;
+            if (this.OrchestrationState != null 
+                && (purgeBatchIssued.RuntimeStatus == null || purgeBatchIssued.RuntimeStatus.Contains(this.OrchestrationState.OrchestrationStatus))
+                && (purgeBatchIssued.CreatedTimeTo == null || this.OrchestrationState.CreatedTime <= purgeBatchIssued.CreatedTimeTo))
+            {
+                this.OrchestrationState = null;
+                purgeBatchIssued.Purged.Add(this.InstanceId);
+                effects.Add(TrackedObjectKey.History(this.InstanceId));
             }
         }
     }
