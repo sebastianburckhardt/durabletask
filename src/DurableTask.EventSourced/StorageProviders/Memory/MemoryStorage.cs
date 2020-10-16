@@ -102,13 +102,15 @@ namespace DurableTask.EventSourced
             return result;
         }
 
-        private IList<OrchestrationState> GetAllInstances()
+        private IList<OrchestrationState> QueryOrchestrationStates(InstanceQuery query)
         {
             return trackedObjects
                 .Values
                 .Select(trackedObject => trackedObject as InstanceState)
-                .Where(instanceState => instanceState != null)
-                .Select(instanceState => instanceState.OrchestrationState)
+                .Select(instanceState => instanceState?.OrchestrationState)
+                .Where(orchestrationState => orchestrationState != null 
+                    && (query == null || query.Matches(orchestrationState)))
+                .Select(orchestrationState => orchestrationState.ClearFieldsImmutably(query.FetchInput, true))
                 .ToList();
         }
 
@@ -156,8 +158,8 @@ namespace DurableTask.EventSourced
                                     break;
 
                                 case PartitionQueryEvent queryEvent:
-                                    var instances = this.GetAllInstances().ToAsyncEnumerable();
-                                    var backgroundTask = Task.Run(() => effects.ProcessQueryResultAsync(queryEvent, instances));
+                                    var instances = this.QueryOrchestrationStates(queryEvent.InstanceQuery);
+                                    var backgroundTask = Task.Run(() => effects.ProcessQueryResultAsync(queryEvent, instances.ToAsyncEnumerable()));
                                     break;
 
                                 default:

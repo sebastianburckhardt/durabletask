@@ -48,9 +48,6 @@ namespace DurableTask.EventSourced.Faster
         // perform a query
         public abstract Task QueryAsync(PartitionQueryEvent queryEvent, EffectTracker effectTracker);
 
-        // enumerate all tracked objects
-        public abstract IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false);
-
         // kick off a read of a tracked object, completing asynchronously if necessary
         public abstract void ReadAsync(PartitionReadEvent readEvent, EffectTracker effectTracker);
 

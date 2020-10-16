@@ -377,12 +377,6 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
-        {
-            // TODO
-            return default;
-        }
-
         #region storage access operation
 
         private CloudBlockBlob GetBlob(TrackedObjectKey key)

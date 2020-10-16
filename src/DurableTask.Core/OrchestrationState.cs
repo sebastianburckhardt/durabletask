@@ -114,12 +114,33 @@ namespace DurableTask.Core
         public DateTime? ScheduledStartTime { get; set; }
 
         /// <summary>
-        /// Create a shallow copy of this object.
+        /// Clear input and/or output fields. Creates a shallow copy since
+        /// we do not want to modify the original copy.
         /// </summary>
         /// <returns></returns>
-        public OrchestrationState MakeShallowCopy()
+        public OrchestrationState ClearFieldsImmutably(bool includeInput, bool includeOutput)
         {
-            return (OrchestrationState) this.MemberwiseClone();
+            if (includeInput && includeOutput)
+            {
+                return this;
+            }
+            else
+            {
+                // since we keep the OrchestrationState immutable in the backend, we must make a copy
+                var copy = (OrchestrationState)this.MemberwiseClone();
+
+                if (!includeInput)
+                {
+                    copy.Input = null;
+                }
+
+                if (!includeOutput)
+                {
+                    copy.Output = null;
+                }
+
+                return copy;
+            }
         }
 
         /// <summary>

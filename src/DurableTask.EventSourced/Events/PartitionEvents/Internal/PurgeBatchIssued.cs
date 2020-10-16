@@ -35,10 +35,7 @@ namespace DurableTask.EventSourced
         public List<string> InstanceIds { get; set; }
 
         [DataMember]
-        public OrchestrationStatus[] RuntimeStatus { get; set; }
-
-        [DataMember]
-        public DateTime? CreatedTimeTo { get; set; }
+        public InstanceQuery InstanceQuery { get; set; }
 
         [IgnoreDataMember]
         public TaskCompletionSource<object> WhenProcessed { get; set; }

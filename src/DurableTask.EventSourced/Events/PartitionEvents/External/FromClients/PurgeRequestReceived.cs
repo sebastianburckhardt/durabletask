@@ -43,18 +43,14 @@ namespace DurableTask.EventSourced
                     BatchNumber = batchCount++,
                     InstanceIds = new List<string>(),
                     WhenProcessed = new TaskCompletionSource<object>(),
-                    CreatedTimeTo = this.CreatedTimeTo,
-                    RuntimeStatus = this.RuntimeStatus,
+                    InstanceQuery = this.InstanceQuery,
                 };
 
             PurgeBatchIssued batch = makeBatchObject();
 
             await foreach (var orchestrationState in instances)
             {
-                if (this.Matches(orchestrationState))
-                {
-                    batch.InstanceIds.Add(orchestrationState.OrchestrationInstance.InstanceId);
-                }
+                batch.InstanceIds.Add(orchestrationState.OrchestrationInstance.InstanceId);
 
                 if (batch.InstanceIds.Count == MaxBatchSize)
                 {

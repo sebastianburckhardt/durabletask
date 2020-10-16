@@ -170,9 +170,8 @@ namespace DurableTask.EventSourced
         public void Process(PurgeBatchIssued purgeBatchIssued, EffectTracker effects)
         {
             OrchestrationState state = this.OrchestrationState;
-            if (this.OrchestrationState != null 
-                && (purgeBatchIssued.RuntimeStatus == null || purgeBatchIssued.RuntimeStatus.Contains(this.OrchestrationState.OrchestrationStatus))
-                && (purgeBatchIssued.CreatedTimeTo == null || this.OrchestrationState.CreatedTime <= purgeBatchIssued.CreatedTimeTo))
+            if (this.OrchestrationState != null
+                && purgeBatchIssued.InstanceQuery.Matches(this.OrchestrationState))
             {
                 this.OrchestrationState = null;
                 purgeBatchIssued.Purged.Add(this.InstanceId);

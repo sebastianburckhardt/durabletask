@@ -34,10 +34,7 @@ namespace DurableTask.EventSourced
 
             await foreach (var orchestrationState in instances)
             {
-                if (this.Matches(orchestrationState))
-                {
-                    response.OrchestrationStates.Add(orchestrationState);
-                }
+                response.OrchestrationStates.Add(orchestrationState);
             }
 
             partition.Send(response);

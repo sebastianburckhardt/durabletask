@@ -37,7 +37,7 @@ namespace DurableTask.EventSourced
             // reissue queries that did not complete prior to crash/recovery
             foreach (var kvp in PendingQueries)
             {
-                this.Partition.SubmitInternalEvent(new InstanceQuery(kvp.Value));
+                this.Partition.SubmitInternalEvent(new InstanceQueryEvent(kvp.Value));
             }
         }
 
@@ -64,7 +64,7 @@ namespace DurableTask.EventSourced
 
                 if (!effects.IsReplaying)
                 {
-                    this.Partition.SubmitInternalEvent(new InstanceQuery(clientRequestEvent));
+                    this.Partition.SubmitInternalEvent(new InstanceQueryEvent(clientRequestEvent));
                 }
             }
             else 
@@ -85,11 +85,11 @@ namespace DurableTask.EventSourced
             }
         }
 
-        internal class InstanceQuery : PartitionQueryEvent
+        internal class InstanceQueryEvent : PartitionQueryEvent
         {
             private readonly ClientRequestEventWithQuery request;
 
-            public InstanceQuery(ClientRequestEventWithQuery clientRequest)
+            public InstanceQueryEvent(ClientRequestEventWithQuery clientRequest)
             {
                 this.request = clientRequest;
             }
@@ -102,13 +102,7 @@ namespace DurableTask.EventSourced
 
             public override EventId EventId => this.request.EventId;
 
-            public override OrchestrationStatus[] RuntimeStatus => this.request.RuntimeStatus;
-
-            public override DateTime? CreatedTimeFrom => this.request.CreatedTimeFrom;
-
-            public override DateTime? CreatedTimeTo => this.request.CreatedTimeTo;
-
-            public override string InstanceIdPrefix => this.request.InstanceIdPrefix;
+            public override EventSourced.InstanceQuery InstanceQuery => this.request.InstanceQuery;
 
             public override async Task OnQueryCompleteAsync(IAsyncEnumerable<OrchestrationState> result, Partition partition)
             {

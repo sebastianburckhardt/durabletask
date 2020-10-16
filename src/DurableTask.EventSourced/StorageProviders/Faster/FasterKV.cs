@@ -215,59 +215,68 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                IAsyncEnumerable<TrackedObject> queryPSFsAsync()
+                var instanceQuery = queryEvent.InstanceQuery;
+
+                IAsyncEnumerable<OrchestrationState> queryPSFsAsync()
                 {
+
                     // Issue the PSF query. Note that pending operations will be completed before this returns.
                     var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
-                    if (queryEvent.HasRuntimeStatus())
-                        querySpec.Add((this.RuntimeStatusPsf, queryEvent.RuntimeStatus.Select(s => new PSFKey(s))));
-                    if (queryEvent.CreatedTimeFrom.HasValue || queryEvent.CreatedTimeTo.HasValue)
+                    if (instanceQuery.HasRuntimeStatus)
+                        querySpec.Add((this.RuntimeStatusPsf, instanceQuery.RuntimeStatus.Select(s => new PSFKey(s))));
+                    if (instanceQuery.CreatedTimeFrom.HasValue || instanceQuery.CreatedTimeTo.HasValue)
                     {
                         IEnumerable<PSFKey> enumerateDateBinKeys()
                         {
-                            var to = queryEvent.CreatedTimeTo ?? DateTime.UtcNow;
-                            var from = queryEvent.CreatedTimeFrom ?? to.AddDays(-7);   // TODO Some default so we don't have to iterate from the first possible date
+                            var to = instanceQuery.CreatedTimeTo ?? DateTime.UtcNow;
+                            var from = instanceQuery.CreatedTimeFrom ?? to.AddDays(-7);   // TODO Some default so we don't have to iterate from the first possible date
                             for (var dt = from; dt <= to; dt += PSFKey.DateBinInterval)
                                 yield return new PSFKey(dt);
                         }
                         querySpec.Add((this.CreatedTimePsf, enumerateDateBinKeys()));
                     }
-                    if (!string.IsNullOrWhiteSpace(queryEvent.InstanceIdPrefix))
-                        querySpec.Add((this.InstanceIdPrefixPsf, new[] { new PSFKey(queryEvent.InstanceIdPrefix) }));
+                    if (!string.IsNullOrWhiteSpace(instanceQuery.InstanceIdPrefix))
+                        querySpec.Add((this.InstanceIdPrefixPsf, new[] { new PSFKey(instanceQuery.InstanceIdPrefix) }));
                     var querySettings = new PSFQuerySettings
                     {
                         // This is a match-all-PSFs enumeration so do not continue after any PSF has hit EOS
                         OnStreamEnded = (unusedPsf, unusedIndex) => false
                     };
 
-                    TrackedObject getValue(ref Value v)
-                        => v.Val is byte[] serialized
-                            ? Serializer.DeserializeTrackedObject(serialized)
-                            : (TrackedObject)v;
+                    OrchestrationState getOrchestrationState(ref Value v)
+                    {
+                        if (v.Val is byte[] serialized)
+                        {
+                            var result = ((InstanceState)Serializer.DeserializeTrackedObject(serialized))?.OrchestrationState;
+                            if (result != null && !instanceQuery.FetchInput)
+                            {
+                                result.Input = null;
+                            }
+                            return result;
+                        }
+                        else
+                        {
+                            var state = ((InstanceState)((TrackedObject)v))?.OrchestrationState;
+                            var result = state?.ClearFieldsImmutably(instanceQuery.FetchInput, true);                         
+                            return result;
+                        }
+                    }
 
                     return this.mainSession.QueryPSFAsync(querySpec, matches => matches.All(b => b), querySettings)
-                                           .Select(providerData => getValue(ref providerData.GetValue()));
+                                           .Select(providerData => getOrchestrationState(ref providerData.GetValue()))
+                                           .Where(orchestrationState => orchestrationState != null);
                 }
 
                 // create a individual session for this query so the main session can be used
                 // while the query is progressing.
-                using var session = this.CreateASession();
-                var trackedObjects = (this.partition.Settings.UsePSFQueries && queryEvent.IsSet())
-                    ? queryPSFsAsync()
-                    : this.EnumerateAllTrackedObjects(effectTracker, instanceOnly: true);
-
-                async IAsyncEnumerable<OrchestrationState> orchestrationStates()
+                using (var session = this.CreateASession())
                 {
-                    await foreach(TrackedObject trackedObject in trackedObjects)
-                    {
-                        if (trackedObject is InstanceState instanceState && instanceState.OrchestrationState != null)
-                        {
-                            yield return instanceState.OrchestrationState;
-                        }
-                    }
-                }
+                    var orchestrationStates = (this.partition.Settings.UsePSFQueries && instanceQuery.IsSet)
+                        ? queryPSFsAsync()
+                        : this.ScanOrchestrationStates(session, effectTracker, instanceQuery);
 
-                await effectTracker.ProcessQueryResultAsync(queryEvent, orchestrationStates());
+                    await effectTracker.ProcessQueryResultAsync(queryEvent, orchestrationStates);
+                }
             }
             catch (Exception exception)
                 when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
@@ -334,6 +343,26 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
+        // read a tracked object on a query session
+        private async ValueTask<TrackedObject> ReadAsync(
+            ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> session,
+            Key key, 
+            EffectTracker effectTracker)
+        {
+            try
+            {
+                var result = await session.ReadAsync(ref key, ref effectTracker, context: null, token: this.terminationToken).ConfigureAwait(false);
+                var (status, output) = result.Complete();
+                return output;
+            }
+            catch (Exception exception)
+                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+            {
+                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+            }
+        }
+
+
         // create a tracked object on the main session (only one of these is executing at a time)
         public override ValueTask<TrackedObject> CreateAsync(Key key)
         {
@@ -366,40 +395,61 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        public override async IAsyncEnumerable<TrackedObject> EnumerateAllTrackedObjects(EffectTracker effectTracker, bool instanceOnly = false)
+        private async IAsyncEnumerable<OrchestrationState> ScanOrchestrationStates(
+            ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> session,
+            EffectTracker effectTracker,
+            InstanceQuery instanceQuery)
         {
             // get the unique set of keys appearing in the log and emit them
             using var iter1 = this.fht.Iterate();
             while (iter1.GetNext(out RecordInfo recordInfo) && !recordInfo.Tombstone)
             {
                 TrackedObjectKey key = iter1.GetKey().Val;
-                if (key.ObjectType == TrackedObjectKey.TrackedObjectType.Instance || !instanceOnly)
+                if (key.ObjectType == TrackedObjectKey.TrackedObjectType.Instance)
                 {
-                    TrackedObject target = await this.ReadAsync(key, effectTracker).ConfigureAwait(false);
-                    if (target != null)
-                        yield return target;
+                    if (string.IsNullOrEmpty(instanceQuery?.InstanceIdPrefix)
+                        || key.InstanceId.StartsWith(instanceQuery.InstanceIdPrefix))
+                    {
+                        TrackedObject target = await this.ReadAsync(session, key, effectTracker).ConfigureAwait(false);
+                        if (target is InstanceState instanceState)
+                        {
+                            // this may race with updates to the orchestration state
+                            // but it is benign because the OrchestrationState object is immutable
+                            var orchestrationState = instanceState?.OrchestrationState;
+
+                            if (orchestrationState != null
+                                && instanceQuery.Matches(orchestrationState))
+                            {
+                                if (instanceQuery.PrefetchHistory)
+                                {
+                                    await this.ReadAsync(session, TrackedObjectKey.History(key.InstanceId), effectTracker).ConfigureAwait(false);
+                                }
+                                yield return orchestrationState;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        private async Task<string> DumpCurrentState(EffectTracker effectTracker)    // TODO unused
-        {
-            try
-            {
-                var stringBuilder = new StringBuilder();
-                await foreach (var trackedObject in EnumerateAllTrackedObjects(effectTracker).OrderBy(obj => obj.Key, new TrackedObjectKey.Comparer()))
-                {
-                    stringBuilder.Append(trackedObject.ToString());
-                    stringBuilder.AppendLine();
-                }
-                return stringBuilder.ToString();
-            }
-            catch (Exception exception)
-                when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
-            {
-                throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
-            }
-        }
+        //private async Task<string> DumpCurrentState(EffectTracker effectTracker)    // TODO unused
+        //{
+        //    try
+        //    {
+        //        var stringBuilder = new StringBuilder();
+        //        await foreach (var trackedObject in EnumerateAllTrackedObjects(effectTracker).OrderBy(obj => obj.Key, new TrackedObjectKey.Comparer()))
+        //        {
+        //            stringBuilder.Append(trackedObject.ToString());
+        //            stringBuilder.AppendLine();
+        //        }
+        //        return stringBuilder.ToString();
+        //    }
+        //    catch (Exception exception)
+        //        when (this.terminationToken.IsCancellationRequested && !Utils.IsFatal(exception))
+        //    {
+        //        throw new OperationCanceledException("Partition was terminated.", exception, this.terminationToken);
+        //    }
+        //}
 
         public struct Key : IFasterEqualityComparer<Key>
         {

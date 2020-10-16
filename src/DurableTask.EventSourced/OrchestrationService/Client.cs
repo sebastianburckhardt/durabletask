@@ -321,6 +321,7 @@ namespace DurableTask.EventSourced
                     ClientId = this.ClientId,
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
                     TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                    InstanceQuery = new InstanceQuery(),
                 },
                 (IEnumerable<QueryResponseReceived> responses) => responses.SelectMany(response => response.OrchestrationStates).ToList(),
                 cancellationToken);
@@ -333,10 +334,12 @@ namespace DurableTask.EventSourced
                     ClientId = this.ClientId,
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
                     TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-                    CreatedTimeFrom = createdTimeFrom?.ToUniversalTime(),
-                    CreatedTimeTo = createdTimeTo?.ToUniversalTime(),
-                    RuntimeStatus = runtimeStatus?.ToArray(),
-                    InstanceIdPrefix = instanceIdPrefix
+                    InstanceQuery = new InstanceQuery(
+                        runtimeStatus.ToArray(), 
+                        createdTimeFrom?.ToUniversalTime(),
+                        createdTimeTo?.ToUniversalTime(),
+                        instanceIdPrefix,
+                        fetchInput: true),
                 },
                 (IEnumerable<QueryResponseReceived> responses) => responses.SelectMany(response => response.OrchestrationStates).ToList(),
                 cancellationToken);
@@ -349,11 +352,32 @@ namespace DurableTask.EventSourced
                     ClientId = this.ClientId,
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
                     TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
-                    CreatedTimeFrom = createdTimeFrom?.ToUniversalTime(),
-                    CreatedTimeTo = createdTimeTo?.ToUniversalTime(),
-                    RuntimeStatus = runtimeStatus?.ToArray(),
+                    InstanceQuery = new InstanceQuery(
+                        runtimeStatus.ToArray(),
+                        createdTimeFrom?.ToUniversalTime(),
+                        createdTimeTo?.ToUniversalTime(),
+                        null,
+                        fetchInput: false)
+                    { PrefetchHistory = true },
                 },
                 (IEnumerable<PurgeResponseReceived> responses) => responses.Sum(response => response.NumberInstancesPurged),
+                cancellationToken);
+
+        public Task<InstanceQueryResult> QueryOrchestrationStatesAsync(InstanceQuery instanceQuery, int pageSize, string continuationToken, CancellationToken cancellationToken)
+            => RunPartitionQueries<InstanceQueryReceived, QueryResponseReceived, InstanceQueryResult>(
+                partitionId => new InstanceQueryReceived()
+                {
+                    PartitionId = partitionId,
+                    ClientId = this.ClientId,
+                    RequestId = Interlocked.Increment(ref this.SequenceNumber),
+                    TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
+                    InstanceQuery = instanceQuery,
+                },
+                (IEnumerable<QueryResponseReceived> responses) => new InstanceQueryResult()
+                {
+                    Instances = responses.SelectMany(response => response.OrchestrationStates),
+                    ContinuationToken = null,
+                },
                 cancellationToken);
 
         private async Task<TResult> RunPartitionQueries<TRequest,TResponse,TResult>(

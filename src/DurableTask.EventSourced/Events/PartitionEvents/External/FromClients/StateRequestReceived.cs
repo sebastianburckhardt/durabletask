@@ -47,20 +47,13 @@ namespace DurableTask.EventSourced
         public override void OnReadComplete(TrackedObject target, Partition partition)
         {
             var orchestrationState = ((InstanceState)target)?.OrchestrationState;
-
-            if (! (this.IncludeInput && this.IncludeOutput) && orchestrationState != null)
-            {
-                // we must not modify the orchestration state object, so to blank out fields we need to copy it first
-                orchestrationState = orchestrationState.MakeShallowCopy();
-                orchestrationState.Input = this.IncludeInput ? orchestrationState.Input : null;
-                orchestrationState.Output = this.IncludeOutput ? orchestrationState.Output : null;
-            }
+            var editedState = orchestrationState?.ClearFieldsImmutably(this.IncludeInput, this.IncludeOutput);
 
             var response = new StateResponseReceived()
             {
                 ClientId = this.ClientId,
                 RequestId = this.RequestId,
-                OrchestrationState = orchestrationState,
+                OrchestrationState = editedState,
             };
 
             partition.Send(response);

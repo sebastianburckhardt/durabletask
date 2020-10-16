@@ -477,6 +477,17 @@ namespace DurableTask.EventSourced
         public Task<int> PurgeInstanceHistoryAsync(DateTime createdTimeFrom, DateTime? createdTimeTo, IEnumerable<OrchestrationStatus> runtimeStatus)
             => Client.PurgeInstanceHistoryAsync(createdTimeFrom, createdTimeTo, runtimeStatus);
 
+        /// <summary>
+        /// Query orchestration instance states.
+        /// </summary>
+        /// <param name="instanceQuery">The query to perform.</param>
+        /// <param name="pageSize">The page size.</param>
+        /// <param name="continuationToken">The continuation token.</param>
+        /// <param name="cancellationToken">A cancellation token.</param>
+        /// <returns>The result of the query.</returns>
+        public Task<InstanceQueryResult> QueryOrchestrationStatesAsync(InstanceQuery instanceQuery, int pageSize, string continuationToken, CancellationToken cancellationToken)
+            => Client.QueryOrchestrationStatesAsync(instanceQuery, pageSize, continuationToken, cancellationToken);
+
         /******************************/
         // Task orchestration methods
         /******************************/

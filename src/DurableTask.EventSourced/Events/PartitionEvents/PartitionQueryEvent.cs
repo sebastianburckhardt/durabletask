@@ -22,20 +22,10 @@ using DurableTask.Core;
 namespace DurableTask.EventSourced
 {
     [DataContract]
-    internal abstract class PartitionQueryEvent : PartitionEvent, InstanceQueries.IQuerySpec
+    internal abstract class PartitionQueryEvent : PartitionEvent
     {
-        public abstract OrchestrationStatus[] RuntimeStatus { get; }
-
-        public abstract DateTime? CreatedTimeFrom { get; }
-
-        public abstract DateTime? CreatedTimeTo { get; }
-
-        public abstract string InstanceIdPrefix { get; }
-
-        public bool PrefetchInstance { get; set; }
-
-        public bool PrefetchHistory { get; set; }
-
+        public abstract InstanceQuery InstanceQuery { get; }
+   
         /// <summary>
         /// The continuation for the query operation.
         /// </summary>
