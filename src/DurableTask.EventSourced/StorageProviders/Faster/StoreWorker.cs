@@ -440,6 +440,9 @@ namespace DurableTask.EventSourced.Faster
  
             this.traceHelper.FasterCheckpointPersisted(checkpointToken, description, commitLogPosition, inputQueuePosition, stopwatch.ElapsedMilliseconds);
 
+            // notify the log worker that the log can be truncated up to the commit log position
+            this.LogWorker.SetLastCheckpointPosition(commitLogPosition);
+
             this.Notify();
             return (commitLogPosition, inputQueuePosition);
         }

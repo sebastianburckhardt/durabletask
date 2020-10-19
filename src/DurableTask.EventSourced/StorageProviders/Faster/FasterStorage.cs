@@ -143,6 +143,9 @@ namespace DurableTask.EventSourced.Faster
                     this.store.Recover(out long commitLogPosition, out long inputQueuePosition);
                     storeWorker.SetCheckpointPositionsAfterRecovery(commitLogPosition, inputQueuePosition);
 
+                    // truncate the log in case the truncation did not commit after the checkpoint was taken
+                    logWorker.SetLastCheckpointPosition(commitLogPosition);
+
                     this.TraceHelper.FasterCheckpointLoaded(storeWorker.CommitLogPosition, storeWorker.InputQueuePosition, store.StoreStats.Get(), stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception e)

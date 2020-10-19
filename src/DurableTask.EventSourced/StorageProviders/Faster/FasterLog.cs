@@ -87,14 +87,14 @@ namespace DurableTask.EventSourced.Faster
             }
         }
 
-        //public FasterLogScanIterator Scan(long beginAddress, long endAddress)
-        //{
-        //    // used during recovery only
+        public FasterLogScanIterator Scan(long beginAddress, long endAddress)
+        {
+            // used during recovery only
 
-        //    // we are not wrapping termination exceptions here, since we would also have to wrap the iterator.
-        //    // instead we wrap the whole replay loop in the caller.
-        //    return this.log.Scan(beginAddress, endAddress); 
-        //}
+            // we are not wrapping termination exceptions here, since we would also have to wrap the iterator.
+            // instead we wrap the whole replay loop in the caller.
+            return this.log.Scan(beginAddress, endAddress);
+        }
 
         public void TruncateUntil(long beforeAddress)
         {

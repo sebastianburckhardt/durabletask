@@ -118,6 +118,10 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.SubmitBatch(events, credits);
         }
 
+        public void SetLastCheckpointPosition(long commitLogPosition)
+        {
+            this.log.TruncateUntil(commitLogPosition);
+        }
       
         private void AddToFasterLog(byte[] bytes)
         {
