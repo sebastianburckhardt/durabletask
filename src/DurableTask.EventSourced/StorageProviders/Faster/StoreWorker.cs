@@ -394,14 +394,13 @@ namespace DurableTask.EventSourced.Faster
                 // make sure to complete ready read requests, or notify this worker
                 // if any read requests become ready to process at some point
                 var t = this.store.ReadyToCompletePendingAsync();
-                if (t.IsCompleted)
-                {
-                    store.CompletePending();
-                }
-                else
+                if (!t.IsCompleted)
                 {
                     var ignoredTask = t.AsTask().ContinueWith(x => this.Notify());
                 }
+      
+                // we always call this at the end of the loop. 
+                store.CompletePending();
             }
             catch (OperationCanceledException) when (this.cancellationToken.IsCancellationRequested)
             {
