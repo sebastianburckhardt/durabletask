@@ -89,9 +89,9 @@ namespace DurableTask.EventSourced.Faster
                 : (ILogCommitManager)this,
             PageSizeBits = 21, // 2MB
             SegmentSizeBits =
-                usePremiumStorage ? 37  // 127 GB
+                usePremiumStorage ? 35  // 32 GB
                                   : 30, // 1 GB
-            MemorySizeBits = 23, // 8MB
+            MemorySizeBits = 22, // 2MB
         };
 
         //public LogSettings StoreLogSettings => new LogSettings
