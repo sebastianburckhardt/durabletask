@@ -216,7 +216,7 @@ namespace DurableTask.EventSourced.Faster
         {
             while (true)
             {
-                await Task.Delay(StoreWorker.IdlingPeriod).ConfigureAwait(false);
+                await Task.Delay(StoreWorker.IdlingPeriod, this.terminationToken).ConfigureAwait(false);
 
                 //await this.TestStorageLatency();
 
