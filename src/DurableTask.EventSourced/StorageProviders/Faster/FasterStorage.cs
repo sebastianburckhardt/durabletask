@@ -29,7 +29,7 @@ namespace DurableTask.EventSourced.Faster
         public const string LocalFileStorageConnectionString = "UseLocalFileStorage";
 
         private CloudStorageAccount storageAccount;
-        private CloudStorageAccount secondaryStorageAccount;
+        private CloudStorageAccount pageBlobStorageAccount;
         private readonly string taskHubName;
         private readonly ILogger logger;
 
@@ -52,11 +52,11 @@ namespace DurableTask.EventSourced.Faster
             }
             if (!string.IsNullOrEmpty(premiumStorageConnectionString))
             {
-                this.secondaryStorageAccount = CloudStorageAccount.Parse(premiumStorageConnectionString);
+                this.pageBlobStorageAccount = CloudStorageAccount.Parse(premiumStorageConnectionString);
             }
             else
             {
-                this.secondaryStorageAccount = this.storageAccount;
+                this.pageBlobStorageAccount = this.storageAccount;
             }
             this.taskHubName = taskHubName;
             this.logger = loggerFactory.CreateLogger($"{EventSourcedOrchestrationService.LoggerCategoryName}.FasterStorage");
@@ -74,7 +74,16 @@ namespace DurableTask.EventSourced.Faster
             this.terminationToken = errorHandler.Token;
 
 
-            this.blobManager = new BlobManager(this.storageAccount, this.secondaryStorageAccount, this.taskHubName, this.logger, this.partition.Settings.StorageLogLevelLimit, partition.PartitionId, errorHandler, FasterKV.PSFCount);
+            this.blobManager = new BlobManager(
+                this.storageAccount, 
+                this.pageBlobStorageAccount, 
+                this.taskHubName, 
+                this.logger, 
+                this.partition.Settings.StorageLogLevelLimit, 
+                partition.PartitionId, 
+                errorHandler, 
+                partition.Settings.UsePSFQueries ? FasterKV.PSFCount : 0);
+
             this.TraceHelper = blobManager.TraceHelper;
 
             this.TraceHelper.FasterProgress("Starting BlobManager");
