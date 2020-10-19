@@ -109,7 +109,7 @@ namespace DurableTask.EventSourced.Faster
         {
             try
             {
-                this.fht.Recover();
+                this.fht.Recover(numPagesToPreload: 0);
                 this.mainSession = this.CreateASession();
                 commitLogPosition = this.blobManager.CheckpointInfo.CommitLogPosition;
                 inputQueuePosition = this.blobManager.CheckpointInfo.InputQueuePosition;
