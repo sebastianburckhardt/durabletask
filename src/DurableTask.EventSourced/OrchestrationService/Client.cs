@@ -335,7 +335,7 @@ namespace DurableTask.EventSourced
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
                     TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
                     InstanceQuery = new InstanceQuery(
-                        runtimeStatus.ToArray(), 
+                        runtimeStatus?.ToArray(), 
                         createdTimeFrom?.ToUniversalTime(),
                         createdTimeTo?.ToUniversalTime(),
                         instanceIdPrefix,
@@ -353,7 +353,7 @@ namespace DurableTask.EventSourced
                     RequestId = Interlocked.Increment(ref this.SequenceNumber),
                     TimeoutUtc = this.GetTimeoutBucket(DefaultTimeout),
                     InstanceQuery = new InstanceQuery(
-                        runtimeStatus.ToArray(),
+                        runtimeStatus?.ToArray(),
                         createdTimeFrom?.ToUniversalTime(),
                         createdTimeTo?.ToUniversalTime(),
                         null,
