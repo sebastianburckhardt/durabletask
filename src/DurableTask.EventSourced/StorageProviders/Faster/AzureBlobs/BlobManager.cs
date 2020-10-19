@@ -213,7 +213,14 @@ namespace DurableTask.EventSourced.Faster
         /// <param name="partitionId">The partition id</param>
         /// <param name="errorHandler">A handler for errors encountered in this partition</param>
         /// <param name="psfGroupCount">Number of PSF groups to be created in FASTER</param>
-        public BlobManager(CloudStorageAccount storageAccount, CloudStorageAccount secondaryStorageAccount, string taskHubName, ILogger logger, Microsoft.Extensions.Logging.LogLevel logLevelLimit, uint partitionId, IPartitionErrorHandler errorHandler, int psfGroupCount)
+        public BlobManager(
+            CloudStorageAccount storageAccount, 
+            CloudStorageAccount secondaryStorageAccount, 
+            string taskHubName, 
+            ILogger logger, 
+            Microsoft.Extensions.Logging.LogLevel logLevelLimit, 
+            uint partitionId, IPartitionErrorHandler errorHandler, 
+            int psfGroupCount)
         {
             this.cloudStorageAccount = storageAccount;
             this.secondaryStorageAccount = secondaryStorageAccount;
@@ -290,6 +297,7 @@ namespace DurableTask.EventSourced.Faster
                 var eventLogDevice = createDevice(EventLogBlobName);
                 var hybridLogDevice = createDevice(HybridLogBlobName);
                 var objectLogDevice = createDevice(ObjectLogBlobName);
+
                 var psfLogDevices = (from groupOrdinal in Enumerable.Range(0, this.PsfGroupCount)
                                      let psfDirectory = this.blockBlobPartitionDirectory.GetDirectoryReference(this.PsfGroupFolderName(groupOrdinal))
                                      select new AzureStorageDevice(PsfHybridLogBlobName, psfDirectory.GetDirectoryReference(PsfHybridLogBlobName), psfDirectory.GetDirectoryReference(PsfHybridLogBlobName), this, true)).ToArray();
