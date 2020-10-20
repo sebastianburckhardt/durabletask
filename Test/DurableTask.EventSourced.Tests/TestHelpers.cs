@@ -65,6 +65,12 @@ namespace DurableTask.EventSourced.Tests
             return GetAzureStorageConnectionString();
         }
 
+        public static string GetPremiumStorageConnectionString()
+        {
+            // we are using the same storage in the unit tests
+            return GetAzureStorageConnectionString();
+        }
+
         public static string GetEventHubsConnectionString()
         {
             // NOTE: If using any of the memory options, modify GetStorageConnectionString to use the local file system.

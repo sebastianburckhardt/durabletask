@@ -36,12 +36,13 @@ namespace DurableTask.EventSourced.EventHubs
     {
         private readonly TransportAbstraction.IHost host;
         private readonly TransportAbstraction.ISender sender;
-        private readonly EventHubsTransport.TaskhubParameters parameters;
+        private readonly TaskhubParameters parameters;
         private readonly EventHubsTraceHelper traceHelper;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly PartitionContext partitionContext;
         private readonly string eventHubName;
         private readonly string eventHubPartition;
+        private readonly byte[] taskHubGuid;
         private uint partitionId;
 
         //private uint partitionId;
@@ -81,7 +82,7 @@ namespace DurableTask.EventSourced.EventHubs
         public EventHubsProcessor(
             TransportAbstraction.IHost host,
             TransportAbstraction.ISender sender,
-            EventHubsTransport.TaskhubParameters parameters,
+            TaskhubParameters parameters,
             PartitionContext partitionContext,
             EventSourcedOrchestrationServiceSettings settings,
             EventHubsTraceHelper logger)
@@ -94,6 +95,7 @@ namespace DurableTask.EventSourced.EventHubs
             this.settings = settings;
             this.eventHubName = this.partitionContext.EventHubPath;
             this.eventHubPartition = this.partitionContext.PartitionId;
+            this.taskHubGuid = parameters.TaskhubGuid.ToByteArray();
             this.partitionId = uint.Parse(this.eventHubPartition);
             this.traceHelper = logger;
         }
@@ -291,17 +293,29 @@ namespace DurableTask.EventSourced.EventHubs
                         if (seqno == current.NextPacketToReceive)
                         {
                             PartitionEvent partitionEvent = null;
+
                             try
                             {
-                                Packet.Deserialize(eventData.Body, out partitionEvent);
+                                Packet.Deserialize(eventData.Body, out partitionEvent, this.taskHubGuid);
                             }
                             catch (Exception)
                             {
                                 this.traceHelper.LogError("EventHubsProcessor {eventHubName}/{eventHubPartition} could not deserialize packet #{seqno} ({size} bytes)", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count);
                                 throw;
                             }
-                            this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {event}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, partitionEvent);
+
                             current.NextPacketToReceive = seqno + 1;
+
+                            if (partitionEvent != null)
+                            {
+                                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received packet #{seqno} ({size} bytes) {event}", this.eventHubName, this.eventHubPartition, seqno, eventData.Body.Count, partitionEvent);
+                            }
+                            else
+                            {
+                                this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} ignored packet #{seqno} for different taskhub", this.eventHubName, this.eventHubPartition, seqno);
+                                continue;
+                            }
+
                             partitionEvent.NextInputQueuePosition = current.NextPacketToReceive;
                             batch.Add(partitionEvent);
                             pendingDelivery.Enqueue((partitionEvent, eventData.SystemProperties.Offset, eventData.SystemProperties.SequenceNumber));

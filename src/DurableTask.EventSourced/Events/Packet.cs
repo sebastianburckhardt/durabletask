@@ -24,7 +24,7 @@ namespace DurableTask.EventSourced
         private static JsonSerializerSettings serializerSettings 
             = new JsonSerializerSettings() { TypeNameHandling = TypeNameHandling.Auto };
 
-        public static void Serialize(Event evt, Stream stream, bool useJson)
+        public static void Serialize(Event evt, Stream stream, bool useJson, byte[] taskHubGuid)
         {
             var writer = new BinaryWriter(stream, Encoding.UTF8);
 
@@ -33,29 +33,42 @@ namespace DurableTask.EventSourced
                 // serialize the json
                 string jsonContent = JsonConvert.SerializeObject(evt, typeof(Event), Packet.serializerSettings);
 
-                // first entry is the version, followed by the json string
+                // first entry is the version and the taskhub
                 writer.Write(Packet.jsonVersion);
+                writer.Write(taskHubGuid);
+
+                // then we write the json string
                 writer.Write(jsonContent);
             }
             else
             {
-                // first entry is the version
+                // first entry is the version and the taskhub
                 writer.Write(Packet.binaryVersion);
+                writer.Write(taskHubGuid);
+
                 writer.Flush();
 
-                // write the binary serialization to the stream
+                // then we write the binary serialization to the stream
                 Serializer.SerializeEvent(evt, stream);
             }
         }
 
-        public static void Deserialize<TEvent>(Stream stream, out TEvent evt) where TEvent : Event
+        public static void Deserialize<TEvent>(Stream stream, out TEvent evt, byte[] taskHubGuid) where TEvent : Event
         {
             var reader = new BinaryReader(stream);
             var format = reader.ReadByte();
+            var destinationTaskHubGuid = reader.ReadBytes(16);
+
+            if (taskHubGuid != null && !GuidMatches(taskHubGuid, destinationTaskHubGuid))
+            {
+                evt = null;
+                return;
+            }
+
             if (format == Packet.jsonVersion)
             {
                 string jsonContent = reader.ReadString();
-                evt = (TEvent) JsonConvert.DeserializeObject(jsonContent, Packet.serializerSettings);
+                evt = (TEvent)JsonConvert.DeserializeObject(jsonContent, Packet.serializerSettings);
             }
             else if (format == Packet.binaryVersion)
             {
@@ -67,12 +80,25 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public static void Deserialize<TEvent>(ArraySegment<byte> arraySegment, out TEvent evt) where TEvent : Event
+        public static void Deserialize<TEvent>(ArraySegment<byte> arraySegment, out TEvent evt, byte[] taskHubGuid) where TEvent : Event
         {
             using (var stream = new MemoryStream(arraySegment.Array, arraySegment.Offset, arraySegment.Count, false))
             {
-                Packet.Deserialize(stream, out evt);
+                Packet.Deserialize(stream, out evt, taskHubGuid);
             }
+        }
+
+        public static bool GuidMatches(byte[] expected, byte[] actual)
+        {
+            for (int i = 0; i < 16; i++)
+            {
+                if (expected[i] != actual[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 }

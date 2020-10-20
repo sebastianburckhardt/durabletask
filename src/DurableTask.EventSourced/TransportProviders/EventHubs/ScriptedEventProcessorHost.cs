@@ -28,7 +28,8 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
         private readonly TransportAbstraction.IHost host;
         private readonly TransportAbstraction.ISender sender;
         private readonly EventHubsConnections connections;
-        private readonly EventHubsTransport.TaskhubParameters parameters;
+        private readonly TaskhubParameters parameters;
+        private readonly byte[] taskHubGuid;
         private readonly EventSourcedOrchestrationServiceSettings settings;
         private readonly EventHubsTraceHelper logger;
         private readonly List<PartitionInstance> partitionInstances = new List<PartitionInstance>();
@@ -44,7 +45,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             TransportAbstraction.IHost host,
             TransportAbstraction.ISender sender,
             EventHubsConnections connections,
-            EventHubsTransport.TaskhubParameters parameters,
+            TaskhubParameters parameters,
             EventSourcedOrchestrationServiceSettings settings,
             EventHubsTraceHelper logger,
             string workerId)
@@ -58,6 +59,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.sender = sender;
             this.connections = connections;
             this.parameters = parameters;
+            this.taskHubGuid = parameters.TaskhubGuid.ToByteArray();
             this.settings = settings;
             this.logger = logger;
             this.workerId = workerId;
@@ -302,7 +304,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) starting receive loop", this.host.eventHubPath, partitionId, this.Incarnation);
                 try
                 {
-                    this.partitionReceiver = this.host.connections.CreatePartitionReceiver(partitionId, this.host.consumerGroupName, nextPacketToReceive);
+                    this.partitionReceiver = this.host.connections.CreatePartitionReceiver((int) partitionId, this.host.consumerGroupName, nextPacketToReceive);
 
                     while (!this.shutdownSource.IsCancellationRequested)
                     {
@@ -339,15 +341,26 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                                     PartitionEvent partitionEvent = null;
                                     try
                                     {
-                                        Packet.Deserialize(eventDatum.Body, out partitionEvent);
+                                        Packet.Deserialize(eventDatum.Body, out partitionEvent, this.host.taskHubGuid);
                                     }
                                     catch (Exception)
                                     {
                                         this.host.logger.LogError("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) could not deserialize packet #{seqno} ({size} bytes)", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count);
                                         throw;
                                     }
-                                    this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) received packet #{seqno} ({size} bytes) {event}", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count, partitionEvent);
+
                                     nextPacketToReceive = seqno + 1;
+
+                                    if (partitionEvent != null)
+                                    {
+                                        this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) received packet #{seqno} ({size} bytes) {event}", this.host.eventHubPath, partitionId, this.Incarnation, seqno, eventDatum.Body.Count, partitionEvent);
+                                    }
+                                    else
+                                    {
+                                        this.host.logger.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition}({incarnation})  ignored packet #{seqno} for different taskhub", this.host.eventHubPath, partitionId, this.Incarnation, seqno);
+                                        continue;
+                                    }
+
                                     partitionEvent.NextInputQueuePosition = nextPacketToReceive;
                                     batch.Add(partitionEvent);
                                     partitionEvent.ReceivedTimestamp = partition.CurrentTimeMs;

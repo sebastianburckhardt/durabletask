@@ -31,7 +31,7 @@ namespace DurableTask.EventSourced
         private readonly CancellationToken shutdownToken;
         private readonly ClientTraceHelper traceHelper;
         private readonly string account;
-        private readonly string taskHub;
+        private readonly Guid taskHubGuid;
 
         private static TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
@@ -46,13 +46,13 @@ namespace DurableTask.EventSourced
 
         public static string GetShortId(Guid clientId) => clientId.ToString("N").Substring(0, 7);
 
-        public Client(EventSourcedOrchestrationService host, Guid clientId, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
+        public Client(EventSourcedOrchestrationService host, Guid clientId, Guid taskHubGuid, TransportAbstraction.ISender batchSender, CancellationToken shutdownToken)
         {
             this.host = host;
             this.ClientId = clientId;
+            this.taskHubGuid = taskHubGuid;
             this.traceHelper = new ClientTraceHelper(host.Logger, host.Settings.LogLevelLimit, host.StorageAccountName, host.Settings.HubName, this.ClientId);
             this.account = host.StorageAccountName;
-            this.taskHub = host.Settings.HubName;
             this.BatchSender = batchSender;
             this.shutdownToken = shutdownToken;
             this.ResponseTimeouts = new BatchTimer<PendingRequest>(this.shutdownToken, this.Timeout, this.traceHelper.TraceTimerProgress);

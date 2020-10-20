@@ -101,7 +101,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             }
 
             // create a client
-            this.client = this.host.AddClient(clientId, partitionTransports[0].ClientSender);
+            this.client = this.host.AddClient(clientId, default, partitionTransports[0].ClientSender);
 
             // start the receive loops
             for (uint i = 0; i < numberPartitions; i++)

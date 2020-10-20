@@ -19,6 +19,7 @@ using System.Threading.Tasks;
 using DurableTask.Core.Common;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.Cosmos.Table;
+using DurableTask.EventSourced.EventHubs;
 
 namespace DurableTask.EventSourced.Scaling
 {
@@ -153,7 +154,7 @@ namespace DurableTask.EventSourced.Scaling
             switch (this.configuredTransport)
             {
                 case TransportConnectionString.TransportChoices.EventHubs:
-                    positions = await EventHubs.EventHubsConnections.GetQueuePositions(this.eventHubsConnectionString).ConfigureAwait(false);
+                    positions = await EventHubs.EventHubsConnections.GetQueuePositions(this.eventHubsConnectionString, EventHubsTransport.PartitionHubs).ConfigureAwait(false);
                     break;
 
                 case TransportConnectionString.TransportChoices.AzureTableChannels:

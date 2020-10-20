@@ -64,13 +64,26 @@ namespace DurableTask.EventSourced.EventHubs
             string namespaceName = TransportConnectionString.EventHubsNamespaceName(settings.EventHubsConnectionString);
             this.traceHelper = new EventHubsTraceHelper(loggerFactory, settings.TransportLogLevelLimit, this.cloudStorageAccount.Credentials.AccountName, settings.HubName, namespaceName);
             this.ClientId = Guid.NewGuid();
-            this.connections = new EventHubsConnections(host, settings.EventHubsConnectionString, this.traceHelper, settings.UseJsonPackets);
-            var blobContainerName = $"{namespaceName}-processors";
+            this.connections = new EventHubsConnections(settings.EventHubsConnectionString, EventHubsTransport.PartitionHubs, EventHubsTransport.ClientHubs)
+            {
+                Host = host,
+                TraceHelper = this.traceHelper,
+                UseJsonPackets = settings.UseJsonPackets,
+            };
+            var blobContainerName = GetContainerName(settings.HubName);
             var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
             this.cloudBlobContainer = cloudBlobClient.GetContainerReference(blobContainerName);
             this.taskhubParameters = cloudBlobContainer.GetBlockBlobReference("taskhubparameters.json");
             this.partitionScript = cloudBlobContainer.GetBlockBlobReference("partitionscript.json");
         }
+
+        // these are hardcoded now but we may turn them into settings
+        public static string[] PartitionHubs = { "partitions" };
+        public static string[] ClientHubs = { "clients0", "clients1", "clients2", "clients3" };
+        public static string PartitionConsumerGroup = "$Default";
+        public static string ClientConsumerGroup = "$Default";
+
+        private static string GetContainerName(string taskHubName) => taskHubName.ToLowerInvariant() + "-storage";
 
         private async Task<TaskhubParameters> TryLoadExistingTaskhubAsync()
         {
@@ -98,15 +111,20 @@ namespace DurableTask.EventSourced.EventHubs
 
             if (await TryLoadExistingTaskhubAsync().ConfigureAwait(false) != null)
             {
-                throw new InvalidOperationException("Cannot create TaskHub: Only one TaskHub is allowed per EventHub");
+                throw new InvalidOperationException("Cannot create TaskHub: TaskHub already exists");
             }
 
-            long[] startPositions = await EventHubsConnections.GetQueuePositions(this.settings.EventHubsConnectionString);
+            long[] startPositions = await EventHubsConnections.GetQueuePositions(this.settings.EventHubsConnectionString, EventHubsTransport.PartitionHubs);
 
-            var taskHubParameters = new
+            var taskHubParameters = new TaskhubParameters()
             {
                 TaskhubName = settings.HubName,
+                TaskhubGuid = Guid.NewGuid(),
                 CreationTimestamp = DateTime.UtcNow,
+                PartitionHubs = EventHubsTransport.PartitionHubs,
+                ClientHubs = EventHubsTransport.ClientHubs,
+                PartitionConsumerGroup = EventHubsTransport.PartitionConsumerGroup,
+                ClientConsumerGroup = EventHubsTransport.ClientConsumerGroup,
                 StartPositions = startPositions
             };
 
@@ -117,20 +135,7 @@ namespace DurableTask.EventSourced.EventHubs
                 new JsonSerializerSettings() { TypeNameHandling = TypeNameHandling.None });
             await this.taskhubParameters.UploadTextAsync(jsonText).ConfigureAwait(false);
         }
-
-        [DataContract]
-        public class TaskhubParameters
-        {
-            [DataMember]
-            public string TaskhubName { get; set; }
-
-            [DataMember]
-            public DateTime CreationTimestamp { get; set; }
-
-            [DataMember]
-            public long[] StartPositions { get; set; }
-        }
-
+      
         async Task TransportAbstraction.ITaskHub.DeleteAsync()
         {
             if (await this.taskhubParameters.ExistsAsync().ConfigureAwait(false))
@@ -153,23 +158,31 @@ namespace DurableTask.EventSourced.EventHubs
             // check that we are the correct taskhub!
             if (this.parameters.TaskhubName != this.settings.HubName)
             {
-                throw new InvalidOperationException("Only one taskhub is allowed per EventHub");
+                throw new InvalidOperationException($"The specified taskhub name does not match the task hub name in {taskhubParameters.Name}");
             }
      
             this.host.NumberPartitions = (uint) this.parameters.StartPositions.Length;
 
-            this.client = host.AddClient(this.ClientId, this);
+            await this.connections.StartAsync();
+
+            this.client = host.AddClient(this.ClientId, this.parameters.TaskhubGuid, this);
 
             this.clientEventLoopTask = Task.Run(this.ClientEventLoop);
 
-            await this.connections.StartAsync();
+            if (PartitionHubs.Length > 1)
+            {
+                throw new NotSupportedException("Using multiple eventhubs for partitions is not yet supported.");
+            }
+
+            string partitionsHub = PartitionHubs[0];
 
             // Use standard eventProcessor offered by EventHubs or a custom one
             if (this.settings.EventProcessorManagement == "EventHubs")
             {
+
                 this.eventProcessorHost = new EventProcessorHost(
-                        EventHubsConnections.PartitionsPath,
-                        EventHubsConnections.PartitionsConsumerGroup,
+                        partitionsHub,
+                        EventHubsTransport.PartitionConsumerGroup,
                         settings.EventHubsConnectionString,
                         settings.StorageConnectionString,
                         cloudBlobContainer.Name);
@@ -187,8 +200,8 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
                 this.customEventProcessorHost = new ScriptedEventProcessorHost(
-                        EventHubsConnections.PartitionsPath,
-                        EventHubsConnections.PartitionsConsumerGroup,
+                        partitionsHub,
+                        EventHubsTransport.PartitionConsumerGroup,
                         settings.EventHubsConnectionString,
                         settings.StorageConnectionString,
                         cloudBlobContainer.Name,
@@ -212,6 +225,7 @@ namespace DurableTask.EventSourced.EventHubs
 
         async Task TransportAbstraction.ITaskHub.StopAsync()
         {
+            this.parameters = null;
             this.traceHelper.LogInformation("Shutting down EventHubsBackend");
             this.traceHelper.LogDebug("Stopping client event loop");
             this.shutdownSource.Cancel();
@@ -225,7 +239,7 @@ namespace DurableTask.EventSourced.EventHubs
             else
                 throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
             this.traceHelper.LogDebug("Closing connections");
-            await this.connections.Close().ConfigureAwait(false);
+            await this.connections.StopAsync().ConfigureAwait(false);
             this.traceHelper.LogInformation("EventHubsBackend shutdown completed");
         }
 
@@ -241,13 +255,13 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 case ClientEvent clientEvent:
                     var clientId = clientEvent.ClientId;
-                    var clientSender = this.connections.GetClientSender(clientEvent.ClientId);
+                    var clientSender = this.connections.GetClientSender(clientEvent.ClientId, this.parameters.TaskhubGuid.ToByteArray());
                     clientSender.Submit(clientEvent);
                     break;
 
                 case PartitionEvent partitionEvent:
                     var partitionId = partitionEvent.PartitionId;
-                    var partitionSender = this.connections.GetPartitionSender(partitionId);
+                    var partitionSender = this.connections.GetPartitionSender((int) partitionId, this.parameters.TaskhubGuid.ToByteArray());
                     partitionSender.Submit(partitionEvent);
                     break;
 
@@ -258,8 +272,10 @@ namespace DurableTask.EventSourced.EventHubs
 
         private async Task ClientEventLoop()
         {
-            var clientReceiver = this.connections.GetClientReceiver(this.ClientId);
+            var clientReceiver = this.connections.CreateClientReceiver(this.ClientId, EventHubsTransport.ClientConsumerGroup);
             var receivedEvents = new List<ClientEvent>();
+
+            byte[] taskHubGuid = this.parameters.TaskhubGuid.ToByteArray();
 
             while (!this.shutdownSource.IsCancellationRequested)
             {
@@ -273,7 +289,12 @@ namespace DurableTask.EventSourced.EventHubs
 
                         try
                         {
-                            Packet.Deserialize(ed.Body, out clientEvent);
+                            Packet.Deserialize(ed.Body, out clientEvent, taskHubGuid);
+
+                            if (clientEvent != null && clientEvent.ClientId == this.ClientId)
+                            {
+                                receivedEvents.Add(clientEvent);
+                            }
                         }
                         catch (Exception)
                         {
@@ -282,10 +303,6 @@ namespace DurableTask.EventSourced.EventHubs
                         }
                         this.traceHelper.LogDebug("EventProcessor for Client{clientId} received packet #{seqno} ({size} bytes)", Client.GetShortId(this.ClientId), ed.SystemProperties.SequenceNumber, ed.Body.Count);
 
-                        if (clientEvent.ClientId == this.ClientId)
-                        {
-                            receivedEvents.Add(clientEvent);
-                        }
                     }
 
                     if (receivedEvents.Count > 0)

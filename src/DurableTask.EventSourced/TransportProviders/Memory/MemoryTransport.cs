@@ -79,7 +79,7 @@ namespace DurableTask.EventSourced.Emulated
             // create a client
             var clientId = Guid.NewGuid();
             var clientSender = new SendWorker(this.shutdownTokenSource.Token);
-            this.client = this.host.AddClient(clientId, clientSender);
+            this.client = this.host.AddClient(clientId, default, clientSender);
             var clientQueue = new MemoryClientQueue(this.client, this.shutdownTokenSource.Token, this.logger);
             this.clientQueues[clientId] = clientQueue;
             clientSender.SetHandler(list => SendEvents(this.client, list));

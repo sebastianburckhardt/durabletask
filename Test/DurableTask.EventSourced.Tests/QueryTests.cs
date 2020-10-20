@@ -171,6 +171,7 @@ namespace DurableTask.EventSourced.Tests
             {
                 EventHubsConnectionString = TestHelpers.GetEventHubsConnectionString(),
                 StorageConnectionString = TestHelpers.GetStorageConnectionString(),
+                PremiumStorageConnectionString = TestHelpers.GetPremiumStorageConnectionString(),
                 HubName = TestHelpers.GetTestTaskHubName()
             };
 

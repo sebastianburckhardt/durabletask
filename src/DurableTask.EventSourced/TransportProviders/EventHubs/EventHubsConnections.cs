@@ -26,154 +26,182 @@ namespace DurableTask.EventSourced.EventHubs
 {
     internal class EventHubsConnections
     {
-        private readonly TransportAbstraction.IHost host;
         private readonly string connectionString;
-        private readonly EventHubsTraceHelper traceHelper;
-        private readonly EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets;
+        private readonly string[] partitionHubs;
+        private readonly string[] clientHubs;
 
-        public EventHubClient _partitionEventHubsClient;
-        public ConcurrentDictionary<uint, EventHubClient> _clientEventHubsClients = new ConcurrentDictionary<uint, EventHubClient>();
-        public ConcurrentDictionary<uint, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new ConcurrentDictionary<uint, EventHubsSender<PartitionUpdateEvent>>();
+        private List<EventHubClient> partitionClients;
+        private List<EventHubClient> clientClients;
+
+        private List<(EventHubClient client, string id)> partitionPartitions = new List<(EventHubClient client, string id)>();
+        private List<(EventHubClient client, string id)> clientPartitions = new List<(EventHubClient client, string id)>();
+
+        public ConcurrentDictionary<int, EventHubsSender<PartitionUpdateEvent>> _partitionSenders = new ConcurrentDictionary<int, EventHubsSender<PartitionUpdateEvent>>();
         public ConcurrentDictionary<Guid, EventHubsSender<ClientEvent>> _clientSenders = new ConcurrentDictionary<Guid, EventHubsSender<ClientEvent>>();
 
-        public PartitionReceiver ClientReceiver { get; private set; }
+        public TransportAbstraction.IHost Host { get; set; }
+        public EventSourcedOrchestrationServiceSettings.JsonPacketUse UseJsonPackets { get; set; }
+        public EventHubsTraceHelper TraceHelper { get; set; }
 
-        public EventHubsConnections(TransportAbstraction.IHost host, string connectionString, EventHubsTraceHelper traceHelper, EventSourcedOrchestrationServiceSettings.JsonPacketUse useJsonPackets)
+        private int GetClientBucket(Guid clientId) => (int)(Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % (uint)this.clientClients.Count);
+
+        public EventHubsConnections(
+            string connectionString, 
+            string[] partitionHubs,
+            string[] clientHubs)
         {
-            this.host = host;
             this.connectionString = connectionString;
-            this.traceHelper = traceHelper;
-            this.useJsonPackets = useJsonPackets;
+            this.partitionHubs = partitionHubs;
+            this.clientHubs = clientHubs;
         }
 
-        public Task StartAsync()
+        public async Task StartAsync()
         {
-            this._partitionEventHubsClient = GetEventHubClient(this.connectionString);
-            traceHelper.LogDebug("Created Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
-
-            return Task.CompletedTask;
+            await Task.WhenAll(this.GetPartitionInformationAsync(), this.GetClientInformationAsync());
         }
 
-        public const string PartitionsPath = "partitions";
-
-        public string GetClientsPath(uint instance) { return $"clients{instance}"; }
-
-        public const uint NumClientBuckets = 128;
-        public const uint NumPartitionsPerClientPath = 32;
-        public uint NumClientPaths => NumClientBuckets / NumPartitionsPerClientPath;
-
-        public const string PartitionsConsumerGroup = "$Default";
-        public const string ClientsConsumerGroup = "$Default";
-
-        public static EventHubClient GetEventHubClient(string connectionString)
+        public async Task StopAsync()
         {
-            var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
+            var closePartitionClients = this.partitionClients.Select(c => c.CloseAsync()).ToList();
+            var closeClientClients = this.partitionClients.Select(c => c.CloseAsync()).ToList();
+            await Task.WhenAll(closePartitionClients);
+            await Task.WhenAll(closeClientClients);
+        }
+
+        private async Task GetPartitionInformationAsync()
+        {
+
+            // create partition clients
+            this.partitionClients = new List<EventHubClient>();
+            for (int i = 0; i < this.partitionHubs.Length; i++)
             {
-                EntityPath = PartitionsPath
-            };
-            return EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
-        }
-
-        public static async Task<long[]> GetQueuePositions(string connectionString)
-        {
-            // get runtime information from the eventhubs
-            var partitionEventHubsClient = GetEventHubClient(connectionString);
-            var info = await partitionEventHubsClient.GetRuntimeInformationAsync().ConfigureAwait(false);
-            var numberPartitions = info.PartitionCount;
-
-            // get the queue position in all the partitions 
-            var infoTasks = new Task<EventHubPartitionRuntimeInformation>[numberPartitions];
-            var positions = new long[numberPartitions];
-            for (uint i = 0; i < numberPartitions; i++)
-            {
-                infoTasks[i] = partitionEventHubsClient.GetPartitionRuntimeInformationAsync(i.ToString());
+                var connectionStringBuilder = new EventHubsConnectionStringBuilder(this.connectionString)
+                {
+                    EntityPath = this.partitionHubs[i]
+                };
+                var client = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+                this.partitionClients.Add(client);
             }
-            for (uint i = 0; i < numberPartitions; i++)
+
+            // in parallel, get runtime infos for all the hubs
+            var partitionInfos = this.partitionClients.Select((ehClient) => ehClient.GetRuntimeInformationAsync()).ToList();
+
+            // create a flat list of partition partitions
+            await Task.WhenAll(partitionInfos);
+            for (int i = 0; i < partitionHubs.Length; i++)
+            {
+                foreach(var id in partitionInfos[i].Result.PartitionIds)
+                {
+                    this.partitionPartitions.Add((this.partitionClients[i], id));
+                }
+            }
+        }
+
+        private async Task GetClientInformationAsync()
+        {
+            // create client clients
+            this.clientClients = new List<EventHubClient>();
+            for (int i = 0; i < this.clientHubs.Length; i++)
+            {
+                var connectionStringBuilder = new EventHubsConnectionStringBuilder(this.connectionString)
+                {
+                    EntityPath = this.clientHubs[i]
+                };
+                var client = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+                this.clientClients.Add(client);
+            }
+
+            // in parallel, get runtime infos for all the hubs
+            var clientInfos = this.clientClients.Select((ehClient) => ehClient.GetRuntimeInformationAsync()).ToList();
+
+            // create a flat list of client partitions
+            await Task.WhenAll(clientInfos);
+            for (int i = 0; i < clientHubs.Length; i++)
+            {
+                foreach (var id in clientInfos[i].Result.PartitionIds)
+                {
+                    this.clientPartitions.Add((this.clientClients[i], id));
+                }
+            }
+        }
+
+        public static async Task<long[]> GetQueuePositions(string connectionString, string[] partitionHubs)
+        {
+            var connections = new EventHubsConnections(connectionString, partitionHubs, new string[0]);
+            await connections.GetPartitionInformationAsync();
+
+            var numberPartitions = connections.partitionPartitions.Count;
+
+            var positions = new long[numberPartitions];
+
+            var infoTasks = connections.partitionPartitions
+                .Select(x => x.client.GetPartitionRuntimeInformationAsync(x.id)).ToList();
+
+            await Task.WhenAll(infoTasks);
+
+            for (int i = 0; i < numberPartitions; i++)
             {
                 var queueInfo = await infoTasks[i].ConfigureAwait(false);
                 positions[i] = queueInfo.LastEnqueuedSequenceNumber + 1;
             }
 
+            await connections.StopAsync();
+
             return positions;
         }
 
-        public EventHubClient GetClientBucketEventHubsClient(uint clientBucket)
-        {
-            var clientPath = clientBucket / NumPartitionsPerClientPath;
-            return _clientEventHubsClients.GetOrAdd(clientPath, (uint key) => {
-                var connectionStringBuilder = new EventHubsConnectionStringBuilder(connectionString)
-                {
-                    EntityPath = GetClientsPath(clientPath)
-                };
-                var client = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
-                traceHelper.LogDebug("Created EventHub Client {clientId}", client.ClientId);
-                return client;
-            });
-        }
-
         // This is to be used when EventProcessorHost is not used.
-        public PartitionReceiver CreatePartitionReceiver(uint partitionId, string consumerGroupName, long nextPacketToReceive)
+        public PartitionReceiver CreatePartitionReceiver(int partitionId, string consumerGroupName, long nextPacketToReceive)
         {
-            var client = this._partitionEventHubsClient;
+            (EventHubClient client, string id) = this.partitionPartitions[partitionId];
             // To create a receiver we need to give it the last! packet number and not the next to receive 
             var eventPosition = EventPosition.FromSequenceNumber(nextPacketToReceive - 1);
-            var partitionReceiver = client.CreateReceiver(consumerGroupName, partitionId.ToString(), eventPosition);
-            traceHelper.LogDebug("Created PartitionReceiver {receiver} from {clientId} to read at {position}", partitionReceiver.ClientId, client.ClientId, nextPacketToReceive);
+            var partitionReceiver = client.CreateReceiver(consumerGroupName, id, eventPosition);
+            this.TraceHelper.LogDebug("Created Partition {partitionId} PartitionReceiver {receiver} from {clientId} to read at {position}", partitionId, partitionReceiver.ClientId, client.ClientId, nextPacketToReceive);
             return partitionReceiver;
         }
 
-        public PartitionReceiver GetClientReceiver(Guid clientId)
+        public PartitionReceiver CreateClientReceiver(Guid clientId, string consumerGroupName)
         {
-            uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
-            var client = GetClientBucketEventHubsClient(clientBucket);
-            return ClientReceiver = client.CreateReceiver(ClientsConsumerGroup, (clientBucket % NumPartitionsPerClientPath).ToString(), EventPosition.FromEnd());
+            int clientBucket = this.GetClientBucket(clientId);
+            (EventHubClient client, string id) = this.clientPartitions[clientBucket];
+            var clientReceiver = client.CreateReceiver(consumerGroupName, id, EventPosition.FromEnd());
+            this.TraceHelper.LogDebug("Created Client {clientId} PartitionReceiver {receiver} from {clientId}", clientId, clientReceiver.ClientId, client.ClientId);
+            return clientReceiver;
         }
 
-        public EventHubsSender<PartitionUpdateEvent> GetPartitionSender(uint partitionId)
+        public EventHubsSender<PartitionUpdateEvent> GetPartitionSender(int partitionId, byte[] taskHubGuid)
         {
             return _partitionSenders.GetOrAdd(partitionId, (key) => {
-                var client = this._partitionEventHubsClient;
-                var partitionSender = client.CreatePartitionSender(partitionId.ToString());
+                (EventHubClient client, string id) = this.partitionPartitions[partitionId];
+                var partitionSender = client.CreatePartitionSender(id);
                 var sender = new EventHubsSender<PartitionUpdateEvent>(
-                    host,
+                    this.Host,
+                    taskHubGuid,
                     partitionSender,
-                    this.traceHelper,
-                    this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForAll);
-                traceHelper.LogDebug("Created PartitionSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
+                    this.TraceHelper,
+                    this.UseJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForAll);
+                this.TraceHelper.LogDebug("Created PartitionSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 return sender;
             });
         }
 
-        public EventHubsSender<ClientEvent> GetClientSender(Guid clientId)
+        public EventHubsSender<ClientEvent> GetClientSender(Guid clientId, byte[] taskHubGuid)
         {
             return _clientSenders.GetOrAdd(clientId, (key) =>
             {
-                uint clientBucket = Fnv1aHashHelper.ComputeHash(clientId.ToByteArray()) % NumClientBuckets;
-                var client = GetClientBucketEventHubsClient(clientBucket);
-                var partitionSender = client.CreatePartitionSender((clientBucket % NumPartitionsPerClientPath).ToString());
+                int clientBucket = this.GetClientBucket(clientId);
+                (EventHubClient client, string id) = this.clientPartitions[clientBucket];
+                var partitionSender = client.CreatePartitionSender(id);
                 var sender = new EventHubsSender<ClientEvent>(
-                    host,
+                    this.Host,
+                    taskHubGuid,
                     partitionSender,
-                    this.traceHelper,
-                    this.useJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForClients);
-                traceHelper.LogDebug("Created ResponseSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
+                    this.TraceHelper,
+                    this.UseJsonPackets >= EventSourcedOrchestrationServiceSettings.JsonPacketUse.ForClients);
+                this.TraceHelper.LogDebug("Created ClientSender {sender} from {clientId}", partitionSender.ClientId, client.ClientId);
                 return sender;
             });
-        }
-
-        public async Task Close()
-        {
-            if (ClientReceiver != null)
-            {
-                traceHelper.LogDebug("Closing Client Receiver");
-                await ClientReceiver.CloseAsync().ConfigureAwait(false);
-            }
-
-            traceHelper.LogDebug($"Closing Client Bucket Clients");
-            await Task.WhenAll(_clientEventHubsClients.Values.Select(s => s.CloseAsync()).ToList()).ConfigureAwait(false);
-
-            traceHelper.LogDebug("Closing Partitions Client {clientId}", _partitionEventHubsClient.ClientId);
-            await _partitionEventHubsClient.CloseAsync().ConfigureAwait(false);
         }
      }
 }

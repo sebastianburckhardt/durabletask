@@ -82,9 +82,10 @@ namespace DurableTask.EventSourced
             /// Creates a client on this host.
             /// </summary>
             /// <param name="clientId">A globally unique identifier for this client</param>
+            /// <param name="taskHubGuid">the unique identifier of the taskhub</param>
             /// <param name="batchSender">A sender that can be used by the client for sending messages</param>
             /// <returns>A sender for passing messages to the transport backend</returns>
-            IClient AddClient(Guid clientId, ISender batchSender);
+            IClient AddClient(Guid clientId, Guid taskHubGuid, ISender batchSender);
 
             /// <summary>
             /// Places a partition on this host.

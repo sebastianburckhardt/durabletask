@@ -299,11 +299,11 @@ namespace DurableTask.EventSourced
         // host methods
         /******************************/
 
-        TransportAbstraction.IClient TransportAbstraction.IHost.AddClient(Guid clientId, TransportAbstraction.ISender batchSender)
+        TransportAbstraction.IClient TransportAbstraction.IHost.AddClient(Guid clientId, Guid taskHubGuid, TransportAbstraction.ISender batchSender)
         {
             System.Diagnostics.Debug.Assert(this.Client == null, "Backend should create only 1 client");
 
-            this.Client = new Client(this, clientId, batchSender, this.serviceShutdownSource.Token);
+            this.Client = new Client(this, clientId, taskHubGuid, batchSender, this.serviceShutdownSource.Token);
             return this.Client;
         }
 

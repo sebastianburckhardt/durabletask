@@ -38,7 +38,7 @@ namespace DurableTask.EventSourced.Emulated
         protected override byte[] Serialize(ClientEvent evt)
         {
             var stream = new MemoryStream();
-            Packet.Serialize(evt, stream, false);
+            Packet.Serialize(evt, stream, false, new byte[16]);
             return stream.ToArray();
         }
 
@@ -46,7 +46,7 @@ namespace DurableTask.EventSourced.Emulated
         {
             using (var stream = new MemoryStream(bytes, false))
             {
-                Packet.Deserialize(stream, out ClientEvent clientEvent);
+                Packet.Deserialize(stream, out ClientEvent clientEvent, null);
                 return clientEvent;
             }
         }
