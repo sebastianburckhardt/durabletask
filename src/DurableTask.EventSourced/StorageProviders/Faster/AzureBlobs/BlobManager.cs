@@ -131,6 +131,7 @@ namespace DurableTask.EventSourced.Faster
             CheckPointType = CheckpointType.FoldOver
         };
 
+#if FASTER_SUPPORTS_PSF
         internal PSFRegistrationSettings<TKey> CreatePSFRegistrationSettings<TKey>(uint numberPartitions, int groupOrdinal)
         {
             var storeLogSettings = this.StoreLogSettings(false, numberPartitions);
@@ -155,6 +156,7 @@ namespace DurableTask.EventSourced.Faster
                 }
             };
         }
+#endif
 
         public const int MaxRetries = 5;
 

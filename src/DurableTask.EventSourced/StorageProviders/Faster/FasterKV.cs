@@ -34,12 +34,14 @@ namespace DurableTask.EventSourced.Faster
 
         internal const long HashTableSize = 1L << 16;
 
+#if FASTER_SUPPORTS_PSF
         // We currently place all PSFs into a single group with a single TPSFKey type
         internal const int PSFCount = 1;
+
         internal IPSF RuntimeStatusPsf;
         internal IPSF CreatedTimePsf;
         internal IPSF InstanceIdPrefixPsf;
-
+#endif
         public FasterKV(Partition partition, BlobManager blobManager)
         {
             this.partition = partition;
@@ -57,6 +59,7 @@ namespace DurableTask.EventSourced.Faster
                     valueSerializer = () => new Value.Serializer(this.StoreStats),
                 });
 
+#if FASTER_SUPPORTS_PSF
             if (partition.Settings.UsePSFQueries)
             {
                 int groupOrdinal = 0;
@@ -75,7 +78,7 @@ namespace DurableTask.EventSourced.Faster
                 this.CreatedTimePsf = psfs[1];
                 this.InstanceIdPrefixPsf = psfs[2];
             }
-
+#endif
             this.terminationToken = partition.ErrorHandler.Token;
 
             var _ = terminationToken.Register(
@@ -216,9 +219,9 @@ namespace DurableTask.EventSourced.Faster
             {
                 var instanceQuery = queryEvent.InstanceQuery;
 
-                IAsyncEnumerable<OrchestrationState> queryPSFsAsync()
+#if FASTER_SUPPORTS_PSF
+                IAsyncEnumerable<OrchestrationState> queryPSFsAsync(ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> session)
                 {
-
                     // Issue the PSF query. Note that pending operations will be completed before this returns.
                     var querySpec = new List<(IPSF, IEnumerable<PSFKey>)>();
                     if (instanceQuery.HasRuntimeStatus)
@@ -256,22 +259,25 @@ namespace DurableTask.EventSourced.Faster
                         else
                         {
                             var state = ((InstanceState)((TrackedObject)v))?.OrchestrationState;
-                            var result = state?.ClearFieldsImmutably(instanceQuery.FetchInput, true);                         
+                            var result = state?.ClearFieldsImmutably(instanceQuery.FetchInput, true);
                             return result;
                         }
                     }
 
-                    return this.mainSession.QueryPSFAsync(querySpec, matches => matches.All(b => b), querySettings)
-                                           .Select(providerData => getOrchestrationState(ref providerData.GetValue()))
-                                           .Where(orchestrationState => orchestrationState != null);
+                    return session.QueryPSFAsync(querySpec, matches => matches.All(b => b), querySettings)
+                                  .Select(providerData => getOrchestrationState(ref providerData.GetValue()))
+                                  .Where(orchestrationState => orchestrationState != null);
                 }
-
+#else
+                IAsyncEnumerable<OrchestrationState> queryPSFsAsync(ClientSession<Key, Value, EffectTracker, TrackedObject, PartitionReadEvent, Functions> session)
+                    => this.ScanOrchestrationStates(session, effectTracker, instanceQuery);
+#endif
                 // create a individual session for this query so the main session can be used
                 // while the query is progressing.
                 using (var session = this.CreateASession())
                 {
                     var orchestrationStates = (this.partition.Settings.UsePSFQueries && instanceQuery.IsSet)
-                        ? queryPSFsAsync()
+                        ? queryPSFsAsync(session)
                         : this.ScanOrchestrationStates(session, effectTracker, instanceQuery);
 
                     await effectTracker.ProcessQueryResultAsync(queryEvent, orchestrationStates);
