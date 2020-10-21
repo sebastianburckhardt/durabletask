@@ -67,7 +67,6 @@ namespace DurableTask.EventSourced.EventHubs
             public TransportAbstraction.IPartition Partition;
             public Task<PartitionIncarnation> Next;
             public long NextPacketToReceive;
-            public SemaphoreSlim Credits;
         }
 
         private Dictionary<string, MemoryStream> reassembly = new Dictionary<string, MemoryStream>();
@@ -132,7 +131,6 @@ namespace DurableTask.EventSourced.EventHubs
             {
                 Incarnation = (prior != null) ? (prior.Incarnation + 1) : 1,
                 ErrorHandler = this.host.CreateErrorHandler(this.partitionId),
-                Credits = new SemaphoreSlim(this.settings.PipelineCredits),
             };
 
             // if this is not the first incarnation, stay on standby until the previous incarnation is terminated.
@@ -181,7 +179,7 @@ namespace DurableTask.EventSourced.EventHubs
                     if (batch.Count > 0)
                     {
                         c.NextPacketToReceive = batch[batch.Count - 1].NextInputQueuePosition;
-                        c.Partition.SubmitExternalEvents(batch, null);
+                        c.Partition.SubmitExternalEvents(batch);
                         this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, c.NextPacketToReceive);
                     }
                 }
@@ -341,19 +339,10 @@ namespace DurableTask.EventSourced.EventHubs
                 if (batch.Count > 0)
                 {
                     this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} received batch of {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.eventHubName, this.eventHubPartition, batch.Count, batch[0].NextInputQueuePosition - 1, current.NextPacketToReceive);
-                    current.Partition.SubmitExternalEvents(batch, current.Credits);
+                    current.Partition.SubmitExternalEvents(batch);
                 }
 
                 await this.SaveEventHubsReceiverCheckpoint(context).ConfigureAwait(false);
-
-                if (batch.Count > 0)
-                {
-                    var stopwatch = new Stopwatch();
-                    stopwatch.Start();
-                    await current.Credits.WaitAsync(current.ErrorHandler.Token);
-                    stopwatch.Stop();
-                    this.traceHelper.LogTrace("EventHubsProcessor {eventHubName}/{eventHubPartition} after submitting batch of {batchsize} packets waited {elapsedMilliseconds:f1}ms", this.eventHubName, this.eventHubPartition, batch.Count, stopwatch.Elapsed.TotalMilliseconds);
-                }
 
                 // can use this for testing: terminates partition after every one packet received, but
                 // that packet is then processed once the partition recovers, so in the end there is progress

@@ -260,14 +260,14 @@ namespace DurableTask.EventSourced
             this.State.SubmitInternalEvent(queryEvent);
         }
 
-        public void SubmitExternalEvents(IList<PartitionEvent> partitionEvents, SemaphoreSlim credits)
+        public void SubmitExternalEvents(IList<PartitionEvent> partitionEvents)
         {
             foreach (PartitionEvent partitionEvent in partitionEvents)
             {
                 partitionEvent.ReceivedTimestamp = this.CurrentTimeMs;
             }
 
-            this.State.SubmitExternalEvents(partitionEvents, credits);
+            this.State.SubmitExternalEvents(partitionEvents);
         }
 
         public void EnqueueActivityWorkItem(ActivityWorkItem item)

@@ -55,7 +55,7 @@ namespace DurableTask.EventSourced
             base.Submit(entry);
         }
 
-        public void SubmitExternalEvents(IList<PartitionEvent> entries, SemaphoreSlim credits)
+        public void SubmitExternalEvents(IList<PartitionEvent> entries)
         {
             foreach (var entry in entries)
             {
@@ -65,7 +65,7 @@ namespace DurableTask.EventSourced
                 }
             }
 
-            base.SubmitBatch(entries, credits);
+            base.SubmitBatch(entries);
         }
 
         public Task<long> CreateOrRestoreAsync(Partition partition, IPartitionErrorHandler termination, long initialInputQueuePosition)

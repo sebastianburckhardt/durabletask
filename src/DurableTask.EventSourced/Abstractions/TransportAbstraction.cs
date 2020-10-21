@@ -103,8 +103,7 @@ namespace DurableTask.EventSourced
             /// Queues a batch of incoming external events for processing on this partition.
             /// </summary>
             /// <param name="partitionEvents">The events to process.</param>
-            /// <param name="credits">A semaphore that releases a credit when the batch is processed.</param>
-            void SubmitExternalEvents(IList<PartitionEvent> partitionEvents, SemaphoreSlim credits);
+            void SubmitExternalEvents(IList<PartitionEvent> partitionEvents);
 
             /// <summary>
             /// The error handler for this partition.

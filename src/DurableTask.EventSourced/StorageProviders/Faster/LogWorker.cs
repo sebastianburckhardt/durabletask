@@ -41,7 +41,7 @@ namespace DurableTask.EventSourced.Faster
             this.partition = partition;
             this.storeWorker = storeWorker;
             this.traceHelper = traceHelper;
-            this.intakeWorker = new IntakeWorker(cancellationToken, this, partition.Settings.PipelineCredits);
+            this.intakeWorker = new IntakeWorker(cancellationToken, this);
 
             this.maxFragmentSize = (1 << this.blobManager.EventLogSettings(partition.Settings.UsePremiumStorage).PageSizeBits) - 64; // faster needs some room for header, 64 bytes is conservative
         }
@@ -54,28 +54,17 @@ namespace DurableTask.EventSourced.Faster
 
         public long LastCommittedInputQueuePosition { get; private set; }
 
-        private class IntakeWorker : BatchWorker<PartitionEvent>, IDisposable
+        private class IntakeWorker : BatchWorker<PartitionEvent>
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
-            private readonly SemaphoreSlim logWorkerCredits;
-            private readonly SemaphoreSlim storeWorkerCredits;
 
-            public IntakeWorker(CancellationToken token, LogWorker logWorker, int pipelineCredits) : base(nameof(IntakeWorker), token)
+            public IntakeWorker(CancellationToken token, LogWorker logWorker) : base(nameof(IntakeWorker), token)
             {
-                this.logWorkerCredits = new SemaphoreSlim(pipelineCredits);
-                this.storeWorkerCredits = new SemaphoreSlim(pipelineCredits);
                 this.logWorker = logWorker;
                 this.updateEvents = new List<PartitionUpdateEvent>();
             }
-
-            public void Dispose()
-            {
-                this.logWorkerCredits.Dispose();
-                this.storeWorkerCredits.Dispose();
-            }
-
-            protected override async Task Process(IList<PartitionEvent> batch)
+            protected override Task Process(IList<PartitionEvent> batch)
             {
                 if (batch.Count > 0 && !this.logWorker.isShuttingDown)
                 {
@@ -93,15 +82,13 @@ namespace DurableTask.EventSourced.Faster
                     }
 
                     // the store worker and the log worker can now process these events in parallel
-                    this.logWorker.storeWorker.SubmitBatch(batch, this.storeWorkerCredits);
-                    this.logWorker.SubmitBatch(updateEvents, this.logWorkerCredits);
+                    this.logWorker.storeWorker.SubmitBatch(batch);
+                    this.logWorker.SubmitBatch(updateEvents);
 
                     this.updateEvents.Clear();
-
-                    // do not continue the processing loop until we have enough credits
-                    await this.storeWorkerCredits.WaitAsync(this.cancellationToken);
-                    await this.logWorkerCredits.WaitAsync(this.cancellationToken);
                 }
+
+                return Task.CompletedTask;
             }
 
             protected override void WorkLoopCompleted(int batchSize, double elapsedMilliseconds, int? nextBatch)
@@ -115,9 +102,9 @@ namespace DurableTask.EventSourced.Faster
             this.intakeWorker.Submit(evt);
         }
 
-        public void SubmitExternalEvents(IList<PartitionEvent> events, SemaphoreSlim credits)
+        public void SubmitExternalEvents(IList<PartitionEvent> events)
         {
-            this.intakeWorker.SubmitBatch(events, credits);
+            this.intakeWorker.SubmitBatch(events);
         }
 
         public void SetLastCheckpointPosition(long commitLogPosition)
@@ -155,8 +142,6 @@ namespace DurableTask.EventSourced.Faster
             await this.intakeWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
             await this.WaitForCompletionAsync().ConfigureAwait(false);
-
-            this.intakeWorker.Dispose();
 
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }

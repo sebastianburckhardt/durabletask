@@ -226,7 +226,6 @@ namespace DurableTask.EventSourced.EventHubs
         {
             private readonly uint partitionId;
             private readonly ScriptedEventProcessorHost host;
-            private readonly SemaphoreSlim credits;
 
             private TransportAbstraction.IPartition partition;
             private Task partitionEventLoop;
@@ -241,7 +240,6 @@ namespace DurableTask.EventSourced.EventHubs
                 this.partitionId = partitionId;
                 this.Incarnation = incarnation;
                 this.host = eventProcessorHost;
-                this.credits = new SemaphoreSlim(eventProcessorHost.settings.PipelineCredits);
             }
 
             public int Incarnation { get; }
@@ -396,8 +394,7 @@ namespace DurableTask.EventSourced.EventHubs
                             if (batch.Count > 0 && !this.shutdownSource.IsCancellationRequested)
                             {
                                 this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) received batch of {batchsize} packets, starting with #{seqno}, next expected packet is #{nextSeqno}", this.host.eventHubPath, partitionId, this.Incarnation, batch.Count, batch[0].NextInputQueuePosition - 1, nextPacketToReceive);
-                                partition.SubmitExternalEvents(batch, credits);
-                                await credits.WaitAsync(this.shutdownSource.Token);
+                                partition.SubmitExternalEvents(batch);
                             }
                         }
                     }

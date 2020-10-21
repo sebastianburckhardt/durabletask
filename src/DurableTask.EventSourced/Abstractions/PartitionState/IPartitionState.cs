@@ -53,7 +53,6 @@ namespace DurableTask.EventSourced
         /// for processing on this partition.
         /// </summary>
         /// <param name="evt">The collection of events to process.</param>
-        /// <param name="credits">A semaphore to which a credit is released afterwards, or null if not required</param>
-        void SubmitExternalEvents(IList<PartitionEvent> evt, SemaphoreSlim credits);
+        void SubmitExternalEvents(IList<PartitionEvent> evt);
     }
 }

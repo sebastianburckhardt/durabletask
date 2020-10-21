@@ -104,12 +104,6 @@ namespace DurableTask.EventSourced
         public bool ThrowExceptionOnInvalidDedupeStatus { get; set; } = false;
 
         /// <summary>
-        /// Limits the maximum number of batches that can be pending in the batchworkers, creating
-        /// backpressure that improves scheduling quality under higher loads, but may increase latency.
-        /// </summary>
-        public int PipelineCredits { get; set; } = 10000;
-
-        /// <summary>
         ///  Whether to keep the orchestration service running even if stop is called.
         ///  This is useful in a testing scenario, due to the inordinate time spent when shutting down EventProcessorHost.
         /// </summary>

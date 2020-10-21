@@ -203,9 +203,9 @@ namespace DurableTask.EventSourced.Faster
         }
 
 
-        public void SubmitExternalEvents(IList<PartitionEvent> evts, SemaphoreSlim credits)
+        public void SubmitExternalEvents(IList<PartitionEvent> evts)
         {
-            this.logWorker.SubmitExternalEvents(evts, credits);
+            this.logWorker.SubmitExternalEvents(evts);
         }
 
         public void SubmitInternalEvent(PartitionEvent evt)

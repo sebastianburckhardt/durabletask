@@ -78,19 +78,6 @@ namespace DurableTask.EventSourced
             this.NotifyInternal();
         }
 
-        public void SubmitBatch(IList<T> entries, SemaphoreSlim credits)
-        {
-            foreach (var e in entries)
-            {
-                work.Enqueue(e);
-            }
-            if (credits != null)
-            {
-                work.Enqueue(credits);
-            }
-            this.NotifyInternal();
-        }
-
         public void Notify()
         {
             this.work.Enqueue(dummyEntry);
@@ -158,7 +145,6 @@ namespace DurableTask.EventSourced
 
             return runAgain ? batch.Count : (int?)null;
         }
-
 
         private async Task Work()
         {
