@@ -98,10 +98,6 @@ namespace DurableTask.EventSourced
                     this.taskHub = new EventHubs.EventHubsTransport(this, settings, loggerFactory);
                     break;
 
-                case TransportConnectionString.TransportChoices.AzureTableChannels:
-                    this.taskHub = new AzureTableChannels.AzureTableChannelsTransport(this, settings, loggerFactory);
-                    break;
-
                 default:
                     throw new NotImplementedException("no such transport choice");
             }

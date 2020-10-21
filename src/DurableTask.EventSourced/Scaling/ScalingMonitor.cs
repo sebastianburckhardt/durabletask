@@ -157,10 +157,6 @@ namespace DurableTask.EventSourced.Scaling
                     positions = await EventHubs.EventHubsConnections.GetQueuePositions(this.eventHubsConnectionString, EventHubsTransport.PartitionHubs).ConfigureAwait(false);
                     break;
 
-                case TransportConnectionString.TransportChoices.AzureTableChannels:
-                    positions = await AzureTableChannels.AzureTableChannelsTransport.GetQueuePositions(this.storageConnectionString).ConfigureAwait(false);
-                    break;
-
                 default:
                     return false;
             }

@@ -43,11 +43,6 @@ namespace DurableTask.EventSourced
             /// the eventhubs EventProcessor.
             /// </summary>
             EventHubs = 1,
-
-            /// <summary>
-            /// Passes messages through azure tables; currently puts all partitions on a single host.
-            /// </summary>
-            AzureTableChannels = 2,
         }
 
         /// <summary>
@@ -60,12 +55,6 @@ namespace DurableTask.EventSourced
                 transport = TransportChoices.Memory;
                 storage = transportConnectionString.StartsWith("MemoryF") ? StorageChoices.Faster : StorageChoices.Memory;
                 numPartitions = int.Parse(transportConnectionString.Substring(transportConnectionString.IndexOf(":") + 1));       
-            }
-            else if (transportConnectionString.StartsWith("AzureTableChannels"))
-            {
-                transport = TransportChoices.AzureTableChannels;
-                storage = StorageChoices.Faster;
-                numPartitions = int.Parse(transportConnectionString.Substring(transportConnectionString.IndexOf(":") + 1));
             }
             else
             {
