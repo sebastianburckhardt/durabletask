@@ -14,10 +14,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 
 namespace DurableTask.EventSourced
 {
+    /// <summary>
+    /// Functionality for splitting large events into smaller ones, or the reverse.
+    /// </summary>
     internal static class FragmentationAndReassembly
     {
         public interface IEventFragment

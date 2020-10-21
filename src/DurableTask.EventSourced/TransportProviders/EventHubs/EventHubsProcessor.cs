@@ -16,19 +16,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.Mime;
-using System.Net.NetworkInformation;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DurableTask.Core.Common;
-using DurableTask.EventSourced.Emulated;
-using DurableTask.EventSourced.TransportProviders.EventHubs;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.EventHubs.Processor;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DurableTask.EventSourced.EventHubs
 {

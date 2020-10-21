@@ -10,15 +10,16 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-
-using Dynamitey.DynamicObjects;
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
+    /// <summary>
+    /// Provides a concurrency-safe mechanism for subscribing listeners that get notified after
+    /// events are durably persisted to partition storage or to queues.
+    /// </summary>
     internal struct DurabilityListeners
     {
         private volatile object status;

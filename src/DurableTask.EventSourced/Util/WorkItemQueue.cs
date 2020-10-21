@@ -21,6 +21,10 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
+    /// <summary>
+    /// Simple implementation of a concurrent work item queue.
+    /// </summary>
+    /// <typeparam name="T">The type of elements in the queue.</typeparam>
     internal class WorkItemQueue<T> : IDisposable
     {
         private readonly ConcurrentQueue<T> work = new ConcurrentQueue<T>();
@@ -36,7 +40,7 @@ namespace DurableTask.EventSourced
 
         public void Dispose()
         {
-            ((IDisposable)this.count).Dispose();
+            this.count.Dispose();
         }
 
         public async ValueTask<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)

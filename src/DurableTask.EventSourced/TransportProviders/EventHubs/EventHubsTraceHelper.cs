@@ -11,13 +11,12 @@
 //  ----------------------------------------------------------------------------------
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics.Tracing;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.EventHubs
 {
+    /// <summary>
+    /// Trace helpers for the event hubs transport.
+    /// </summary>
     internal class EventHubsTraceHelper : ILogger
     {
         private readonly ILogger logger;

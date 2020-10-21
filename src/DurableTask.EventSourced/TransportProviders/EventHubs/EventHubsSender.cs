@@ -13,16 +13,10 @@
 using DurableTask.Core.Common;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Extensions.Logging;
-//using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.IO;
-using System.Runtime.Serialization;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
-using System.Xml;
 
 namespace DurableTask.EventSourced.EventHubs
 {

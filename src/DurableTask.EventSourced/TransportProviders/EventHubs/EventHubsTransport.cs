@@ -12,9 +12,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.Serialization;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.EventHubs;
@@ -23,15 +20,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using DurableTask.EventSourced.TransportProviders.EventHubs;
-using System.Xml;
-using Microsoft.OData.UriParser;
 
 namespace DurableTask.EventSourced.EventHubs
 {
+    /// <summary>
+    /// The EventHubs transport implementation.
+    /// </summary>
     internal class EventHubsTransport :
-        TransportAbstraction.ITaskHub,
+        ITaskHub,
         IEventProcessorFactory,
         TransportAbstraction.ISender
     {
@@ -99,13 +95,13 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
+        async Task<bool> ITaskHub.ExistsAsync()
         {
             var parameters = await TryLoadExistingTaskhubAsync().ConfigureAwait(false);
             return (parameters != null && parameters.TaskhubName == this.settings.HubName);
         }
 
-        async Task TransportAbstraction.ITaskHub.CreateAsync()
+        async Task ITaskHub.CreateAsync()
         {
             await this.cloudBlobContainer.CreateIfNotExistsAsync().ConfigureAwait(false);
 
@@ -136,7 +132,7 @@ namespace DurableTask.EventSourced.EventHubs
             await this.taskhubParameters.UploadTextAsync(jsonText).ConfigureAwait(false);
         }
       
-        async Task TransportAbstraction.ITaskHub.DeleteAsync()
+        async Task ITaskHub.DeleteAsync()
         {
             if (await this.taskhubParameters.ExistsAsync().ConfigureAwait(false))
             {
@@ -147,7 +143,7 @@ namespace DurableTask.EventSourced.EventHubs
             await this.host.StorageProvider.DeleteAllPartitionStatesAsync().ConfigureAwait(false);
         }
 
-        async Task TransportAbstraction.ITaskHub.StartAsync()
+        async Task ITaskHub.StartAsync()
         {
             this.shutdownSource = new CancellationTokenSource();
 
@@ -223,7 +219,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        async Task TransportAbstraction.ITaskHub.StopAsync(bool isForced)
+        async Task ITaskHub.StopAsync(bool isForced)
         {
             this.parameters = null;
             this.traceHelper.LogInformation("Shutting down EventHubsBackend");

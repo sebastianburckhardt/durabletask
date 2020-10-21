@@ -19,7 +19,9 @@ using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {
-
+    /// <summary>
+    /// Functionality for tracing event histories.
+    /// </summary>
     static class TraceUtils
     {
         public static readonly string ExtensionVersion = FileVersionInfo.GetVersionInfo(typeof(EventSourcedOrchestrationService).Assembly.Location).FileVersion;

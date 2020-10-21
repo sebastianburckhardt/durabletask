@@ -24,7 +24,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {
-    internal class MemoryStorage : BatchWorker<PartitionEvent>, StorageAbstraction.IPartitionState
+    internal class MemoryStorage : BatchWorker<PartitionEvent>, IPartitionState
     {
         private readonly ILogger logger;
         private Partition partition;

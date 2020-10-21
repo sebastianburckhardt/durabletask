@@ -23,7 +23,7 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Faster
 {
-    internal class FasterStorage : StorageAbstraction.IPartitionState
+    internal class FasterStorage : IPartitionState
     {
         // if used as a "azure storage connection string", causes Faster to use local file storage instead
         public const string LocalFileStorageConnectionString = "UseLocalFileStorage";

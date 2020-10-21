@@ -45,7 +45,7 @@ namespace DurableTask.EventSourced
         public EventSourcedOrchestrationServiceSettings Settings { get; private set; }
         public string StorageAccountName { get; private set; }
 
-        public StorageAbstraction.IPartitionState State { get; private set; }
+        public IPartitionState State { get; private set; }
         public TransportAbstraction.ISender BatchSender { get; private set; }
         public WorkItemQueue<ActivityWorkItem> ActivityWorkItemQueue { get; private set; }
         public WorkItemQueue<OrchestrationWorkItem> OrchestrationWorkItemQueue { get; private set; }
@@ -102,7 +102,7 @@ namespace DurableTask.EventSourced
             try
             {
                 // create the state
-                this.State = ((StorageAbstraction.IStorageProvider)this.host).CreatePartitionState();
+                this.State = ((IStorageProvider)this.host).CreatePartitionState();
 
                 // initialize timer for this partition
                 this.PendingTimers = new BatchTimer<PartitionEvent>(this.ErrorHandler.Token, this.TimersFired);

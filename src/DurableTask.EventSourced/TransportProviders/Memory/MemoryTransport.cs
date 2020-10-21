@@ -22,7 +22,12 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced.Emulated
 {
-    internal class MemoryTransport : TransportAbstraction.ITaskHub
+    /// <summary>
+    /// An transport provider that emulates all the communication queues in memory. Meant for testing 
+    /// and benchmarking only. It is not distributable,
+    /// i.e. can execute only on a single node.
+    /// </summary>
+    internal class MemoryTransport : ITaskHub
     {
         private readonly TransportAbstraction.IHost host;
         private readonly EventSourcedOrchestrationServiceSettings settings;
@@ -46,7 +51,7 @@ namespace DurableTask.EventSourced.Emulated
             this.logger = logger;
         }
 
-        async Task TransportAbstraction.ITaskHub.CreateAsync()
+        async Task ITaskHub.CreateAsync()
         {
             await Task.Delay(simulatedDelay).ConfigureAwait(false);
             this.clientQueues = new Dictionary<Guid, IMemoryQueue<ClientEvent>>();
@@ -54,21 +59,21 @@ namespace DurableTask.EventSourced.Emulated
             this.partitions = new TransportAbstraction.IPartition[this.numberPartitions];
         }
 
-        Task TransportAbstraction.ITaskHub.DeleteAsync()
+        Task ITaskHub.DeleteAsync()
         {
             this.clientQueues = null;
             this.partitionQueues = null;
 
             return this.host.StorageProvider.DeleteAllPartitionStatesAsync();
-       }
+        }
 
-        async Task<bool> TransportAbstraction.ITaskHub.ExistsAsync()
+        async Task<bool> ITaskHub.ExistsAsync()
         {
             await Task.Delay(simulatedDelay).ConfigureAwait(false);
             return this.partitionQueues != null;
         }
 
-        async Task TransportAbstraction.ITaskHub.StartAsync()
+        async Task ITaskHub.StartAsync()
         {
             this.shutdownTokenSource = new CancellationTokenSource();
 
@@ -111,7 +116,7 @@ namespace DurableTask.EventSourced.Emulated
             clientQueue.Resume();
         }
 
-        async Task TransportAbstraction.ITaskHub.StopAsync(bool isForced)
+        async Task ITaskHub.StopAsync(bool isForced)
         {
             if (this.shutdownTokenSource != null)
             {

@@ -19,50 +19,11 @@ using System.Threading.Tasks;
 namespace DurableTask.EventSourced
 {
     /// <summary>
-    /// Abstractions for defining a transport back-end functionality, including the 
-    /// sending/receiving of messages, and the load balancing of partitions.
-    /// The backend creates one client per connected host, and load-balances partitions over the 
-    /// connected hosts.
+    /// Interfaces that separate the transport functionality (which includes both load balancing of partitions
+    /// and transmission of messages) from the host, partition, and client components
     /// </summary>
     internal static class TransportAbstraction
     {
-        /// <summary>
-        /// Top-level functionality for starting and stopping the transport back-end on a machine.
-        /// </summary>
-        public interface ITaskHub
-        {
-            /// <summary>
-            /// Tests whether this taskhub exists in storage.
-            /// </summary>
-            /// <returns>true if this taskhub has been created in storage.</returns>
-            Task<bool> ExistsAsync();
-
-            /// <summary>
-            /// Creates this taskhub in storage.
-            /// </summary>
-            /// <returns>after the taskhub has been created in storage.</returns>
-            Task CreateAsync();
-
-            /// <summary>
-            /// Deletes this taskhub and all of its associated data in storage.
-            /// </summary>
-            /// <returns>after the taskhub has been deleted from storage.</returns>
-            Task DeleteAsync();
-
-            /// <summary>
-            /// Starts the transport backend.
-            /// </summary>
-            /// <returns>After the transport backend has started and created the client.</returns>
-            Task StartAsync();
-
-            /// <summary>
-            /// Stops the transport backend.
-            /// </summary>
-            /// <param name="isForced">Whether to shut down as quickly as possible, or gracefully.</param>
-            /// <returns>After the transport backend has stopped.</returns>
-            Task StopAsync(bool isForced);
-        }
-
         /// <summary>
         /// The host functionality visible to the transport back-end. 
         /// The transport back-end calls this interface to place clients and partitions on this host.
@@ -77,7 +38,7 @@ namespace DurableTask.EventSourced
             /// <summary>
             /// Returns the storage provider for storing the partition states.
             /// </summary>
-            StorageAbstraction.IStorageProvider StorageProvider { get; }
+            IStorageProvider StorageProvider { get; }
 
             /// <summary>
             /// Creates a client on this host.
