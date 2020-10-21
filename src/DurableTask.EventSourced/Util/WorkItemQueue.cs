@@ -21,69 +21,33 @@ namespace DurableTask.EventSourced
 {
     internal class WorkItemQueue<T>
     {
-        private readonly CancellationToken cancellationToken;
-        private readonly MonitoredLock thisLock; // TODO test and perhaps improve scalability of single lock
-
+        private readonly string name;
         private readonly Queue<T> work = new Queue<T>();
-        private readonly Queue<(DateTime, CancellableCompletionSource<T>)> waiters = new Queue<(DateTime, CancellableCompletionSource<T>)>();
+        private readonly SemaphoreSlim count = new SemaphoreSlim(0);
 
-        public WorkItemQueue(string name, CancellationToken token, Action<List<CancellableCompletionSource<T>>> onExpiration)
+        public WorkItemQueue(string name)
         {
-            this.thisLock = new MonitoredLock(name);
-            this.cancellationToken = token;
+            this.name = name;
         }
 
-        public int Load { get; private set; }
+        public int Load => count.CurrentCount;
 
         public void Add(T element)
         {
-            lock (this.thisLock)
-            {
-                // if there are waiters, hand it to the oldest one in line
-                while (this.waiters.Count > 0)
-                {
-                    var next = this.waiters.Dequeue();
-                    this.Load = -this.waiters.Count;
-                    if (next.Item2.TrySetResult(element))
-                    {
-                        return;
-                    }
-                }
-
-                this.work.Enqueue(element);
-                this.Load = this.work.Count;
-            }
+            this.work.Enqueue(element);
+            this.count.Release();
         }
 
-        public Task<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
+        public async Task<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            using (thisLock.Lock())
+            bool success = await this.count.WaitAsync((int) timeout.TotalMilliseconds, cancellationToken);
+            if (success)
             {
-                if (this.work.Count > 0)
-                {
-                    var next = this.work.Dequeue();
-                    this.Load = this.work.Count;
-                    return Task.FromResult(next);
-                }
-
-                var tcs = new CancellableCompletionSource<T>(cancellationToken);
-
-                this.waiters.Enqueue((DateTime.UtcNow + timeout, tcs));
-                this.Load = -this.waiters.Count;
-
-                return tcs.Task;
+                return this.work.Dequeue();
             }
-        }
-
-        public void CheckExpirations()
-        {
-            using (thisLock.Lock())
+            else
             {
-                while (waiters.Count > 0 && waiters.Peek().Item1 < DateTime.UtcNow)
-                {
-                    var expiredWaiter = waiters.Dequeue();
-                    expiredWaiter.Item2.TrySetCanceled();
-                }
+                throw new OperationCanceledException($"Could not get a workitem from {this.name} within {timeout}.");
             }
         }
     }

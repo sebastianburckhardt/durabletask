@@ -119,16 +119,6 @@ namespace DurableTask.EventSourced
                 DurableTask.Core.Tracing.DefaultEventSource.Log.IsTraceEnabled);
         }
 
-        private async Task WorkitemExpirationCheck(CancellationToken token)
-        {
-            await Task.Delay(10, token).ConfigureAwait(false);
-
-            this.ActivityWorkItemQueue.CheckExpirations();
-            this.OrchestrationWorkItemQueue.CheckExpirations();
-
-            var ignoredTask = Task.Run(() => this.WorkitemExpirationCheck(token));
-        }
-
         /******************************/
         // storage provider
         /******************************/
@@ -223,8 +213,8 @@ namespace DurableTask.EventSourced
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
-            this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(nameof(this.ActivityWorkItemQueue), this.serviceShutdownSource.Token, SendNullResponses);
-            this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(nameof(this.OrchestrationWorkItemQueue), this.serviceShutdownSource.Token, SendNullResponses);
+            this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(nameof(this.ActivityWorkItemQueue));
+            this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(nameof(this.OrchestrationWorkItemQueue));
 
             LeaseTimer.Instance.DelayWarning = (int delay) =>
                 this.Logger.LogWarning("EventSourcedOrchestrationService lease timer on workerId={workerId} is running {delay}s behind schedule", this.Settings.WorkerId, delay);
@@ -234,17 +224,7 @@ namespace DurableTask.EventSourced
 
             await taskHub.StartAsync().ConfigureAwait(false);
 
-            var ignoredTask = Task.Run(() => this.WorkitemExpirationCheck(this.serviceShutdownSource.Token));
-
             System.Diagnostics.Debug.Assert(this.Client != null, "Backend should have added client");
-        }
-
-        private static void SendNullResponses<T>(IEnumerable<CancellableCompletionSource<T>> waiters) where T : class
-        {
-            foreach (var waiter in waiters)
-            {
-                waiter.TrySetResult(null);
-            }
         }
 
         /// <inheritdoc />
@@ -258,7 +238,7 @@ namespace DurableTask.EventSourced
                 this.serviceShutdownSource.Dispose();
                 this.serviceShutdownSource = null;
 
-                await this.taskHub.StopAsync().ConfigureAwait(false);
+                await this.taskHub.StopAsync(isForced).ConfigureAwait(false);
 
                 this.Logger.LogInformation("EventSourcedOrchestrationService stopped, workerId={workerId}", this.Settings.WorkerId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.HubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);
@@ -269,7 +249,7 @@ namespace DurableTask.EventSourced
         public Task StopAsync() => ((IOrchestrationService)this).StopAsync(false);
 
         /// <inheritdoc/>
-        public void Dispose() => this.taskHub.StopAsync();
+        public void Dispose() => this.taskHub.StopAsync(true);
 
         /// <summary>
         /// Computes the partition for the given instance.
