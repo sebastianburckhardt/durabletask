@@ -11,15 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using DurableTask.Core;
-using DurableTask.Core.Common;
-using Dynamitey.DynamicObjects;
-using FASTER.core;
-using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using DurableTask.Core;
+using DurableTask.Core.Common;
 
 namespace DurableTask.EventSourced
 {

@@ -11,12 +11,11 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using DurableTask.EventSourced.Faster;
-using FASTER.core;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using FASTER.core;
+using Newtonsoft.Json;
 
 namespace DurableTask.EventSourced.Faster
 {

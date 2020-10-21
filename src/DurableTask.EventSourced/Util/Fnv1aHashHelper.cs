@@ -11,10 +11,10 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using System.Text;
+
 namespace DurableTask.EventSourced
 {
-    using System.Text;
-
     /// <summary>
     /// Fast, non-cryptographic hash function helper.
     /// </summary>

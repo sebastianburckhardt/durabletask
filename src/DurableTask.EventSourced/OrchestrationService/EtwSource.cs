@@ -11,12 +11,7 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 using System;
-using System.Collections.Generic;
 using System.Diagnostics.Tracing;
-using System.Linq;
-using System.Threading;
-using DurableTask.Core;
-using Microsoft.Extensions.Logging;
 
 namespace DurableTask.EventSourced
 {

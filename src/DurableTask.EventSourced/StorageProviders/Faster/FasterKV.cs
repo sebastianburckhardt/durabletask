@@ -11,15 +11,14 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using DurableTask.Core;
-using DurableTask.Core.Common;
-using FASTER.core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using DurableTask.Core;
+using DurableTask.Core.Common;
+using FASTER.core;
 
 namespace DurableTask.EventSourced.Faster
 {

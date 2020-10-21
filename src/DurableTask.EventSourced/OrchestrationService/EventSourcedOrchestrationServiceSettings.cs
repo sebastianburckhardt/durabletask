@@ -11,14 +11,14 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using System;
+using DurableTask.Core;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+
 namespace DurableTask.EventSourced
 {
-    using System;
-    using DurableTask.Core;
-    using Microsoft.Extensions.Logging;
-    using Newtonsoft.Json;
-    using Newtonsoft.Json.Converters;
-
     /// <summary>
     /// Settings for the <see cref="EventSourcedOrchestrationService"/> class.
     /// </summary>

@@ -16,9 +16,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using DurableTask.Core.Common;
-using Microsoft.Azure.EventHubs;
-using Microsoft.Azure.Cosmos.Table;
 using DurableTask.EventSourced.EventHubs;
 
 namespace DurableTask.EventSourced.Scaling

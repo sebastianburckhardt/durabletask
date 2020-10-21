@@ -12,14 +12,9 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.EventSourced.Scaling;
-using Dynamitey;
-using Microsoft.Azure.Amqp.Framing;
 using System;
 using System.Collections.Generic;
-using System.Dynamic;
-using System.IO;
 using System.Runtime.Serialization;
-using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {

@@ -10,7 +10,6 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using Dynamitey;
 using Microsoft.Azure.Cosmos.Table;
 using System;
 using System.Collections.Generic;

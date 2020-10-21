@@ -15,7 +15,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization;
-using System.Text;
 using DurableTask.Core;
 using DurableTask.Core.Common;
 using DurableTask.Core.History;

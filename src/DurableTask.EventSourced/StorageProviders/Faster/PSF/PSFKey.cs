@@ -11,9 +11,9 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
+using System;
 using DurableTask.Core;
 using FASTER.core;
-using System;
 
 namespace DurableTask.EventSourced.Faster
 {

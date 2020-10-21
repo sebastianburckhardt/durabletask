@@ -11,15 +11,8 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Threading.Tasks;
-using DurableTask.Core;
-using DurableTask.Core.Exceptions;
-using DurableTask.Core.History;
 
 namespace DurableTask.EventSourced
 {

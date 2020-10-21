@@ -12,13 +12,9 @@
 //  ----------------------------------------------------------------------------------
 
 using DurableTask.Core.Common;
-using FASTER.core;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 

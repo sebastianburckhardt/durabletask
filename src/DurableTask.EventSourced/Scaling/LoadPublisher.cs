@@ -10,13 +10,9 @@
 //  limitations under the License.
 //  ----------------------------------------------------------------------------------
 
-using Dynamitey;
-using Microsoft.Azure.Cosmos.Table;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
