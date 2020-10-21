@@ -21,16 +21,10 @@ using System.Threading.Tasks;
 
 namespace DurableTask.EventSourced
 {
-    internal class WorkItemQueue<T>
+    internal class WorkItemQueue<T> : IDisposable
     {
-        private readonly string name;
         private readonly ConcurrentQueue<T> work = new ConcurrentQueue<T>();
         private readonly SemaphoreSlim count = new SemaphoreSlim(0);
-
-        public WorkItemQueue(string name)
-        {
-            this.name = name;
-        }
 
         public int Load => count.CurrentCount;
 
@@ -38,6 +32,11 @@ namespace DurableTask.EventSourced
         {
             this.work.Enqueue(element);
             this.count.Release();
+        }
+
+        public void Dispose()
+        {
+            ((IDisposable)this.count).Dispose();
         }
 
         public async ValueTask<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)

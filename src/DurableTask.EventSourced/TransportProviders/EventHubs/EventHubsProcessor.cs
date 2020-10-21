@@ -57,7 +57,7 @@ namespace DurableTask.EventSourced.EventHubs
         // they are processed durably, so we can redeliver them when recycling/recovering a partition
         // we make this a concurrent queue so we can remove confirmed events concurrently with receiving new ones
         private ConcurrentQueue<(PartitionEvent evt, string offset, long seqno)> pendingDelivery;
-        private AsyncLock deliveryLock = new AsyncLock();
+        private AsyncLock deliveryLock;
 
         // this points to the latest incarnation of this partition; it gets
         // updated as we recycle partitions (create new incarnations after failures)
@@ -104,6 +104,7 @@ namespace DurableTask.EventSourced.EventHubs
         {
             this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} is opening", this.eventHubName, this.eventHubPartition);
             this.eventProcessorShutdown = new CancellationTokenSource();
+            this.deliveryLock = new AsyncLock();
 
             // we kick off the start-and-retry mechanism for the partition, but don't wait for it to be fully started.
             // instead, we save the task and wait for it when we need it
@@ -233,6 +234,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
 
             await SaveEventHubsReceiverCheckpoint(context).ConfigureAwait(false);
+            this.deliveryLock.Dispose();
 
             this.traceHelper.LogInformation("EventHubsProcessor {eventHubName}/{eventHubPartition} closed", this.eventHubName, this.eventHubPartition);
         }

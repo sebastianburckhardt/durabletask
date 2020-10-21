@@ -213,8 +213,8 @@ namespace DurableTask.EventSourced
 
             this.serviceShutdownSource = new CancellationTokenSource();
 
-            this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>(nameof(this.ActivityWorkItemQueue));
-            this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>(nameof(this.OrchestrationWorkItemQueue));
+            this.ActivityWorkItemQueue = new WorkItemQueue<ActivityWorkItem>();
+            this.OrchestrationWorkItemQueue = new WorkItemQueue<OrchestrationWorkItem>();
 
             LeaseTimer.Instance.DelayWarning = (int delay) =>
                 this.Logger.LogWarning("EventSourcedOrchestrationService lease timer on workerId={workerId} is running {delay}s behind schedule", this.Settings.WorkerId, delay);
@@ -239,6 +239,9 @@ namespace DurableTask.EventSourced
                 this.serviceShutdownSource = null;
 
                 await this.taskHub.StopAsync(isForced).ConfigureAwait(false);
+
+                this.ActivityWorkItemQueue.Dispose();
+                this.OrchestrationWorkItemQueue.Dispose();
 
                 this.Logger.LogInformation("EventSourcedOrchestrationService stopped, workerId={workerId}", this.Settings.WorkerId);
                 EtwSource.Log.OrchestrationServiceStopped(this.ServiceInstanceId, this.StorageAccountName, this.Settings.HubName, this.Settings.WorkerId, TraceUtils.ExtensionVersion);

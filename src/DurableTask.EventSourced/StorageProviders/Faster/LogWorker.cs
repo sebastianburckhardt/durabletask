@@ -58,7 +58,7 @@ namespace DurableTask.EventSourced.Faster
 
         public long LastCommittedInputQueuePosition { get; private set; }
 
-        private class IntakeWorker : BatchWorker<PartitionEvent>
+        private class IntakeWorker : BatchWorker<PartitionEvent>, IDisposable
         {
             private readonly LogWorker logWorker;
             private readonly List<PartitionUpdateEvent> updateEvents;
@@ -71,6 +71,12 @@ namespace DurableTask.EventSourced.Faster
                 this.storeWorkerCredits = new SemaphoreSlim(pipelineCredits);
                 this.logWorker = logWorker;
                 this.updateEvents = new List<PartitionUpdateEvent>();
+            }
+
+            public void Dispose()
+            {
+                this.logWorkerCredits.Dispose();
+                this.storeWorkerCredits.Dispose();
             }
 
             protected override async Task Process(IList<PartitionEvent> batch)
@@ -153,6 +159,8 @@ namespace DurableTask.EventSourced.Faster
             await this.intakeWorker.WaitForCompletionAsync().ConfigureAwait(false);
 
             await this.WaitForCompletionAsync().ConfigureAwait(false);
+
+            this.intakeWorker.Dispose();
 
             this.traceHelper.FasterProgress($"Stopped LogWorker");
         }

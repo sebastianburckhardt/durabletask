@@ -33,7 +33,7 @@ namespace DurableTask.EventSourced
 
         private volatile int sequenceNumber;
 
-        //TODO consider using a min heap for more efficient removal of entries
+        //TODO replace this with a lock-free implementation
 
         public BatchTimer(CancellationToken token, Action<List<T>> handler, Action<string> tracer = null)
         {

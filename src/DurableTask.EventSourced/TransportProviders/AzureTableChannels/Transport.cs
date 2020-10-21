@@ -67,7 +67,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             List<PartitionEvent> partitionBatch = new List<PartitionEvent>();
             List<ClientEvent> clientBatch = new List<ClientEvent>();
 
-            SemaphoreSlim credits = new SemaphoreSlim(0); // no parallelism
+            using SemaphoreSlim credits = new SemaphoreSlim(0); // no parallelism
             
             this.partition = partition;
             this.client = client;
