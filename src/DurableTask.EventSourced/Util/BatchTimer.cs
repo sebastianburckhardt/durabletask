@@ -28,12 +28,10 @@ namespace DurableTask.EventSourced
         private readonly SemaphoreSlim notify;
         private readonly Action<string> tracer;
 
-        private MonitoredLock thisLock;
+        private object thisLock; //TODO replace this class with a lock-free implementation
         private string name;
 
         private volatile int sequenceNumber;
-
-        //TODO replace this with a lock-free implementation
 
         public BatchTimer(CancellationToken token, Action<List<T>> handler, Action<string> tracer = null)
         {
@@ -42,7 +40,7 @@ namespace DurableTask.EventSourced
             this.tracer = tracer;
             this.schedule = new SortedList<(DateTime due, int id), T>();
             this.notify = new SemaphoreSlim(0, int.MaxValue);
-            this.thisLock = new MonitoredLock();
+            this.thisLock = new object();
 
             token.Register(() => this.notify.Release());
         }
@@ -51,14 +49,13 @@ namespace DurableTask.EventSourced
         {
             var thread = new Thread(ExpirationCheckLoop);
             thread.Name = name;
-            thisLock.Name = name;
             this.name = name;
             thread.Start();
         }
 
         public int GetFreshId()
         {
-            using (thisLock.Lock())
+            lock (thisLock)
             {
                 return sequenceNumber++;
             }
@@ -66,7 +63,7 @@ namespace DurableTask.EventSourced
 
         public void Schedule(DateTime due, T what, int? id = null)
         {
-            using (thisLock.Lock())
+            lock (thisLock)
             {
                 var key = (due, id ?? sequenceNumber++);
 
@@ -84,7 +81,7 @@ namespace DurableTask.EventSourced
 
         public bool TryCancel((DateTime due, int id) key)
         {
-            using (thisLock.Lock())
+            lock (thisLock)
             {
                 if (this.schedule.Remove(key))
                 {
@@ -114,7 +111,7 @@ namespace DurableTask.EventSourced
                     tracer?.Invoke($"{this.name} is awakening at {(DateTime.UtcNow - due).TotalSeconds}s");
                 }
 
-                using (thisLock.Lock())
+                lock (thisLock)
                 {
                     var next = this.schedule.FirstOrDefault();
 
@@ -152,7 +149,7 @@ namespace DurableTask.EventSourced
 
         private bool RequiresDelay(out TimeSpan delay, out DateTime due)
         {
-            using (thisLock.Lock())
+            lock (thisLock)
             {
                 if (this.schedule.Count == 0)
                 {
