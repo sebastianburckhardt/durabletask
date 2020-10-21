@@ -477,7 +477,12 @@ namespace DurableTask.EventSourced
             CancellationToken cancellationToken)
         {
             var nextOrchestrationWorkItem = await this.OrchestrationWorkItemQueue.GetNext(receiveTimeout, cancellationToken).ConfigureAwait(false);
-            nextOrchestrationWorkItem.MessageBatch.WaitingSince = null;
+
+            if (nextOrchestrationWorkItem != null) 
+            {
+                nextOrchestrationWorkItem.MessageBatch.WaitingSince = null;
+            }
+         
             return nextOrchestrationWorkItem;
         }
 
@@ -566,8 +571,8 @@ namespace DurableTask.EventSourced
 
         Task IOrchestrationService.AbandonTaskOrchestrationWorkItemAsync(TaskOrchestrationWorkItem workItem)
         {
-            // we can get here due to transient execution failures of the functions runtime
-            // in order to guarantee the work is done, we must enqueue a new work item
+            // We can get here due to transient execution failures of the functions runtime.
+            // In order to guarantee the work is done, we must enqueue a new work item.
             var orchestrationWorkItem = (OrchestrationWorkItem)workItem;
             var originalHistorySize = orchestrationWorkItem.OrchestrationRuntimeState.Events.Count - orchestrationWorkItem.OrchestrationRuntimeState.NewEvents.Count;
             var originalHistory = orchestrationWorkItem.OrchestrationRuntimeState.Events.Take(originalHistorySize).ToList();

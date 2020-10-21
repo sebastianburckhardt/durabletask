@@ -12,7 +12,9 @@
 //  ----------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,7 +24,7 @@ namespace DurableTask.EventSourced
     internal class WorkItemQueue<T>
     {
         private readonly string name;
-        private readonly Queue<T> work = new Queue<T>();
+        private readonly ConcurrentQueue<T> work = new ConcurrentQueue<T>();
         private readonly SemaphoreSlim count = new SemaphoreSlim(0);
 
         public WorkItemQueue(string name)
@@ -38,17 +40,24 @@ namespace DurableTask.EventSourced
             this.count.Release();
         }
 
-        public async Task<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
+        public async ValueTask<T> GetNext(TimeSpan timeout, CancellationToken cancellationToken)
         {
+            T result = default;
             bool success = await this.count.WaitAsync((int) timeout.TotalMilliseconds, cancellationToken);
             if (success)
             {
-                return this.work.Dequeue();
+                success = this.work.TryDequeue(out result);
+            
+                // we should always succeed here; but just for the unlikely case that we don't 
+                // (e.g. if concurrent queue implementation is not linearizable),
+                // put the count back up by one if we didn't actually get an element
+                if (!success)
+                {
+                    this.count.Release();
+                }           
             }
-            else
-            {
-                throw new OperationCanceledException($"Could not get a workitem from {this.name} within {timeout}.");
-            }
+
+            return result;
         }
     }
 }
