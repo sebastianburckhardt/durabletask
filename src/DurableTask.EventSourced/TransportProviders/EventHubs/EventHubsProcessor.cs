@@ -228,7 +228,7 @@ namespace DurableTask.EventSourced.EventHubs
             else
             {
                 this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopping partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
-                await current.Partition.StopAsync().ConfigureAwait(false);
+                await current.Partition.StopAsync(false).ConfigureAwait(false);
                 this.traceHelper.LogDebug("EventHubsProcessor {eventHubName}/{eventHubPartition} stopped partition (incarnation {incarnation})", this.eventHubName, this.eventHubPartition, current.Incarnation);
             }
 

@@ -10,17 +10,17 @@ namespace DurableTask.EventSourced.Tests
     {
         public TestFixture()
         {
-            LoggerFactory = new LoggerFactory();
-            LoggerProvider = new XunitLoggerProvider();
-            LoggerFactory.AddProvider(LoggerProvider);
+            this.LoggerFactory = new LoggerFactory();
+            this.LoggerProvider = new XunitLoggerProvider();
+            this.LoggerFactory.AddProvider(LoggerProvider);
             this.Host = TestHelpers.GetTestOrchestrationHost(LoggerFactory);
             this.Host.StartAsync().Wait();
         }
 
         public void Dispose()
         {
-            LoggerProvider.Output = null;
-            this.Host.StopAsync().Wait();
+            this.LoggerProvider.Output = null;
+            this.Host.StopAsync(false).Wait();
             this.Host.Dispose();
         }
 

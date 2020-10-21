@@ -10,6 +10,11 @@ namespace DurableTask.EventSourced
 {
     internal static class BlobUtils
     {
+        /// <summary>
+        /// Forcefully deletes a blob.
+        /// </summary>
+        /// <param name="blob">The CloudBlob to delete.</param>
+        /// <returns>A task that completes when the operation is finished.</returns>
         public static async Task<bool> ForceDeleteAsync(CloudBlob blob)
         {
             try
@@ -45,10 +50,15 @@ namespace DurableTask.EventSourced
             }
         }
 
-        // Transient error codes are documented at https://docs.microsoft.com/en-us/azure/architecture/best-practices/retry-service-specific#azure-storage
-
+        /// <summary>
+        /// Checks whether the given storage exception is transient, and 
+        /// therefore meaningful to retry.
+        /// </summary>
+        /// <param name="e">The storage exception.</param>
+        /// <returns>Whether this is a transient storage exception.</returns>
         public static bool IsTransientStorageError(StorageException e)
         {
+            // Transient error codes as documented at https://docs.microsoft.com/en-us/azure/architecture/best-practices/retry-service-specific#azure-storage
             return (e.RequestInformation.HttpStatusCode == 408)  //408 Request Timeout
                 || (e.RequestInformation.HttpStatusCode == 429)  //429 Too Many Requests
                 || (e.RequestInformation.HttpStatusCode == 500)  //500 Internal Server Error
@@ -57,6 +67,11 @@ namespace DurableTask.EventSourced
                 || (e.RequestInformation.HttpStatusCode == 504); //504 Gateway Timeout
         }
 
+        /// <summary>
+        /// Checks whether the given storage exception is a timeout exception.
+        /// </summary>
+        /// <param name="e">The storage exception.</param>
+        /// <returns>Whether this is a timeout storage exception.</returns>
         public static bool IsTimeout(StorageException e)
         {
             return (e.RequestInformation.HttpStatusCode == 408);  //408 Request Timeout

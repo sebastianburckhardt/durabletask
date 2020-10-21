@@ -114,7 +114,7 @@ namespace DurableTask.EventSourced.AzureTableChannels
             }
         }
 
-        async Task TransportAbstraction.ITaskHub.StopAsync()
+        async Task TransportAbstraction.ITaskHub.StopAsync(bool IsForced)
         {
             if (this.shutdownTokenSource != null)
             {
@@ -122,7 +122,9 @@ namespace DurableTask.EventSourced.AzureTableChannels
                 this.shutdownTokenSource = null;
 
                 await this.client.StopAsync().ConfigureAwait(false);
-                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(this.settings.TakeStateCheckpointWhenStoppingPartition))).ConfigureAwait(false);
+
+                bool takeCheckpoint = !IsForced && this.settings.TakeStateCheckpointWhenStoppingPartition;
+                await Task.WhenAll(this.partitionStates.Select(partitionState => partitionState.CleanShutdown(takeCheckpoint))).ConfigureAwait(false);
             }
         }
 

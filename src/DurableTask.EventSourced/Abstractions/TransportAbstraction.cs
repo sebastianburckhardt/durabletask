@@ -58,8 +58,9 @@ namespace DurableTask.EventSourced
             /// <summary>
             /// Stops the transport backend.
             /// </summary>
+            /// <param name="isForced">Whether to shut down as quickly as possible, or gracefully.</param>
             /// <returns>After the transport backend has stopped.</returns>
-            Task StopAsync();
+            Task StopAsync(bool isForced);
         }
 
         /// <summary>
@@ -128,8 +129,9 @@ namespace DurableTask.EventSourced
             /// <summary>
             /// Clean shutdown: stop processing, save partition state to storage, and release ownership.
             /// </summary>
+            /// <param name="isForced">True if the shutdown should happen as quickly as possible.</param>
             /// <returns>When all steps have completed and termination is performed.</returns>
-            Task StopAsync();
+            Task StopAsync(bool isForced);
 
             /// <summary>
             /// Queues a single event for processing on this partition.

@@ -52,7 +52,7 @@ namespace DurableTask.EventSourced.EventHubs
         private CloudBlobContainer cloudBlobContainer;
         private CloudBlockBlob taskhubParameters;
         private CloudBlockBlob partitionScript;
-        private ScriptedEventProcessorHost customEventProcessorHost;
+        private ScriptedEventProcessorHost scriptedEventProcessorHost;
 
         public Guid ClientId { get; private set; }
 
@@ -199,7 +199,7 @@ namespace DurableTask.EventSourced.EventHubs
             else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
             {
                 this.traceHelper.LogWarning($"EventProcessorManagement: {this.settings.EventProcessorManagement}");
-                this.customEventProcessorHost = new ScriptedEventProcessorHost(
+                this.scriptedEventProcessorHost = new ScriptedEventProcessorHost(
                         partitionsHub,
                         EventHubsTransport.PartitionConsumerGroup,
                         settings.EventHubsConnectionString,
@@ -213,7 +213,7 @@ namespace DurableTask.EventSourced.EventHubs
                         this.traceHelper,
                         settings.WorkerId);
 
-                var thread = new Thread(() => this.customEventProcessorHost.StartEventProcessing(settings, this.partitionScript));
+                var thread = new Thread(() => this.scriptedEventProcessorHost.StartEventProcessing(settings, this.partitionScript));
                 thread.Name = "ScriptedEventProcessorHost";
                 thread.Start();
             }
@@ -223,7 +223,7 @@ namespace DurableTask.EventSourced.EventHubs
             }
         }
 
-        async Task TransportAbstraction.ITaskHub.StopAsync()
+        async Task TransportAbstraction.ITaskHub.StopAsync(bool isForced)
         {
             this.parameters = null;
             this.traceHelper.LogInformation("Shutting down EventHubsBackend");
@@ -232,12 +232,19 @@ namespace DurableTask.EventSourced.EventHubs
             this.traceHelper.LogDebug("Stopping client");
             await client.StopAsync().ConfigureAwait(false);
             this.traceHelper.LogDebug("Unregistering event processor");
+
             if (this.settings.EventProcessorManagement == "EventHubs")
+            {
                 await this.eventProcessorHost.UnregisterEventProcessorAsync().ConfigureAwait(false);
+            }
             else if (this.settings.EventProcessorManagement.StartsWith("Custom"))
-                throw new NotImplementedException("Custom eventhubs stopping not yet implemented");
+            {
+                await this.scriptedEventProcessorHost.StopAsync();
+            }
             else
+            {
                 throw new InvalidOperationException("Unknown EventProcessorManagement setting!");
+            }
             this.traceHelper.LogDebug("Closing connections");
             await this.connections.StopAsync().ConfigureAwait(false);
             this.traceHelper.LogInformation("EventHubsBackend shutdown completed");

@@ -64,9 +64,9 @@ namespace DurableTask.EventSourced.Tests
             await this.worker.StartAsync();
         }
 
-        public Task StopAsync()
+        public Task StopAsync(bool isForced)
         {
-            return this.worker.StopAsync(isForced: true);
+            return this.worker.StopAsync(isForced);
         }
 
         public void AddAutoStartOrchestrator(Type type)

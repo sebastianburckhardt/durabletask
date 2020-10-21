@@ -111,7 +111,7 @@ namespace DurableTask.EventSourced.Emulated
             clientQueue.Resume();
         }
 
-        async Task TransportAbstraction.ITaskHub.StopAsync()
+        async Task TransportAbstraction.ITaskHub.StopAsync(bool isForced)
         {
             if (this.shutdownTokenSource != null)
             {
@@ -123,7 +123,7 @@ namespace DurableTask.EventSourced.Emulated
                 var tasks = new List<Task>();
                 foreach(var p in this.partitions)
                 {
-                    tasks.Add(p.StopAsync());
+                    tasks.Add(p.StopAsync(isForced));
                 }
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }

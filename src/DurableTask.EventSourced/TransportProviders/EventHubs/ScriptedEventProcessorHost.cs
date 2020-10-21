@@ -125,6 +125,12 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
             this.Process(nextGroup);
         }
 
+        public Task StopAsync()
+        {
+            // TODO implement this. Not urgent since this class is currently only used for testing/benchmarking
+            return Task.CompletedTask;
+        }
+
         private void Process(List<PartitionScript.ProcessorHostEvent> ready)
         {
             if (ready.Count > 0)
@@ -277,7 +283,7 @@ namespace DurableTask.EventSourced.TransportProviders.EventHubs
                 {
                     // First stop the partition. We need to wait until it shutdowns before closing the receiver, since it needs to receive confirmation events.
                     this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopping partition)", this.host.eventHubPath, partitionId, this.Incarnation);
-                    await partition.StopAsync().ConfigureAwait(false);
+                    await partition.StopAsync(false).ConfigureAwait(false);
                     this.host.logger.LogDebug("PartitionInstance {eventHubName}/{eventHubPartition}({incarnation}) stopped partition", this.host.eventHubPath, partitionId, this.Incarnation);
 
                     // wait for the receiver loop to terminate

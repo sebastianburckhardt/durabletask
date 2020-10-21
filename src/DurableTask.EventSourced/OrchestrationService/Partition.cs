@@ -145,7 +145,7 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public async Task StopAsync()
+        public async Task StopAsync(bool isForced)
         {
             this.TraceHelper.TraceProgress("Stopping partition");
 
@@ -153,8 +153,9 @@ namespace DurableTask.EventSourced
             {
                 if (!this.ErrorHandler.IsTerminated)
                 {
+                    bool takeCheckpoint = this.Settings.TakeStateCheckpointWhenStoppingPartition && !isForced;
                     // for a clean shutdown we try to save some of the latest progress to storage and then release the lease
-                    await this.State.CleanShutdown(this.Settings.TakeStateCheckpointWhenStoppingPartition).ConfigureAwait(false);
+                    await this.State.CleanShutdown(takeCheckpoint).ConfigureAwait(false);
                 }
             }
             catch(OperationCanceledException) when (this.ErrorHandler.IsTerminated)
