@@ -616,7 +616,7 @@ namespace DurableTask.EventSourced
 
         int IOrchestrationService.MaxConcurrentTaskOrchestrationWorkItems => this.Settings.MaxConcurrentOrchestratorFunctions;
 
-        int IOrchestrationService.TaskOrchestrationDispatcherCount => 1;
+        int IOrchestrationService.TaskOrchestrationDispatcherCount => this.Settings.OrchestrationDispatcherCount;
 
 
         /******************************/
@@ -670,7 +670,7 @@ namespace DurableTask.EventSourced
 
         int IOrchestrationService.MaxConcurrentTaskActivityWorkItems => this.Settings.MaxConcurrentActivityFunctions;
 
-        int IOrchestrationService.TaskActivityDispatcherCount => 1;
+        int IOrchestrationService.TaskActivityDispatcherCount => this.Settings.ActivityDispatcherCount;
 
     }
 }

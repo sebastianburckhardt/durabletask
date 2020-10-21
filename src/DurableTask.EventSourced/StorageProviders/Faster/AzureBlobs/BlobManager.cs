@@ -94,25 +94,14 @@ namespace DurableTask.EventSourced.Faster
             MemorySizeBits = 22, // 2MB
         };
 
-        //public LogSettings StoreLogSettings => new LogSettings
-        //{
-        //    LogDevice = this.HybridLogDevice,
-        //    ObjectLogDevice = this.ObjectLogDevice,
-        //    PageSizeBits = 20, // 1MB
-        //    MutableFraction = 0.9,
-        //    SegmentSizeBits = 28, // 256 MB
-        //    CopyReadsToTail = true,
-        //    MemorySizeBits = 24, // 16MB
-        //};
-
         public LogSettings StoreLogSettings(bool usePremiumStorage, uint numPartitions) => new LogSettings
         {
             LogDevice = this.HybridLogDevice,
             ObjectLogDevice = this.ObjectLogDevice,
-            PageSizeBits = 13, // 8kB
+            PageSizeBits = 17, // 128kB
             MutableFraction = 0.9,
             SegmentSizeBits = 
-                usePremiumStorage ? 37 // 127 GB
+                usePremiumStorage ? 35 // 32 GB
                                   : 32, // 4 GB
             CopyReadsToTail = true,
             MemorySizeBits =

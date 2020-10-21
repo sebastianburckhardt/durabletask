@@ -78,13 +78,23 @@ namespace DurableTask.EventSourced
         public int MaxConcurrentOrchestratorFunctions { get; set; } = 100;
 
         /// <summary>
+        /// Gets or sets the number of dispatchers used to dispatch orchestrations.
+        /// </summary>
+        public int OrchestrationDispatcherCount { get; set; } = 1;
+
+        /// <summary>
+        /// Gets or sets the number of dispatchers used to dispatch activities.
+        /// </summary>
+        public int ActivityDispatcherCount { get; set; } = 1;
+
+        /// <summary>
         /// Gets or sets a flag indicating whether to enable caching of execution cursors to avoid replay.
         /// Matches Microsoft.Azure.WebJobs.Extensions.DurableTask.
         /// </summary>
         public bool ExtendedSessionsEnabled { get; set; } = true;
 
         /// <summary>
-        ///  Should we carry over unexecuted raised events to the next iteration of an orchestration on ContinueAsNew
+        /// Whether we should carry over unexecuted raised events to the next iteration of an orchestration on ContinueAsNew.
         /// </summary>
         public BehaviorOnContinueAsNew EventBehaviourForContinueAsNew { get; set; } = BehaviorOnContinueAsNew.Carryover;
 
@@ -112,19 +122,19 @@ namespace DurableTask.EventSourced
         public bool TakeStateCheckpointWhenStoppingPartition { get; set; } = true;
 
         /// <summary>
-        /// A limit on how many bytes to append to the log before initiating another state checkpoint.
+        /// A limit on how many bytes to append to the log before initiating a state checkpoint. The default is 20MB.
         /// </summary>
-        public long MaxNumberBytesBetweenCheckpoints { get; set; } = 200 * 1024 * 1024;
+        public long MaxNumberBytesBetweenCheckpoints { get; set; } = 20 * 1024 * 1024;
 
         /// <summary>
-        /// A limit on how many events to append to the log before initiating another state checkpoint.
+        /// A limit on how many events to append to the log before initiating a state checkpoint. The default is 10000.
         /// </summary>
         public long MaxNumberEventsBetweenCheckpoints { get; set; } = 10 * 1000;
 
         /// <summary>
-        /// A limit on how long to wait between state checkpoints, in milliseconds.
+        /// A limit on how long to wait between state checkpoints, in milliseconds. The default is 60s.
         /// </summary>
-        public long MaxTimeMsBetweenCheckpoints { get; set; } = 10 * 1000;
+        public long MaxTimeMsBetweenCheckpoints { get; set; } = 60 * 1000;
 
         /// <summary>
         /// Whether to use the Faster PSF support for handling queries.
