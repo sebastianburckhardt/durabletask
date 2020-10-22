@@ -47,11 +47,6 @@ namespace DurableTask.Core
         /// </summary>
         public IOrchestrationSession Session;
 
-        /// <summary>
-        /// A tracer that can emit trace information for this work item
-        /// </summary>
-        public virtual void TraceProgress(string format, params object[] args) { }
-
         internal OrchestrationExecutionCursor Cursor;
     }
 }

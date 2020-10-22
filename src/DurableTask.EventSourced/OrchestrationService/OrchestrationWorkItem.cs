@@ -49,10 +49,5 @@ namespace DurableTask.EventSourced
             this.NewMessages = messageBatch.MessagesToProcess;
             this.OrchestrationRuntimeState.NewEvents.Clear();
         }
-
-        public override void TraceProgress(string format, params object[] args)
-        {
-            this.Partition.TraceHelper.TraceWorkItemProgress(this.MessageBatch.WorkItemId, this.InstanceId, format, args);
-        }
     }
 }
