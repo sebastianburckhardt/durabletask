@@ -108,9 +108,8 @@ namespace DurableTask.EventSourced
             }
         }
 
-        public void Send(IClientRequestEvent evt)
+        public void Send(PartitionEvent partitionEvent)
         {
-            var partitionEvent = (PartitionEvent)evt;
             this.traceHelper.TraceSend(partitionEvent);
             this.BatchSender.Submit(partitionEvent);
         }
@@ -126,8 +125,9 @@ namespace DurableTask.EventSourced
 
         private Task<ClientEvent> PerformRequestWithTimeoutAndCancellation(CancellationToken token, IClientRequestEvent request, bool doneWhenSent)
         {
+            var partitionEvent = (PartitionEvent)request;
             int timeoutId = this.ResponseTimeouts.GetFreshId();
-            var pendingRequest = new PendingRequest(request.RequestId, this, request.TimeoutUtc, timeoutId);
+            var pendingRequest = new PendingRequest(request.RequestId, request.EventId, partitionEvent.PartitionId, this, request.TimeoutUtc, timeoutId);
             this.ResponseWaiters.TryAdd(request.RequestId, pendingRequest);
             this.ResponseTimeouts.Schedule(request.TimeoutUtc, pendingRequest, timeoutId);
 
@@ -136,25 +136,32 @@ namespace DurableTask.EventSourced
                 DurabilityListeners.Register((Event)request, pendingRequest);
             }
 
-            this.Send(request);
+            this.Send(partitionEvent);
 
             return pendingRequest.Task;
         }
 
         internal class PendingRequest : TransportAbstraction.IDurabilityOrExceptionListener
         {
-            private long requestId;
-            private Client client;
-            private (DateTime due, int id) timeoutKey;
-            private TaskCompletionSource<ClientEvent> continuation;
+            private readonly long requestId;
+            private readonly EventId eventId;
+            private readonly uint partitionId;
+            private readonly Client client;
+            private readonly (DateTime due, int id) timeoutKey;
+            private readonly TaskCompletionSource<ClientEvent> continuation;
+
             private static TimeoutException timeoutException = new TimeoutException("Client request timed out.");
 
             public Task<ClientEvent> Task => this.continuation.Task;
             public (DateTime, int) TimeoutKey => this.timeoutKey;
 
-            public PendingRequest(long id, Client client, DateTime due, int timeoutId)
+            public string RequestId => $"{Client.GetShortId(this.client.ClientId)}-{this.requestId}"; // matches EventId
+
+            public PendingRequest(long requestId, EventId eventId, uint partitionId, Client client, DateTime due, int timeoutId)
             {
-                this.requestId = id;
+                this.requestId = requestId;
+                this.partitionId = partitionId;
+                this.eventId = eventId;
                 this.client = client;
                 this.timeoutKey = (due, timeoutId);
                 this.continuation = new TaskCompletionSource<ClientEvent>(TaskContinuationOptions.ExecuteSynchronously);
@@ -187,8 +194,9 @@ namespace DurableTask.EventSourced
             public void TryTimeout()
             {
                 this.client.traceHelper.TraceTimerProgress($"firing ({timeoutKey.due:o},{timeoutKey.id})");
-                if (this.client.ResponseWaiters.TryRemove(this.requestId, out var _))
+                if (this.client.ResponseWaiters.TryRemove(this.requestId, out var pendingRequest))
                 {
+                    this.client.traceHelper.TraceRequestTimeout(pendingRequest.eventId, pendingRequest.partitionId);
                     this.continuation.TrySetException(timeoutException);
                 }
             }

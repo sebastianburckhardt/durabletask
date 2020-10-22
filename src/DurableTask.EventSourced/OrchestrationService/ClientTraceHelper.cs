@@ -82,6 +82,21 @@ namespace DurableTask.EventSourced
             }
         }
 
+        public void TraceRequestTimeout(EventId eventId, uint partitionId)
+        {
+            if (this.logLevelLimit <= LogLevel.Warning)
+            {
+                if (this.logger.IsEnabled(LogLevel.Warning))
+                {
+                    this.logger.LogWarning("{client} Request {eventId} for partition {partitionId:D2} timed out", this.tracePrefix, eventId, partitionId);
+                }
+                if (EtwSource.Log.IsEnabled())
+                {
+                    EtwSource.Log.ClientRequestTimeout(this.account, this.taskHub, this.clientId, eventId.ToString(), (int) partitionId, TraceUtils.ExtensionVersion);
+                }
+            }
+        }
+
         public void TraceSend(Event @event)
         {
             if (this.logLevelLimit <= LogLevel.Debug)
