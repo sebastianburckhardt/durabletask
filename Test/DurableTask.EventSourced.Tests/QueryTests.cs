@@ -41,6 +41,9 @@ namespace DurableTask.EventSourced.Tests
             this.fixture.LoggerProvider.Output = outputHelper;
             this.traceListener = new TestTraceListener(outputHelper);
             Trace.Listeners.Add(this.traceListener);
+
+            // purge all instances prior to each test
+            this.host.PurgeAllAsync().Wait();
         }
 
         public void Dispose() => Trace.Listeners.Remove(this.traceListener);

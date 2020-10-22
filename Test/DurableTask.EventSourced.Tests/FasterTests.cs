@@ -136,6 +136,8 @@ namespace DurableTask.EventSourced.Tests
 
                 await blobManager.StopAsync();
             }
+
+            await BlobManager.DeleteTaskhubStorageAsync(account, taskHubName);
         }
     }
 }

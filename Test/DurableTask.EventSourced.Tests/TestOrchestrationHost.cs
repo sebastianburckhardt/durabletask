@@ -135,6 +135,13 @@ namespace DurableTask.EventSourced.Tests
             return instances;
         }
 
+        public async Task PurgeAllAsync()
+        {
+            Trace.TraceInformation($"Purging all instances...");
+            var purgeResult = await this.orchestrationService.PurgeInstanceHistoryAsync(default, default, null);
+            Trace.TraceInformation($"Purged {purgeResult} instances.");
+        }
+
         public async Task<IList<OrchestrationState>> GetOrchestrationStateAsync(DateTime? CreatedTimeFrom = default,
                                                                                 DateTime? CreatedTimeTo = default,
                                                                                 IEnumerable<OrchestrationStatus> RuntimeStatus = default,
