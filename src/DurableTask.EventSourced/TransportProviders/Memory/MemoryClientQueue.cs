@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced.Emulated
         private readonly TransportAbstraction.IClient client;
 
         public MemoryClientQueue(TransportAbstraction.IClient client, CancellationToken cancellationToken, ILogger logger)
-            : base(cancellationToken, logger)
+            : base(cancellationToken, $"Client.{Client.GetShortId(client.ClientId)}", logger)
         {
             this.client = client;
         }

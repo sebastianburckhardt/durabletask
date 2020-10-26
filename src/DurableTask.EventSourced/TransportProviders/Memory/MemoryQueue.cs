@@ -25,10 +25,12 @@ namespace DurableTask.EventSourced.Emulated
     internal abstract class MemoryQueue<T,B> : BatchWorker<B> where T:Event
     {
         private long position = 0;
+        private string name;
         private readonly ILogger logger;
 
-        public MemoryQueue(CancellationToken cancellationToken, ILogger logger) : base(nameof(MemoryQueue<T,B>), cancellationToken, true)
+        public MemoryQueue(CancellationToken cancellationToken, string name, ILogger logger) : base(nameof(MemoryQueue<T,B>), cancellationToken, true)
         {
+            this.name = name;
             this.logger = logger;
         }
 
@@ -71,6 +73,11 @@ namespace DurableTask.EventSourced.Emulated
                             return Task.CompletedTask;
                         }
 
+                        if (logger.IsEnabled(LogLevel.Trace))
+                        {
+                            this.logger.LogTrace("MemoryQueue {name} is delivering {event} id={eventId}", name, evt, evt.EventId);
+                        }
+
                         Deliver(evt);
                     }
 
@@ -79,7 +86,7 @@ namespace DurableTask.EventSourced.Emulated
             }
             catch(Exception e)
             {
-                this.logger.LogError("Exception in MemoryQueue BatchWorker: {exception}", e);
+                this.logger.LogError("Exception in MemoryQueue {name}: {exception}", name, e);
             }
 
             return Task.CompletedTask;
@@ -87,6 +94,11 @@ namespace DurableTask.EventSourced.Emulated
 
         public void Send(T evt)
         {
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                this.logger.LogTrace("MemoryQueue {name} is receiving {event} id={eventId}", name, evt, evt.EventId);
+            }
+
             var serialized = Serialize(evt);
 
             this.Submit(serialized);

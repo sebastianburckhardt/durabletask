@@ -26,7 +26,7 @@ namespace DurableTask.EventSourced.Emulated
         private readonly TransportAbstraction.IPartition partition;
 
         public MemoryPartitionQueue(TransportAbstraction.IPartition partition, CancellationToken cancellationToken, ILogger logger)
-            : base(cancellationToken, logger)
+            : base(cancellationToken, $"Part{partition.PartitionId:D2}", logger)
         {
             this.partition = partition;
         }

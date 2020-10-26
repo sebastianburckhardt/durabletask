@@ -87,23 +87,23 @@ namespace DurableTask.EventSourced.Emulated
             clientSender.SetHandler(list => SendEvents(this.client, list));
 
             // create all partitions
-            Parallel.For(0, this.numberPartitions, (iteration) =>
+            var tasks = new List<Task>();
+            for (uint i = 0; i < this.numberPartitions; i++)
             {
-                int i = (int) iteration;
-                uint partitionId = (uint) iteration;
+                tasks.Add(StartPartition(i));
+            }
+            await Task.WhenAll(tasks);
+
+            async Task StartPartition(uint partitionId)
+            {
                 var partitionSender = new SendWorker(this.shutdownTokenSource.Token);
                 var partition = this.host.AddPartition(partitionId, partitionSender);
                 partitionSender.SetHandler(list => SendEvents(partition, list));
-                this.partitionQueues[i] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token, this.logger);
-                this.partitions[i] = partition;
-            });
-
-            // create or recover all the partitions
-            for (uint i = 0; i < this.numberPartitions; i++)
-            {
-                var nextInputQueuePosition = await partitions[i].CreateOrRestoreAsync(this.host.CreateErrorHandler(i), 0).ConfigureAwait(false);
-                partitionQueues[i].FirstInputQueuePosition = nextInputQueuePosition;
-            }
+                this.partitionQueues[partitionId] = new MemoryPartitionQueue(partition, this.shutdownTokenSource.Token, this.logger);
+                this.partitions[partitionId] = partition;
+                var nextInputQueuePosition = await partition.CreateOrRestoreAsync(this.host.CreateErrorHandler(partitionId), 0).ConfigureAwait(false);
+                partitionQueues[partitionId].FirstInputQueuePosition = nextInputQueuePosition;
+            };
 
             // start all the emulated queues
             foreach (var partitionQueue in this.partitionQueues)
