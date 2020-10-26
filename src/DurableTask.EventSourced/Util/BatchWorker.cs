@@ -164,25 +164,34 @@ namespace DurableTask.EventSourced
                 {
                     // no work found. Announce that we are planning to shut down.
                     // Using an interlocked exchange to enforce store-load fence.
-                    Interlocked.Exchange(ref this.state, SHUTTINGDOWN);
+                    int read = Interlocked.Exchange(ref this.state, SHUTTINGDOWN);
+
+                    Debug.Assert(read == RUNNING); // because that's what its set to before Work is called
 
                     // but recheck so we don't miss work that was just added
                     nextBatch = this.GetNextBatch();
 
                     if (!nextBatch.HasValue)
-                    { 
+                    {
                         // still no work. Try to transition to idle but revert if state has been changed.
-                        var read = Interlocked.CompareExchange(ref this.state, IDLE, SHUTTINGDOWN);
+                        read = Interlocked.CompareExchange(ref this.state, IDLE, SHUTTINGDOWN);
 
                         if (read == SHUTTINGDOWN)
                         {
                             // shut down is complete
                             return;
                         }
+                        else
+                        {
+                            // shutdown was reverted by Notify()
+                            Debug.Assert(read == RUNNING);
+                        }
                     }
-
-                    // shutdown canceled, we are running
-                    this.state = RUNNING;
+                    else
+                    {
+                        // we found more work. So we do not shutdown but go back to running.
+                        this.state = RUNNING;
+                    }
                 }
 
                 this.stopwatch.Restart();
@@ -240,7 +249,7 @@ namespace DurableTask.EventSourced
                 {
                     return;
                 }
-               else if (currentState == IDLE || (currentState == SUSPENDED && resume) || currentState == SHUTTINGDOWN)
+                else if (currentState == IDLE || (currentState == SUSPENDED && resume) || currentState == SHUTTINGDOWN)
                 {
                     int read = Interlocked.CompareExchange(ref this.state, RUNNING, currentState);
                     if (read == currentState)
