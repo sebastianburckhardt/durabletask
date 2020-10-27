@@ -28,10 +28,7 @@ namespace DurableTask.EventSourced
         [IgnoreDataMember]
         public override EventId EventId => EventId.MakeClientRequestEventId(this.ClientId, this.RequestId);
 
-        public virtual Task OnQueryCompleteAsync(IAsyncEnumerable<OrchestrationState> result, Partition partition)
-        {
-            return Task.CompletedTask;
-        }
+        public abstract Task OnQueryCompleteAsync(IAsyncEnumerable<OrchestrationState> result, Partition partition);
 
         public sealed override void DetermineEffects(EffectTracker effects)
         {
