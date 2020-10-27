@@ -429,7 +429,7 @@ namespace DurableTask.EventSourced.Faster
                                 {
                                     await this.ReadAsync(session, TrackedObjectKey.History(key.InstanceId), effectTracker).ConfigureAwait(false);
                                 }
-                                yield return orchestrationState;
+                                yield return orchestrationState.ClearFieldsImmutably(instanceQuery.FetchInput, true);
                             }
                         }
                     }
